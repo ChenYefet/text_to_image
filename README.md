@@ -61,7 +61,8 @@ The service acts as a unified gateway between the client and two backend service
 
 Before setting up this project, ensure you have the following installed:
 
-- **Python 3.11 or later** — [https://www.python.org/downloads/](https://www.python.org/downloads/)
+- **Python 3.11 or later** — [https://www.python.org/downloads/](https://www.python.org/downloads/) (for the Text-to-Image service)
+- **Python 3.10** — [https://www.python.org/downloads/release/python-3106/](https://www.python.org/downloads/release/python-3106/) (required separately for AUTOMATIC1111 Stable Diffusion Web UI due to dependency constraints)
 - **Git** — [https://git-scm.com/downloads](https://git-scm.com/downloads)
 - **llama.cpp** — compiled from source or a pre-built binary, together with a GGUF-format model file (for example, Llama 3.2 or Mistral 7B).
 - **AUTOMATIC1111 Stable Diffusion Web UI** — [https://github.com/AUTOMATIC1111/stable-diffusion-webui](https://github.com/AUTOMATIC1111/stable-diffusion-webui), with at least one Stable Diffusion checkpoint model downloaded.
@@ -125,12 +126,14 @@ This starts the llama.cpp server in OpenAI-compatible mode on port 8080. Adjust 
 
 ### Step 6: Start the Stable Diffusion Web UI
 
+The Stable Diffusion Web UI requires Python 3.10. If you have Python 3.11+ as your default, use `python310` or the full path to your Python 3.10 installation.
+
 ```bash
 cd /path/to/stable-diffusion-webui
-python launch.py --api --listen
+python310 launch.py --api --listen --skip-python-version-check
 ```
 
-The `--api` flag enables the REST API. The `--listen` flag allows connections from other processes on the same machine. By default, the Web UI starts on port 7860.
+The `--api` flag enables the REST API. The `--listen` flag allows connections from other processes on the same machine. The `--skip-python-version-check` flag suppresses warnings about Python 3.10. By default, the Web UI starts on port 7860.
 
 ### Step 7: Start the Text-to-Image API Service
 
