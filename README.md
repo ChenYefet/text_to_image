@@ -73,9 +73,11 @@ Before setting up this project, ensure you have the following installed:
 - **A GGUF model file** — for example, [Meta-Llama-3.2-8B-Instruct](https://huggingface.co/models?search=llama-3.2) or [Mistral-7B-Instruct](https://huggingface.co/models?search=mistral-7b-instruct) quantized to GGUF format (Q4_K_M recommended for ~4.6 GB size)
 - *(Recommended)* A Python virtual environment manager (`venv`, `virtualenv`, or `conda`).
 - *(Recommended)* An NVIDIA GPU with CUDA support for faster image generation. CPU-only mode is supported but significantly slower.
-- Approximately **9 GB of free disk space**:
+- Approximately **14 GB of free disk space**:
   - ~4.6 GB for the GGUF language model
   - ~4 GB for Stable Diffusion model weights (downloaded automatically on first run)
+  - ~2.5 GB for PyTorch
+  - ~3 GB for other Python dependencies (`diffusers`, `transformers`, `accelerate`, etc.)
 
 ---
 
@@ -230,7 +232,9 @@ The service starts on `http://localhost:8000` by default. You will see log outpu
 ```
 INFO:     Started server process
 INFO:     Waiting for application startup.
-INFO:     Image generation service initialized successfully. Device: cuda
+... | INFO     | application.services.image_generation_service | Loading Stable Diffusion pipeline 'stable-diffusion-v1-5/stable-diffusion-v1-5' on cuda (dtype=torch.float16) ...
+... | INFO     | application.services.image_generation_service | Stable Diffusion pipeline loaded successfully.
+... | INFO     | application.server_factory | Services initialised. Language model server: http://localhost:8080 | Stable Diffusion model: stable-diffusion-v1-5/stable-diffusion-v1-5
 INFO:     Application startup complete.
 INFO:     Uvicorn running on http://0.0.0.0:8000
 ```
@@ -239,20 +243,36 @@ INFO:     Uvicorn running on http://0.0.0.0:8000
 
 ## Quick Start (TL;DR)
 
-Once you've completed the setup above, here's the quick workflow for subsequent sessions:
+Once you've completed the setup above, here's the quick workflow for subsequent sessions.
+
+**Linux / macOS:**
 
 ```bash
 # Terminal 1: Start llama.cpp server
 ./llama.cpp/llama-server --model ~/Models/Meta-Llama-3-8B-Instruct.Q4_K_M.gguf --host 0.0.0.0 --port 8080 --ctx-size 2048
 
 # Terminal 2: Activate venv and start API service
-source virtual_environment/bin/activate  # or appropriate command for your OS
+source virtual_environment/bin/activate
 python main.py
 
 # Terminal 3: Test the service
 curl -X POST http://localhost:8000/v1/prompts/enhance \
   -H "Content-Type: application/json" \
   -d '{"prompt": "a cat"}'
+```
+
+**Windows (PowerShell):**
+
+```powershell
+# Terminal 1: Start llama.cpp server
+.\llama.cpp\llama-server.exe --model C:\Models\Meta-Llama-3-8B-Instruct.Q4_K_M.gguf --host 0.0.0.0 --port 8080 --ctx-size 2048
+
+# Terminal 2: Activate venv and start API service
+virtual_environment\Scripts\Activate.ps1
+python main.py
+
+# Terminal 3: Test the service
+curl -X POST http://localhost:8000/v1/prompts/enhance -H "Content-Type: application/json" -d '{"prompt": "a cat"}'
 ```
 
 ---
@@ -376,6 +396,7 @@ text_to_image/
 ├── .env.example                                   # Example environment variables
 ├── .env                                           # Your local environment config (not in git)
 ├── README.md                                      # This file
+├── text-to-image-spec-v3_0_0.md                   # Original project specification
 ├── llama.cpp/                                     # llama.cpp binaries (not in git)
 │   ├── llama-server.exe (Windows) or llama-server (Linux/macOS)
 │   └── ggml*.dll / *.so files
