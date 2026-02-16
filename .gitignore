@@ -3,3 +3,18 @@ __pycache__/
 .env
 .claude/
 virtual_environment/
+.venv/
+venv/
+
+# llama.cpp binaries (platform-specific, can be re-downloaded)
+llama.cpp/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
