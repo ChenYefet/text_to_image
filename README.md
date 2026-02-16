@@ -16,13 +16,13 @@ llama.cpp language model.
 | **JSON Validation** | Pydantic v2 | Declarative, self-documenting validation models with built-in serialisation support. Validation rules are expressed as class definitions rather than imperative logic. |
 | **HTTP Client** | httpx | Async-native HTTP client with comprehensive timeout configuration, connection pooling, and structured error handling for service-to-service communication. |
 | **Language Model** | llama.cpp (OpenAI-compatible mode) | Lightweight, CPU-only inference server that exposes an OpenAI-compatible `/v1/chat/completions` endpoint. No GPU required. |
-| **Image Generation** | AUTOMATIC1111 Stable Diffusion Web UI | Well-documented REST API (`/sdapi/v1/txt2img`) for local text-to-image generation with extensive model and sampler support. |
+| **Image Generation** | HuggingFace diffusers | In-process Stable Diffusion pipeline loaded via the `diffusers` library. Auto-detects GPU/CPU, downloads the model from HuggingFace Hub on first run, and requires no external server process. |
 
 ### Scalability Considerations
 
-- **Asynchronous throughout** — every I/O operation uses `async`/`await`, ensuring the event loop is never blocked by network calls to downstream services.
+- **Asynchronous throughout** — every I/O operation uses `async`/`await`, and Stable Diffusion inference is dispatched to a thread pool to avoid blocking the event loop.
 - **Connection pooling** — persistent `httpx.AsyncClient` instances reuse TCP connections across requests, reducing handshake overhead.
-- **Stateless service** — no in-process state is shared between requests, allowing horizontal scaling behind a load balancer.
+- **Inference serialisation** — an `asyncio.Lock` serialises concurrent image generation requests to prevent GPU memory contention.
 - **Environment-based configuration** — all settings are loaded from environment variables (12-factor app compliant), enabling deployment across development, staging, and production environments without code changes.
 - **Factory pattern** — the application is constructed via a factory function, making it straightforward to create isolated instances for testing or multi-worker deployments.
 
@@ -41,19 +41,24 @@ llama.cpp language model.
                          │  Text-to-Image API Service    │
                          │  (FastAPI on Uvicorn)         │
                          │  http://localhost:8000         │
-                         └──────┬───────────────┬───────┘
-                                │               │
-                    ┌───────────▼──┐     ┌──────▼──────────┐
-                    │  llama.cpp   │     │ Stable Diffusion │
-                    │  server      │     │ Web UI           │
-                    │  :8080       │     │ :7860            │
-                    └──────────────┘     └─────────────────┘
+                         │                               │
+                         │  ┌─────────────────────────┐  │
+                         │  │ Stable Diffusion        │  │
+                         │  │ (diffusers, in-process) │  │
+                         │  └─────────────────────────┘  │
+                         └──────────────┬───────────────┘
+                                        │
+                            ┌───────────▼──┐
+                            │  llama.cpp   │
+                            │  server      │
+                            │  :8080       │
+                            └──────────────┘
 ```
 
-The service acts as a unified gateway between the client and two backend services:
+The service acts as a unified gateway between the client and two backends:
 
-1. **llama.cpp** — provides prompt enhancement via the OpenAI-compatible `/v1/chat/completions` endpoint (CPU-only).
-2. **Stable Diffusion Web UI** — generates images via the `/sdapi/v1/txt2img` endpoint.
+1. **llama.cpp** — provides prompt enhancement via the OpenAI-compatible `/v1/chat/completions` endpoint (CPU-only, external process).
+2. **Stable Diffusion** — generates images in-process using the HuggingFace `diffusers` library. The model is loaded into memory at startup and runs on GPU (CUDA) or CPU automatically.
 
 ---
 
@@ -61,12 +66,13 @@ The service acts as a unified gateway between the client and two backend service
 
 Before setting up this project, ensure you have the following installed:
 
-- **Python 3.11 or later** — [https://www.python.org/downloads/](https://www.python.org/downloads/) (for the Text-to-Image service)
-- **Python 3.10** — [https://www.python.org/downloads/release/python-3106/](https://www.python.org/downloads/release/python-3106/) (required separately for AUTOMATIC1111 Stable Diffusion Web UI due to dependency constraints)
+- **Python 3.11 or later** — [https://www.python.org/downloads/](https://www.python.org/downloads/)
 - **Git** — [https://git-scm.com/downloads](https://git-scm.com/downloads)
+- **PyTorch** — installed via pip. For GPU acceleration, install the CUDA-enabled build (see [https://pytorch.org/get-started/locally/](https://pytorch.org/get-started/locally/)).
 - **llama.cpp** — compiled from source or a pre-built binary, together with a GGUF-format model file (for example, Llama 3.2 or Mistral 7B).
-- **AUTOMATIC1111 Stable Diffusion Web UI** — [https://github.com/AUTOMATIC1111/stable-diffusion-webui](https://github.com/AUTOMATIC1111/stable-diffusion-webui), with at least one Stable Diffusion checkpoint model downloaded.
 - *(Recommended)* A Python virtual environment manager (`venv`, `virtualenv`, or `conda`).
+- *(Recommended)* An NVIDIA GPU with CUDA support for faster image generation. CPU-only mode is supported but significantly slower.
+- Approximately **4 GB of free disk space** for the Stable Diffusion model weights (downloaded automatically on first run).
 
 ---
 
@@ -98,21 +104,34 @@ virtual_environment\Scripts\activate
 virtual_environment\Scripts\Activate.ps1
 ```
 
-### Step 3: Install Python Dependencies
+### Step 3: Install PyTorch
+
+For **GPU (CUDA)** support, install PyTorch with the appropriate CUDA version from [https://pytorch.org/get-started/locally/](https://pytorch.org/get-started/locally/). For example:
+
+```bash
+pip install torch --index-url https://download.pytorch.org/whl/cu121
+```
+
+For **CPU-only** mode, the default pip install is sufficient (PyTorch will be installed as a dependency of `diffusers` in the next step).
+
+### Step 4: Install Python Dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### Step 4: Configure Environment Variables
+### Step 5: Configure Environment Variables
 
 ```bash
 cp .env.example .env
 ```
 
-Open `.env` in a text editor and adjust the values to match your local environment. The defaults are suitable for a standard local setup.
+Open `.env` in a text editor and adjust the values to match your local environment. The defaults are suitable for a standard local setup. Key settings:
 
-### Step 5: Start the llama.cpp Server
+- `TEXT_TO_IMAGE_STABLE_DIFFUSION_MODEL_ID` — HuggingFace model ID or local path (default: `stable-diffusion-v1-5/stable-diffusion-v1-5`).
+- `TEXT_TO_IMAGE_STABLE_DIFFUSION_DEVICE` — `auto`, `cpu`, or `cuda` (default: `auto`).
+
+### Step 6: Start the llama.cpp Server
 
 ```bash
 ./llama-server \
@@ -124,24 +143,15 @@ Open `.env` in a text editor and adjust the values to match your local environme
 
 This starts the llama.cpp server in OpenAI-compatible mode on port 8080. Adjust the `--model` path to point to your downloaded GGUF model file. CPU-only execution is the default.
 
-### Step 6: Start the Stable Diffusion Web UI
-
-The Stable Diffusion Web UI requires Python 3.10. If you have Python 3.11+ as your default, use `python310` or the full path to your Python 3.10 installation.
-
-```bash
-cd /path/to/stable-diffusion-webui
-python310 launch.py --api --listen --skip-python-version-check
-```
-
-The `--api` flag enables the REST API. The `--listen` flag allows connections from other processes on the same machine. The `--skip-python-version-check` flag suppresses warnings about Python 3.10. By default, the Web UI starts on port 7860.
-
 ### Step 7: Start the Text-to-Image API Service
 
 ```bash
 python main.py
 ```
 
-The service starts on `http://localhost:8000` by default. You will see log output confirming that both backend services have been initialised.
+On first run, the Stable Diffusion model weights (~4 GB) are downloaded automatically from HuggingFace Hub and cached locally. Subsequent starts load from cache.
+
+The service starts on `http://localhost:8000` by default. You will see log output confirming the selected device (CPU or CUDA) and successful pipeline loading.
 
 ---
 
@@ -221,7 +231,7 @@ All error responses follow a consistent JSON structure:
 | Condition | HTTP Status | Description |
 |---|---|---|
 | Invalid JSON or validation failure | **400 Bad Request** | The request body contains malformed JSON, missing required fields, or values that fail validation. |
-| Backend service unavailable | **502 Bad Gateway** | The llama.cpp or Stable Diffusion server cannot be reached, returned an error, or timed out. |
+| Backend service unavailable | **502 Bad Gateway** | The llama.cpp server cannot be reached, or the Stable Diffusion pipeline encountered a runtime error. |
 | Unexpected internal error | **500 Internal Server Error** | An unhandled exception occurred within the service. |
 
 ---
@@ -273,7 +283,7 @@ text_to_image/
     ├── services/
     │   ├── __init__.py
     │   ├── language_model_service.py              # llama.cpp integration
-    │   └── image_generation_service.py            # Stable Diffusion integration
+    │   └── image_generation_service.py            # Stable Diffusion pipeline (diffusers)
     └── routes/
         ├── __init__.py
         ├── prompt_enhancement_routes.py           # POST /v1/prompts/enhance

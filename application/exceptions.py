@@ -22,8 +22,8 @@ class LanguageModelServiceUnavailableError(Exception):
 
 class ImageGenerationServiceUnavailableError(Exception):
     """
-    Raised when the Stable Diffusion image generation server cannot be
-    reached or returns a non-success HTTP status code.
+    Raised when the Stable Diffusion pipeline is not loaded or an
+    unexpected runtime error occurs during inference.
     """
 
     def __init__(
@@ -51,9 +51,8 @@ class PromptEnhancementError(Exception):
 
 class ImageGenerationError(Exception):
     """
-    Raised when image generation fails for a reason other than network
-    connectivity (for example, the Stable Diffusion server returned an
-    empty image list).
+    Raised when image generation fails for a reason other than a runtime
+    error (for example, the pipeline returned an empty image list).
     """
 
     def __init__(

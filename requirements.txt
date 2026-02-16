@@ -3,3 +3,8 @@ uvicorn==0.34.0
 pydantic==2.10.4
 pydantic-settings==2.7.1
 httpx==0.28.1
+diffusers>=0.31.0
+transformers>=4.46.0
+accelerate>=1.2.0
+torch>=2.5.0
+safetensors>=0.4.0

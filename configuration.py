@@ -19,11 +19,11 @@ class ApplicationConfiguration(pydantic_settings.BaseSettings):
     """
 
     language_model_server_base_url: str = "http://localhost:8080"
-    stable_diffusion_server_base_url: str = "http://localhost:7860"
+    stable_diffusion_model_id: str = "stable-diffusion-v1-5/stable-diffusion-v1-5"
+    stable_diffusion_device: str = "auto"
     application_host: str = "0.0.0.0"
     application_port: int = 8000
     language_model_request_timeout_seconds: float = 120.0
-    image_generation_request_timeout_seconds: float = 300.0
 
     model_config = pydantic_settings.SettingsConfigDict(
         env_file=".env",

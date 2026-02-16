@@ -42,9 +42,9 @@ def create_application() -> fastapi.FastAPI:
         """
         Manage the lifecycle of shared service instances.
 
-        On startup, create the HTTP clients for the language model and
-        image generation backends. On shutdown, close them to release
-        network resources.
+        On startup, create the language model HTTP client and load the
+        Stable Diffusion pipeline in-process. On shutdown, close them
+        to release resources.
         """
         language_model_service_instance = (
             application.services.language_model_service.LanguageModelService(
@@ -58,12 +58,12 @@ def create_application() -> fastapi.FastAPI:
         )
 
         image_generation_service_instance = (
-            application.services.image_generation_service.ImageGenerationService(
-                stable_diffusion_server_base_url=(
-                    application_configuration.stable_diffusion_server_base_url
+            application.services.image_generation_service.ImageGenerationService.load_pipeline(
+                model_id=(
+                    application_configuration.stable_diffusion_model_id
                 ),
-                request_timeout_seconds=(
-                    application_configuration.image_generation_request_timeout_seconds
+                device_preference=(
+                    application_configuration.stable_diffusion_device
                 ),
             )
         )
@@ -77,9 +77,9 @@ def create_application() -> fastapi.FastAPI:
 
         logger.info(
             "Services initialised. Language model server: %s | "
-            "Stable Diffusion server: %s",
+            "Stable Diffusion model: %s",
             application_configuration.language_model_server_base_url,
-            application_configuration.stable_diffusion_server_base_url,
+            application_configuration.stable_diffusion_model_id,
         )
 
         yield
