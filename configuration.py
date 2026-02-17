@@ -19,6 +19,7 @@ class ApplicationConfiguration(pydantic_settings.BaseSettings):
     """
 
     language_model_server_base_url: str = "http://localhost:8080"
+    language_model_path: str = ""
     stable_diffusion_model_id: str = "stable-diffusion-v1-5/stable-diffusion-v1-5"
     stable_diffusion_device: str = "auto"
     application_host: str = "0.0.0.0"

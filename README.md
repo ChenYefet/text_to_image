@@ -81,9 +81,25 @@ Before setting up this project, ensure you have the following installed:
 
 ---
 
-## Pre-Setup: Obtaining llama.cpp and a Model File
+## Pre-Setup: Downloads and Folder Creation
 
-### Getting llama.cpp Binaries
+Complete these preparation steps before proceeding to the main setup.
+
+### A. Create a standard model folder
+
+Create a folder on your system for storing language model files. This folder lives outside the project so models can be shared across projects.
+
+**Windows:**
+```cmd
+mkdir C:\Models
+```
+
+**Linux / macOS:**
+```bash
+mkdir -p ~/Models
+```
+
+### B. Download llama.cpp binaries
 
 1. Visit the [llama.cpp releases page](https://github.com/ggml-org/llama.cpp/releases)
 2. Download the appropriate pre-built binary for your platform:
@@ -91,8 +107,9 @@ Before setting up this project, ensure you have the following installed:
    - **macOS**: `llama-*-bin-macos-*.zip`
    - **Linux**: `llama-*-bin-ubuntu-*.zip`
 3. Extract the archive — you'll get a folder containing `llama-server` (or `llama-server.exe` on Windows) and supporting `.dll`/`.so` files
+4. Keep this extracted folder accessible — you'll copy it into the project in Step 2 below
 
-### Getting a GGUF Model File
+### C. Download a GGUF model file
 
 You need a GGUF-format language model for prompt enhancement. Recommended options:
 
@@ -102,7 +119,12 @@ You need a GGUF-format language model for prompt enhancement. Recommended option
 | **Meta-Llama-3-8B-Instruct** | ~4.6 GB | [HuggingFace](https://huggingface.co/models?search=llama-3-8b-instruct+gguf) |
 | **Mistral-7B-Instruct-v0.3** | ~4.4 GB | [HuggingFace](https://huggingface.co/models?search=mistral-7b-instruct-v0.3+gguf) |
 
-Look for models with `Q4_K_M` quantization (good balance of quality and size). Download the `.gguf` file to a location on your system (e.g., `C:\Models\` on Windows or `~/Models/` on macOS/Linux).
+Look for models with `Q4_K_M` quantization (good balance of quality and size). Download the `.gguf` file into the standard model folder you created in step A:
+
+- **Windows**: `C:\Models\Meta-Llama-3-8B-Instruct.Q4_K_M.gguf`
+- **Linux / macOS**: `~/Models/Meta-Llama-3-8B-Instruct.Q4_K_M.gguf`
+
+If you choose a different model, substitute its filename in the commands throughout this guide.
 
 ---
 
@@ -191,6 +213,8 @@ Open `.env` in a text editor. The defaults are suitable for a standard local set
 - `TEXT_TO_IMAGE_STABLE_DIFFUSION_MODEL_ID` — HuggingFace model ID (default: `stable-diffusion-v1-5/stable-diffusion-v1-5`)
 - `TEXT_TO_IMAGE_STABLE_DIFFUSION_DEVICE` — `auto`, `cpu`, or `cuda` (default: `auto`)
 
+The file also contains an optional `TEXT_TO_IMAGE_LANGUAGE_MODEL_PATH` setting where you can record the path to your GGUF model file. This is not used by the application at runtime but serves as a convenient reference for the `--model` argument you pass to llama.cpp in Step 7.
+
 ### Step 7: Start the llama.cpp Server
 
 **Linux / macOS:**
@@ -212,7 +236,7 @@ llama.cpp\llama-server.exe --model C:\Models\Meta-Llama-3-8B-Instruct.Q4_K_M.ggu
 .\llama.cpp\llama-server.exe --model C:\Models\Meta-Llama-3-8B-Instruct.Q4_K_M.gguf --host 0.0.0.0 --port 8080 --ctx-size 2048
 ```
 
-Adjust the `--model` path to point to your downloaded GGUF model file. The server will start on port 8080 and run on CPU by default.
+These commands use the standard model folder created during Pre-Setup. If you chose a different model, substitute its filename. The server will start on port 8080 and run on CPU by default.
 
 ⏱️ **First-time startup:** The model will take 10-30 seconds to load depending on your CPU.
 
@@ -243,7 +267,7 @@ INFO:     Uvicorn running on http://0.0.0.0:8000
 
 ## Quick Start (TL;DR)
 
-Once you've completed the setup above, here's the quick workflow for subsequent sessions.
+Once you've completed the Pre-Setup and Setup steps above, here's the quick workflow for subsequent sessions.
 
 **Linux / macOS:**
 
@@ -440,6 +464,17 @@ Once the service is running, FastAPI automatically generates interactive documen
 - Verify the binary is in the `llama.cpp/` directory: `ls llama.cpp/` (macOS/Linux) or `dir llama.cpp\` (Windows)
 - On Windows, use `.\llama.cpp\llama-server.exe` (PowerShell) or `llama.cpp\llama-server.exe` (Command Prompt)
 - On macOS/Linux, ensure the binary is executable: `chmod +x llama.cpp/llama-server`
+
+### llama.cpp server reports "model not found" or fails to load
+
+**Problem:** The server exits immediately with a file-not-found or failed-to-load error
+
+**Solution:**
+- Verify the model file exists at the path you passed to `--model`:
+  - Windows: `dir C:\Models\` — check the exact filename
+  - macOS/Linux: `ls ~/Models/` — check the exact filename
+- Ensure the filename matches exactly, including the quantization suffix (e.g., `Q4_K_M`)
+- If you placed the model in a different folder, update the `--model` path accordingly
 
 ### API service returns 502 Bad Gateway
 
