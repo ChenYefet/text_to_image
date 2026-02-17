@@ -284,7 +284,7 @@ curl -X POST http://localhost:8000/v1/prompts/enhance \
 curl.exe --% -X POST http://localhost:8000/v1/prompts/enhance -H "Content-Type: application/json" -d "{\"prompt\": \"a cat\"}"
 ```
 
-You should receive a JSON response containing an enhanced version of the prompt:
+You should receive a JSON response containing an `enhanced_prompt` field. The exact wording will differ on every request, but it will look something like:
 
 ```json
 {
@@ -344,7 +344,7 @@ Enhances a raw text prompt using the language model.
 }
 ```
 
-**Response body (200 OK):**
+**Response body (200 OK):** The exact wording will differ on every request, but it will look something like:
 
 ```json
 {
