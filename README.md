@@ -87,11 +87,16 @@ Complete these preparation steps before proceeding to the main setup.
 
 ### A. Create a standard model folder
 
-Create a folder on your system for storing language model files. This folder lives outside the project so models can be shared across projects.
+Create a folder on your system for storing language model files. This folder should live outside the project so models can be shared across projects.
 
-**Windows:**
+**Windows (Command Prompt):**
 ```cmd
-mkdir C:\Models
+mkdir %USERPROFILE%\Models
+```
+
+**Windows (PowerShell):**
+```powershell
+mkdir $HOME\Models
 ```
 
 **Linux / macOS:**
@@ -121,7 +126,7 @@ You need a GGUF-format language model for prompt enhancement. Recommended option
 
 Look for models with `Q4_K_M` quantization (good balance of quality and size). Download the `.gguf` file into the standard model folder you created in step A:
 
-- **Windows**: `C:\Models\Meta-Llama-3-8B-Instruct.Q4_K_M.gguf`
+- **Windows**: `%USERPROFILE%\Models\Meta-Llama-3-8B-Instruct.Q4_K_M.gguf`
 - **Linux / macOS**: `~/Models/Meta-Llama-3-8B-Instruct.Q4_K_M.gguf`
 
 If you choose a different model, substitute its filename in the commands throughout this guide.
@@ -228,12 +233,12 @@ The file also contains an optional `TEXT_TO_IMAGE_LANGUAGE_MODEL_PATH` setting w
 
 **Windows (Command Prompt):**
 ```cmd
-llama.cpp\llama-server.exe --model C:\Models\Meta-Llama-3-8B-Instruct.Q4_K_M.gguf --host 0.0.0.0 --port 8080 --ctx-size 2048
+llama.cpp\llama-server.exe --model %USERPROFILE%\Models\Meta-Llama-3-8B-Instruct.Q4_K_M.gguf --host 0.0.0.0 --port 8080 --ctx-size 2048
 ```
 
 **Windows (PowerShell):**
 ```powershell
-.\llama.cpp\llama-server.exe --model C:\Models\Meta-Llama-3-8B-Instruct.Q4_K_M.gguf --host 0.0.0.0 --port 8080 --ctx-size 2048
+.\llama.cpp\llama-server.exe --model "$HOME\Models\Meta-Llama-3-8B-Instruct.Q4_K_M.gguf" --host 0.0.0.0 --port 8080 --ctx-size 2048
 ```
 
 These commands use the standard model folder created during Pre-Setup. If you chose a different model, substitute its filename. The server will start on port 8080 and run on CPU by default.
@@ -289,7 +294,7 @@ curl -X POST http://localhost:8000/v1/prompts/enhance \
 
 ```powershell
 # Terminal 1: Start llama.cpp server
-.\llama.cpp\llama-server.exe --model C:\Models\Meta-Llama-3-8B-Instruct.Q4_K_M.gguf --host 0.0.0.0 --port 8080 --ctx-size 2048
+.\llama.cpp\llama-server.exe --model "$HOME\Models\Meta-Llama-3-8B-Instruct.Q4_K_M.gguf" --host 0.0.0.0 --port 8080 --ctx-size 2048
 
 # Terminal 2: Activate venv and start API service
 virtual_environment\Scripts\Activate.ps1
@@ -471,7 +476,7 @@ Once the service is running, FastAPI automatically generates interactive documen
 
 **Solution:**
 - Verify the model file exists at the path you passed to `--model`:
-  - Windows: `dir C:\Models\` — check the exact filename
+  - Windows: `dir %USERPROFILE%\Models\` — check the exact filename
   - macOS/Linux: `ls ~/Models/` — check the exact filename
 - Ensure the filename matches exactly, including the quantization suffix (e.g., `Q4_K_M`)
 - If you placed the model in a different folder, update the `--model` path accordingly
