@@ -268,6 +268,24 @@ INFO:     Application startup complete.
 INFO:     Uvicorn running on http://0.0.0.0:8000
 ```
 
+### Step 9: Test the Service
+
+Open a **third terminal window** and run the following command to verify the service is working:
+
+```bash
+curl -X POST http://localhost:8000/v1/prompts/enhance \
+    -H "Content-Type: application/json" \
+    -d '{"prompt": "a cat"}'
+```
+
+You should receive a JSON response containing an enhanced version of the prompt:
+
+```json
+{
+    "enhanced_prompt": "A fluffy ginger tabby cat sitting gracefully on a sunlit Victorian windowsill, soft golden-hour lighting streaming through lace curtains, warm colour palette with amber and cream tones, photorealistic style with shallow depth of field"
+}
+```
+
 ---
 
 ## Quick Start (TL;DR)
