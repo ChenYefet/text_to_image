@@ -272,10 +272,16 @@ INFO:     Uvicorn running on http://0.0.0.0:8000
 
 Open a **third terminal window** and run the following command to verify the service is working:
 
+**Linux / macOS:**
 ```bash
 curl -X POST http://localhost:8000/v1/prompts/enhance \
     -H "Content-Type: application/json" \
     -d '{"prompt": "a cat"}'
+```
+
+**Windows (PowerShell):**
+```powershell
+curl.exe --% -X POST http://localhost:8000/v1/prompts/enhance -H "Content-Type: application/json" -d "{\"prompt\": \"a cat\"}"
 ```
 
 You should receive a JSON response containing an enhanced version of the prompt:
@@ -319,7 +325,7 @@ virtual_environment\Scripts\Activate.ps1
 python main.py
 
 # Terminal 3: Test the service
-curl -X POST http://localhost:8000/v1/prompts/enhance -H "Content-Type: application/json" -d '{"prompt": "a cat"}'
+curl.exe --% -X POST http://localhost:8000/v1/prompts/enhance -H "Content-Type: application/json" -d "{\"prompt\": \"a cat\"}"
 ```
 
 ---
