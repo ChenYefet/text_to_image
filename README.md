@@ -133,7 +133,7 @@ If you choose a different model, substitute its filename in the commands through
 
 ---
 
-## Setup Instructions
+## Setup Guide
 
 ### Step 1: Clone the Repository
 
@@ -289,6 +289,36 @@ You should receive a JSON response containing an `enhanced_prompt` field. The ex
 ```json
 {
     "enhanced_prompt": "A fluffy ginger tabby cat sitting gracefully on a sunlit Victorian windowsill, soft golden-hour lighting streaming through lace curtains, warm colour palette with amber and cream tones, photorealistic style with shallow depth of field"
+}
+```
+
+Next, test image generation:
+
+**Linux / macOS:**
+```bash
+curl -X POST http://localhost:8000/v1/images/generations \
+    -H "Content-Type: application/json" \
+    -d '{"prompt": "a cat", "use_enhancer": false, "n": 1, "size": "256x256"}'
+```
+
+**Windows (PowerShell):**
+```powershell
+curl.exe --% -X POST http://localhost:8000/v1/images/generations -H "Content-Type: application/json" -d "{\"prompt\": \"a cat\", \"use_enhancer\": false, \"n\": 1, \"size\": \"256x256\"}"
+```
+
+⏱️ **Note:** Image generation on CPU can take several minutes. On GPU (CUDA) it completes in seconds.
+
+You should receive a JSON response containing a base64-encoded image:
+
+```json
+{
+    "created_at_unix_timestamp": 1700000000,
+    "data": [
+        {
+            "base64_encoded_image": "iVBORw0KGgoAAAANSUhEUgAA...",
+            "content_type": "image/png"
+        }
+    ]
 }
 ```
 
