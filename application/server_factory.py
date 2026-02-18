@@ -14,8 +14,10 @@ import fastapi
 
 import configuration
 import application.error_handling
+import application.middleware
 import application.routes.prompt_enhancement_routes
 import application.routes.image_generation_routes
+import application.routes.health_routes
 import application.services.language_model_service
 import application.services.image_generation_service
 
@@ -31,7 +33,8 @@ def create_application() -> fastapi.FastAPI:
       2. Defines an async lifespan manager that initialises shared service
          instances on startup and closes them gracefully on shutdown.
       3. Registers all error handlers.
-      4. Includes all route handlers.
+      4. Adds the correlation-ID middleware.
+      5. Includes all route handlers.
     """
     application_configuration = configuration.ApplicationConfiguration()
 
@@ -101,11 +104,18 @@ def create_application() -> fastapi.FastAPI:
 
     application.error_handling.register_error_handlers(fastapi_application)
 
+    fastapi_application.add_middleware(
+        application.middleware.CorrelationIdMiddleware,
+    )
+
     fastapi_application.include_router(
         application.routes.prompt_enhancement_routes.prompt_enhancement_router,
     )
     fastapi_application.include_router(
         application.routes.image_generation_routes.image_generation_router,
+    )
+    fastapi_application.include_router(
+        application.routes.health_routes.health_router,
     )
 
     return fastapi_application

@@ -15,11 +15,12 @@ class TestImageGenerationRoutes:
         )
 
         assert response.status_code == 200
+        assert "X-Correlation-ID" in response.headers
         body = response.json()
-        assert "created_at_unix_timestamp" in body
+        assert "created" in body
         assert len(body["data"]) == 1
-        assert body["data"][0]["base64_encoded_image"] == "base64encodedimage"
-        assert body["data"][0]["content_type"] == "image/png"
+        assert body["data"][0]["b64_json"] == "base64encodedimage"
+        assert "content_type" not in body["data"][0]
 
     @pytest.mark.asyncio
     async def test_with_enhancer(
@@ -34,6 +35,7 @@ class TestImageGenerationRoutes:
         )
 
         assert response.status_code == 200
+        assert "X-Correlation-ID" in response.headers
         mock_language_model_service.enhance_prompt.assert_awaited_once()
         mock_image_generation_service.generate_images.assert_awaited_once()
 
@@ -50,6 +52,7 @@ class TestImageGenerationRoutes:
         )
 
         assert response.status_code == 200
+        assert "X-Correlation-ID" in response.headers
         mock_language_model_service.enhance_prompt.assert_not_awaited()
         mock_image_generation_service.generate_images.assert_awaited_once()
 
@@ -61,6 +64,17 @@ class TestImageGenerationRoutes:
         )
 
         assert response.status_code == 400
+        assert "X-Correlation-ID" in response.headers
+
+    @pytest.mark.asyncio
+    async def test_256x256_rejected(self, client):
+        response = await client.post(
+            "/v1/images/generations",
+            json={"prompt": "A sunset", "size": "256x256"},
+        )
+
+        assert response.status_code == 400
+        assert "X-Correlation-ID" in response.headers
 
     @pytest.mark.asyncio
     async def test_invalid_n(self, client):
@@ -70,6 +84,7 @@ class TestImageGenerationRoutes:
         )
 
         assert response.status_code == 400
+        assert "X-Correlation-ID" in response.headers
 
     @pytest.mark.asyncio
     async def test_missing_prompt(self, client):
@@ -79,6 +94,27 @@ class TestImageGenerationRoutes:
         )
 
         assert response.status_code == 400
+        assert "X-Correlation-ID" in response.headers
+
+    @pytest.mark.asyncio
+    async def test_whitespace_only_prompt(self, client):
+        response = await client.post(
+            "/v1/images/generations",
+            json={"prompt": "   "},
+        )
+
+        assert response.status_code == 400
+        assert "X-Correlation-ID" in response.headers
+
+    @pytest.mark.asyncio
+    async def test_extra_fields_rejected(self, client):
+        response = await client.post(
+            "/v1/images/generations",
+            json={"prompt": "A sunset", "foo": "bar"},
+        )
+
+        assert response.status_code == 400
+        assert "X-Correlation-ID" in response.headers
 
     @pytest.mark.asyncio
     async def test_service_unavailable(
@@ -96,7 +132,10 @@ class TestImageGenerationRoutes:
         )
 
         assert response.status_code == 502
-        assert "Pipeline not loaded" in response.json()["error"]
+        assert "X-Correlation-ID" in response.headers
+        body = response.json()
+        assert body["error"]["code"] == "model_unavailable"
+        assert "Pipeline not loaded" in body["error"]["message"]
 
     @pytest.mark.asyncio
     async def test_generation_error(
@@ -113,5 +152,8 @@ class TestImageGenerationRoutes:
             json={"prompt": "A sunset"},
         )
 
-        assert response.status_code == 500
-        assert "No images returned" in response.json()["error"]
+        assert response.status_code == 502
+        assert "X-Correlation-ID" in response.headers
+        body = response.json()
+        assert body["error"]["code"] == "model_unavailable"
+        assert "No images returned" in body["error"]["message"]

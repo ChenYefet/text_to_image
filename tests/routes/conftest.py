@@ -9,8 +9,10 @@ import pytest_asyncio
 
 import application.dependencies
 import application.error_handling
+import application.middleware
 import application.routes.prompt_enhancement_routes
 import application.routes.image_generation_routes
+import application.routes.health_routes
 
 
 @pytest.fixture
@@ -31,11 +33,15 @@ def mock_image_generation_service():
 def test_app(mock_language_model_service, mock_image_generation_service):
     app = fastapi.FastAPI()
     application.error_handling.register_error_handlers(app)
+    app.add_middleware(application.middleware.CorrelationIdMiddleware)
     app.include_router(
         application.routes.prompt_enhancement_routes.prompt_enhancement_router
     )
     app.include_router(
         application.routes.image_generation_routes.image_generation_router
+    )
+    app.include_router(
+        application.routes.health_routes.health_router
     )
 
     app.dependency_overrides[

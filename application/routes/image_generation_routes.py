@@ -76,12 +76,12 @@ async def handle_image_generation_request(
 
     generated_image_data_list = [
         application.models.GeneratedImageData(
-            base64_encoded_image=base64_image_string,
+            b64_json=base64_image_string,
         )
         for base64_image_string in base64_encoded_images
     ]
 
     return application.models.ImageGenerationResponse(
-        created_at_unix_timestamp=int(time.time()),
+        created=int(time.time()),
         data=generated_image_data_list,
     )

@@ -78,6 +78,7 @@ class ImageGenerationService:
         pipeline = diffusers.StableDiffusionPipeline.from_pretrained(
             model_id,
             torch_dtype=dtype,
+            safety_checker=None,
         )
         pipeline = pipeline.to(device)
         pipeline.enable_attention_slicing()

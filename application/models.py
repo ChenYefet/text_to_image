@@ -2,8 +2,7 @@
 Pydantic models for request validation and response serialisation.
 
 All request models enforce strict validation rules. All response models
-use fully descriptive field names to satisfy the self-documenting
-code requirement.
+use field names aligned with the API specification.
 """
 
 import pydantic
@@ -25,13 +24,17 @@ class PromptEnhancementRequest(pydantic.BaseModel):
     prompt: str = pydantic.Field(
         ...,
         min_length=1,
-        max_length=4096,
+        max_length=2000,
+        pattern=r".*\S.*",
         description=(
             "The original user-supplied prompt to be enhanced by the "
-            "language model. Must be between 1 and 4 096 characters."
+            "language model. Must be between 1 and 2000 characters and "
+            "contain at least one non-whitespace character."
         ),
         examples=["A cat sitting on a windowsill"],
     )
+
+    model_config = pydantic.ConfigDict(extra="forbid")
 
 
 class ImageGenerationRequest(pydantic.BaseModel):
@@ -46,10 +49,12 @@ class ImageGenerationRequest(pydantic.BaseModel):
     prompt: str = pydantic.Field(
         ...,
         min_length=1,
-        max_length=4096,
+        max_length=2000,
+        pattern=r".*\S.*",
         description=(
             "The text prompt describing the desired image. "
-            "Must be between 1 and 4 096 characters."
+            "Must be between 1 and 2000 characters and contain at "
+            "least one non-whitespace character."
         ),
         examples=["A sunset over a mountain range with vivid colours"],
     )
@@ -77,9 +82,9 @@ class ImageGenerationRequest(pydantic.BaseModel):
         default="512x512",
         description=(
             "The dimensions of the generated image in WIDTHxHEIGHT format. "
-            "Supported sizes: 256x256, 512x512, 768x768, 1024x1024."
+            "Supported sizes: 512x512, 768x768, 1024x1024."
         ),
-        examples=["256x256", "512x512", "768x768", "1024x1024"],
+        examples=["512x512", "768x768", "1024x1024"],
     )
 
     @pydantic.field_validator("size")
@@ -87,7 +92,6 @@ class ImageGenerationRequest(pydantic.BaseModel):
     def validate_image_size_dimensions(cls, image_size_value: str) -> str:
         """Validate that the requested image size is among the supported dimensions."""
         supported_image_dimensions = {
-            "256x256",
             "512x512",
             "768x768",
             "1024x1024",
@@ -105,7 +109,7 @@ class ImageGenerationRequest(pydantic.BaseModel):
         width_string, height_string = self.size.split("x")
         return int(width_string), int(height_string)
 
-    model_config = pydantic.ConfigDict(populate_by_name=True)
+    model_config = pydantic.ConfigDict(populate_by_name=True, extra="forbid")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -132,14 +136,9 @@ class GeneratedImageData(pydantic.BaseModel):
     A single generated image represented as a base64-encoded string.
     """
 
-    base64_encoded_image: str = pydantic.Field(
+    b64_json: str = pydantic.Field(
         ...,
         description="The generated image encoded as a base64 string.",
-    )
-
-    content_type: str = pydantic.Field(
-        default="image/png",
-        description="The MIME type of the generated image.",
     )
 
 
@@ -150,7 +149,7 @@ class ImageGenerationResponse(pydantic.BaseModel):
     Contains a Unix timestamp and a list of generated images.
     """
 
-    created_at_unix_timestamp: int = pydantic.Field(
+    created: int = pydantic.Field(
         ...,
         description=(
             "The Unix timestamp (in seconds) indicating when the "
@@ -164,20 +163,41 @@ class ImageGenerationResponse(pydantic.BaseModel):
     )
 
 
-class ErrorResponse(pydantic.BaseModel):
+class ErrorDetail(pydantic.BaseModel):
     """
-    Standardised error response returned for all error conditions.
-
-    Every error response from this service follows this structure to
-    ensure clients can rely on a consistent error format.
+    Detailed error information nested inside the error response.
     """
 
-    error: str = pydantic.Field(
+    code: str = pydantic.Field(
+        ...,
+        description="A machine-readable error code.",
+    )
+
+    message: str = pydantic.Field(
         ...,
         description="A human-readable message describing what went wrong.",
     )
 
-    status_code: int = pydantic.Field(
+    details: str | None = pydantic.Field(
+        default=None,
+        description="Additional details about the error, when available.",
+    )
+
+    correlation_id: str = pydantic.Field(
         ...,
-        description="The HTTP status code associated with this error.",
+        description="A unique identifier for this request, for tracing.",
+    )
+
+
+class ErrorResponse(pydantic.BaseModel):
+    """
+    Standardised error response returned for all error conditions.
+
+    Every error response from this service follows this nested structure
+    to ensure clients can rely on a consistent error format.
+    """
+
+    error: ErrorDetail = pydantic.Field(
+        ...,
+        description="An object containing error details.",
     )

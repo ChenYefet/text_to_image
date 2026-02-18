@@ -1,0 +1,63 @@
+"""Tests for application/middleware.py — CorrelationIdMiddleware."""
+
+import uuid
+
+import fastapi
+import httpx
+import pytest
+import pytest_asyncio
+
+import application.middleware
+
+
+def _create_test_app():
+    """Create a minimal FastAPI app with the correlation ID middleware."""
+    app = fastapi.FastAPI()
+    app.add_middleware(application.middleware.CorrelationIdMiddleware)
+
+    @app.get("/test")
+    async def test_endpoint(request: fastapi.Request):
+        return {"correlation_id": request.state.correlation_id}
+
+    return app
+
+
+@pytest_asyncio.fixture
+async def client():
+    app = _create_test_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://testserver"
+    ) as ac:
+        yield ac
+
+
+class TestCorrelationIdMiddleware:
+
+    @pytest.mark.asyncio
+    async def test_header_present(self, client):
+        response = await client.get("/test")
+        assert "X-Correlation-ID" in response.headers
+
+    @pytest.mark.asyncio
+    async def test_valid_uuid(self, client):
+        response = await client.get("/test")
+        correlation_id = response.headers["X-Correlation-ID"]
+        # Should not raise
+        parsed = uuid.UUID(correlation_id, version=4)
+        assert str(parsed) == correlation_id
+
+    @pytest.mark.asyncio
+    async def test_matches_request_state(self, client):
+        response = await client.get("/test")
+        header_id = response.headers["X-Correlation-ID"]
+        body_id = response.json()["correlation_id"]
+        assert header_id == body_id
+
+    @pytest.mark.asyncio
+    async def test_unique_per_request(self, client):
+        response1 = await client.get("/test")
+        response2 = await client.get("/test")
+        id1 = response1.headers["X-Correlation-ID"]
+        id2 = response2.headers["X-Correlation-ID"]
+        assert id1 != id2

@@ -18,7 +18,17 @@ class TestPromptEnhancementRequest:
 
     def test_too_long_prompt_rejected(self):
         with pytest.raises(pydantic.ValidationError):
-            application.models.PromptEnhancementRequest(prompt="x" * 4097)
+            application.models.PromptEnhancementRequest(prompt="x" * 2001)
+
+    def test_whitespace_only_rejected(self):
+        with pytest.raises(pydantic.ValidationError):
+            application.models.PromptEnhancementRequest(prompt="   ")
+
+    def test_extra_fields_rejected(self):
+        with pytest.raises(pydantic.ValidationError):
+            application.models.PromptEnhancementRequest(
+                prompt="A cat", foo="bar"
+            )
 
 
 class TestImageGenerationRequest:
@@ -36,7 +46,7 @@ class TestImageGenerationRequest:
         assert req.number_of_images == 3
 
     @pytest.mark.parametrize(
-        "size", ["256x256", "512x512", "768x768", "1024x1024"]
+        "size", ["512x512", "768x768", "1024x1024"]
     )
     def test_valid_sizes(self, size):
         req = application.models.ImageGenerationRequest(prompt="x", size=size)
@@ -45,6 +55,10 @@ class TestImageGenerationRequest:
     def test_invalid_size(self):
         with pytest.raises(pydantic.ValidationError):
             application.models.ImageGenerationRequest(prompt="x", size="999x999")
+
+    def test_256x256_rejected(self):
+        with pytest.raises(pydantic.ValidationError):
+            application.models.ImageGenerationRequest(prompt="x", size="256x256")
 
     def test_n_too_low(self):
         with pytest.raises(pydantic.ValidationError):
@@ -62,6 +76,20 @@ class TestImageGenerationRequest:
         req = application.models.ImageGenerationRequest(prompt="x", size="768x768")
         assert req.parse_image_width_and_height() == (768, 768)
 
+    def test_too_long_prompt_rejected(self):
+        with pytest.raises(pydantic.ValidationError):
+            application.models.ImageGenerationRequest(prompt="x" * 2001)
+
+    def test_whitespace_only_rejected(self):
+        with pytest.raises(pydantic.ValidationError):
+            application.models.ImageGenerationRequest(prompt="   ")
+
+    def test_extra_fields_rejected(self):
+        with pytest.raises(pydantic.ValidationError):
+            application.models.ImageGenerationRequest(
+                prompt="A sunset", foo="bar"
+            )
+
 
 class TestPromptEnhancementResponse:
 
@@ -74,31 +102,58 @@ class TestPromptEnhancementResponse:
 
 class TestGeneratedImageData:
 
-    def test_defaults(self):
-        data = application.models.GeneratedImageData(base64_encoded_image="abc123")
-        assert data.content_type == "image/png"
-        assert data.base64_encoded_image == "abc123"
+    def test_instantiation(self):
+        data = application.models.GeneratedImageData(b64_json="abc123")
+        assert data.b64_json == "abc123"
 
 
 class TestImageGenerationResponse:
 
     def test_instantiation(self):
         image_data = application.models.GeneratedImageData(
-            base64_encoded_image="abc123"
+            b64_json="abc123"
         )
         resp = application.models.ImageGenerationResponse(
-            created_at_unix_timestamp=1700000000,
+            created=1700000000,
             data=[image_data],
         )
-        assert resp.created_at_unix_timestamp == 1700000000
+        assert resp.created == 1700000000
         assert len(resp.data) == 1
+
+
+class TestErrorDetail:
+
+    def test_instantiation(self):
+        detail = application.models.ErrorDetail(
+            code="internal_server_error",
+            message="Something went wrong",
+            correlation_id="abc-123",
+        )
+        assert detail.code == "internal_server_error"
+        assert detail.message == "Something went wrong"
+        assert detail.details is None
+        assert detail.correlation_id == "abc-123"
+
+    def test_with_details(self):
+        detail = application.models.ErrorDetail(
+            code="request_validation_failed",
+            message="Invalid request",
+            details="field 'prompt' is required",
+            correlation_id="abc-123",
+        )
+        assert detail.details == "field 'prompt' is required"
 
 
 class TestErrorResponse:
 
     def test_instantiation(self):
         err = application.models.ErrorResponse(
-            error="Something went wrong", status_code=500
+            error=application.models.ErrorDetail(
+                code="internal_server_error",
+                message="Something went wrong",
+                correlation_id="abc-123",
+            )
         )
-        assert err.error == "Something went wrong"
-        assert err.status_code == 500
+        assert err.error.code == "internal_server_error"
+        assert err.error.message == "Something went wrong"
+        assert err.error.correlation_id == "abc-123"
