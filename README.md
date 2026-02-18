@@ -322,6 +322,27 @@ You should receive a JSON response containing a base64-encoded image:
 }
 ```
 
+To view the generated image, save the response to a file and decode the base64 data:
+
+**Linux / macOS:**
+```bash
+curl -s -X POST http://localhost:8000/v1/images/generations \
+    -H "Content-Type: application/json" \
+    -d '{"prompt": "a cat", "use_enhancer": false, "n": 1, "size": "256x256"}' \
+    -o response.json
+
+python -c "import json, base64; data=json.load(open('response.json')); open('output.png','wb').write(base64.b64decode(data['data'][0]['base64_encoded_image']))"
+```
+
+**Windows (PowerShell):**
+```powershell
+curl.exe --% -X POST http://localhost:8000/v1/images/generations -H "Content-Type: application/json" -d "{\"prompt\": \"a cat\", \"use_enhancer\": false, \"n\": 1, \"size\": \"256x256\"}" -o response.json
+
+python -c "import json, base64; data=json.load(open('response.json')); open('output.png','wb').write(base64.b64decode(data['data'][0]['base64_encoded_image']))"
+```
+
+Open `output.png` to view the generated image.
+
 ---
 
 ## Quick Start (TL;DR)
@@ -581,6 +602,30 @@ Once the service is running, FastAPI automatically generates interactive documen
   - Windows: `netstat -ano | findstr :8000` or `netstat -ano | findstr :8080`
   - macOS/Linux: `lsof -i :8000` or `lsof -i :8080`
 - Kill the conflicting process or change the port in `.env` (`TEXT_TO_IMAGE_APPLICATION_PORT`)
+
+### Windows: No request logs appear in the terminal
+
+**Problem:** When running the service with `python main.py`, request-handling logs (errors, warnings, access logs) do not appear in the terminal, even though startup logs are visible.
+
+**Cause:** The `reload=True` setting in Uvicorn causes the application to run in a subprocess on Windows, and log output from that subprocess may not be forwarded to the terminal.
+
+**Solution:**
+- Run the service directly without reload mode:
+  ```
+  uvicorn main:fastapi_application --host 0.0.0.0 --port 8000
+  ```
+- This runs the service in a single process where all logs are visible
+
+### Generated images are black
+
+**Problem:** The image generation endpoint returns a 200 OK response with base64 data, but the decoded image is entirely black.
+
+**Cause:** The Stable Diffusion v1.5 safety checker can produce false NSFW detections, particularly on CPU. When this happens, the image is silently replaced with a black image. The only indication is a warning in the server logs: `Potential NSFW content was detected in one or more images. A black image will be returned instead.`
+
+**Solution:**
+- Try a different prompt or add more descriptive detail
+- Check the server terminal for NSFW warnings
+- Note that this warning may not be visible when running with `python main.py` on Windows (see above)
 
 ### Need help?
 
