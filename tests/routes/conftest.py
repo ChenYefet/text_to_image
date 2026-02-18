@@ -10,9 +10,9 @@ import pytest_asyncio
 import application.dependencies
 import application.error_handling
 import application.middleware
-import application.routes.prompt_enhancement_routes
-import application.routes.image_generation_routes
 import application.routes.health_routes
+import application.routes.image_generation_routes
+import application.routes.prompt_enhancement_routes
 
 
 @pytest.fixture

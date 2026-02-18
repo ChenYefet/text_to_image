@@ -10,8 +10,8 @@ import typing
 
 import fastapi
 
-import application.models
 import application.dependencies
+import application.models
 import application.services.language_model_service
 
 prompt_enhancement_router = fastapi.APIRouter(

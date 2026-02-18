@@ -11,8 +11,8 @@ import base64
 import io
 import logging
 
-import torch
 import diffusers
+import torch
 
 import application.exceptions
 

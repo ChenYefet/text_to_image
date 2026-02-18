@@ -1,8 +1,6 @@
 """Tests for application/services/image_generation_service.py."""
 
-import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock
-from io import BytesIO
+from unittest.mock import MagicMock, patch
 
 import pytest
 from PIL import Image
@@ -34,7 +32,7 @@ class TestResolveDevice:
         mock_torch.cuda.is_available.return_value = True
         mock_torch.device.return_value = MagicMock(type="cuda")
 
-        device = application.services.image_generation_service.ImageGenerationService._resolve_device(
+        application.services.image_generation_service.ImageGenerationService._resolve_device(
             "auto"
         )
 
@@ -45,7 +43,7 @@ class TestResolveDevice:
         mock_torch.cuda.is_available.return_value = False
         mock_torch.device.return_value = MagicMock(type="cpu")
 
-        device = application.services.image_generation_service.ImageGenerationService._resolve_device(
+        application.services.image_generation_service.ImageGenerationService._resolve_device(
             "auto"
         )
 
@@ -55,7 +53,7 @@ class TestResolveDevice:
     def test_explicit_cpu(self, mock_torch):
         mock_torch.device.return_value = MagicMock(type="cpu")
 
-        device = application.services.image_generation_service.ImageGenerationService._resolve_device(
+        application.services.image_generation_service.ImageGenerationService._resolve_device(
             "cpu"
         )
 
@@ -65,7 +63,7 @@ class TestResolveDevice:
     def test_explicit_cuda(self, mock_torch):
         mock_torch.device.return_value = MagicMock(type="cuda")
 
-        device = application.services.image_generation_service.ImageGenerationService._resolve_device(
+        application.services.image_generation_service.ImageGenerationService._resolve_device(
             "cuda"
         )
 

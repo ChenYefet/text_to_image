@@ -8,8 +8,8 @@ service construction and makes the application straightforward to test.
 
 import fastapi
 
-import application.services.language_model_service
 import application.services.image_generation_service
+import application.services.language_model_service
 
 
 def get_language_model_service(

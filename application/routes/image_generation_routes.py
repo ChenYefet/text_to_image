@@ -12,10 +12,10 @@ import typing
 
 import fastapi
 
-import application.models
 import application.dependencies
-import application.services.language_model_service
+import application.models
 import application.services.image_generation_service
+import application.services.language_model_service
 
 image_generation_router = fastapi.APIRouter(
     prefix="/v1/images",

@@ -6,7 +6,6 @@ Provides cross-cutting concerns that apply to every request/response cycle.
 
 import uuid
 
-import fastapi
 import starlette.middleware.base
 import starlette.requests
 import starlette.responses

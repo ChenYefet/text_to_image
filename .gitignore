@@ -15,6 +15,11 @@ llama.cpp/
 *.swp
 *.swo
 
+# Coverage reports
+htmlcov/
+.coverage
+coverage.xml
+
 # OS files
 .DS_Store
 Thumbs.db
