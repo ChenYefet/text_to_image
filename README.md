@@ -138,7 +138,7 @@ If you choose a different model, substitute its filename in the commands through
 ### Step 1: Clone the Repository
 
 ```bash
-git clone <repository_url>
+git clone https://github.com/ChenYefet/text_to_image.git
 cd text_to_image
 ```
 
