@@ -27,5 +27,5 @@ if __name__ == "__main__":
         "main:fastapi_application",
         host=application_configuration.application_host,
         port=application_configuration.application_port,
-        reload=True,
+        reload=False,
     )

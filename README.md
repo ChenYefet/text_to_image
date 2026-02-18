@@ -603,19 +603,6 @@ Once the service is running, FastAPI automatically generates interactive documen
   - macOS/Linux: `lsof -i :8000` or `lsof -i :8080`
 - Kill the conflicting process or change the port in `.env` (`TEXT_TO_IMAGE_APPLICATION_PORT`)
 
-### Windows: No request logs appear in the terminal
-
-**Problem:** When running the service with `python main.py`, request-handling logs (errors, warnings, access logs) do not appear in the terminal, even though startup logs are visible.
-
-**Cause:** The `reload=True` setting in Uvicorn causes the application to run in a subprocess on Windows, and log output from that subprocess may not be forwarded to the terminal.
-
-**Solution:**
-- Run the service directly without reload mode:
-  ```
-  uvicorn main:fastapi_application --host 0.0.0.0 --port 8000
-  ```
-- This runs the service in a single process where all logs are visible
-
 ### Generated images are black
 
 **Problem:** The image generation endpoint returns a 200 OK response with base64 data, but the decoded image is entirely black.
