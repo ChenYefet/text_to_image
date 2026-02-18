@@ -1,10 +1,10 @@
 # Technical Specification: Text-to-Image Generation Service with Prompt Enhancement
 
-**Document Version:** 3.0.0
+**Document Version:** 3.1.0
 **Status:** Final — Panel Review Ready
 **Target Audience:** Senior Engineering Panel, Implementation Teams
 **Specification Authority:** Principal Technical Specification Authority
-**Date:** 16 February 2026
+**Date:** 18 February 2026
 
 ---
 
@@ -475,7 +475,7 @@ curl -s -w "\nHTTP_STATUS:%{http_code}\nTOTAL_TIME:%{time_total}\n" \
 ```
 
 4. Record the HTTP status code (expected: 502).
-5. Record the total request time (expected: ≤ 35 seconds, reflecting the configured upstream timeout plus overhead).
+5. Record the total request time (expected: < 5 seconds; connection-refused errors are detected immediately by the operating system's TCP stack and do not wait for the upstream request timeout to elapse).
 6. Parse the response body using a JSON parser.
 7. Verify the `error.code` field equals `"upstream_service_unavailable"`.
 8. Verify the `error.correlation_id` field is a valid UUID v4.
@@ -495,13 +495,13 @@ To verify that the service responds within a bounded time when the upstream llam
 
 - **Endpoint:** `POST /v1/prompts/enhance`
 - **Request body:** `{"prompt": "test prompt for timeout behaviour"}`
-- **Precondition:** The environment variable `LLAMA_CPP_BASE_URL` is set to `http://10.255.255.1:8080` (a non-routable address)
+- **Precondition:** The environment variable `TEXT_TO_IMAGE_LANGUAGE_MODEL_SERVER_BASE_URL` is set to `http://10.255.255.1:8080` (a non-routable address)
 - **Expected response status:** HTTP 502
 - **Expected error code:** `upstream_service_unavailable`
 
 #### Step-by-Step Execution Procedure
 
-1. Set the environment variable `LLAMA_CPP_BASE_URL` to `http://10.255.255.1:8080`.
+1. Set the environment variable `TEXT_TO_IMAGE_LANGUAGE_MODEL_SERVER_BASE_URL` to `http://10.255.255.1:8080`.
 2. Restart the Text-to-Image API Service to apply the new configuration.
 3. Execute the following command:
 
@@ -514,11 +514,11 @@ curl -s -w "\nHTTP_STATUS:%{http_code}\nTOTAL_TIME:%{time_total}\n" \
 
 4. Record the HTTP status code (expected: 502).
 5. Record the total request time in seconds.
-6. Verify the total request time is ≤ 35 seconds (the configured upstream timeout of 30 seconds plus up to 5 seconds of processing overhead).
+6. Verify the total request time is ≤ 125 seconds (the configured upstream timeout of 120 seconds plus up to 5 seconds of processing overhead).
 7. Parse the response body and verify `error.code` equals `"upstream_service_unavailable"`.
 8. Verify the service remains responsive to other requests by executing: `curl http://localhost:8000/health` (expected: HTTP 200).
 9. Examine the service logs and verify an ERROR-level entry exists indicating a timeout or network failure, including the correlation identifier.
-10. Restore `LLAMA_CPP_BASE_URL` to the correct value and restart the service.
+10. Restore `TEXT_TO_IMAGE_LANGUAGE_MODEL_SERVER_BASE_URL` to the correct value and restart the service.
 
 ---
 
@@ -686,7 +686,7 @@ The non-functional requirements are specified before functional requirements bec
 **Preconditions:**
 
 - The Text-to-Image API Service is running and accessible
-- The environment variable `LLAMA_CPP_BASE_URL` can be modified for test purposes
+- The environment variable `TEXT_TO_IMAGE_LANGUAGE_MODEL_SERVER_BASE_URL` can be modified for test purposes
 
 **Verification:**
 
@@ -698,7 +698,7 @@ The non-functional requirements are specified before functional requirements bec
 - Success criteria:
 
     - All RO6 success criteria are met
-    - The total request time is ≤ 35 seconds (the configured upstream timeout of 30 seconds plus up to 5 seconds of processing overhead)
+    - The total request time is ≤ 125 seconds (the configured upstream timeout of 120 seconds plus up to 5 seconds of processing overhead)
     - The service remains responsive to `GET /health` requests during and after the timed-out request
 
 ##### Partial availability under component failure
@@ -1193,7 +1193,7 @@ The functional requirements define the observable behaviour of the system: the o
 
 - Test procedure:
 
-    1. Deploy the Text-to-Image API Service in an environment where the Stable Diffusion model cannot be loaded (for example, set the environment variable `STABLE_DIFFUSION_MODEL_ID` to a non-existent model identifier such as `"nonexistent/model-does-not-exist"`, or restrict available memory to below 4 GB)
+    1. Deploy the Text-to-Image API Service in an environment where the Stable Diffusion model cannot be loaded (for example, set the environment variable `TEXT_TO_IMAGE_STABLE_DIFFUSION_MODEL_ID` to a non-existent model identifier such as `"nonexistent/model-does-not-exist"`, or restrict available memory to below 4 GB)
     2. Start the service and observe the startup behaviour (recommended tool: `docker logs {container}` or terminal output)
     3. If the service starts despite the model failure, execute a `POST /v1/images/generations` request with `{"prompt": "test", "use_enhancer": false, "n": 1, "size": "512x512"}` and record the HTTP status code and response body
 
@@ -1314,15 +1314,15 @@ The functional requirements define the observable behaviour of the system: the o
 
     1. Start the service with default configuration (no custom environment variables beyond required ones). Verify it starts successfully and responds on its default port (recommended tool: terminal with `curl http://localhost:8000/health`)
     2. Stop the service
-    3. Set the environment variable `SERVICE_PORT` to `9000` and restart the service
+    3. Set the environment variable `TEXT_TO_IMAGE_APPLICATION_PORT` to `9000` and restart the service
     4. Execute `curl http://localhost:9000/health` and record the HTTP status code
-    5. Stop the service and restore `SERVICE_PORT` to its default value
+    5. Stop the service and restore `TEXT_TO_IMAGE_APPLICATION_PORT` to its default value
 
 - Success criteria:
 
     - The service responds on port 8000 with default configuration
-    - The service responds on port 9000 after setting `SERVICE_PORT=9000`, without any code changes or image rebuilds
-    - Missing required configuration (for example, unsetting `LLAMA_CPP_BASE_URL` if it is required) causes a clear startup failure with a human-readable error message in the logs
+    - The service responds on port 9000 after setting `TEXT_TO_IMAGE_APPLICATION_PORT=9000`, without any code changes or image rebuilds
+    - Missing required configuration (for example, unsetting `TEXT_TO_IMAGE_LANGUAGE_MODEL_SERVER_BASE_URL` if it is required) causes a clear startup failure with a human-readable error message in the logs
 
 ##### Graceful shutdown
 
@@ -1824,7 +1824,7 @@ llama.cpp is deployed as a separate process exposing an OpenAI-compatible HTTP A
     }
   ],
   "temperature": 0.7,
-  "max_tokens": 200
+  "max_tokens": 512
 }
 ```
 
@@ -1850,7 +1850,7 @@ The service shall extract `choices[0].message.content` and strip leading and tra
 | Failure Mode | Detection Method | Service Response |
 |--------------|------------------|------------------|
 | Server not running | Connection refused | HTTP 502, `upstream_service_unavailable` |
-| Request timeout | No response within configured timeout (30s) | HTTP 502, `upstream_service_unavailable` |
+| Request timeout | No response within configured timeout (120 s) | HTTP 502, `upstream_service_unavailable` |
 | Invalid response format | JSON parse failure or missing `choices` field | HTTP 502, `upstream_service_unavailable` |
 | HTTP error from llama.cpp | 4xx or 5xx status code | HTTP 502, `upstream_service_unavailable` |
 
@@ -1858,19 +1858,19 @@ The service shall extract `choices[0].message.content` and strip leading and tra
 
 #### Model Selection
 
-**Recommended model:** `stabilityai/stable-diffusion-2-1-base`
+**Recommended model:** `stable-diffusion-v1-5/stable-diffusion-v1-5`
 
-**Justification:** Well-established behaviour; moderate memory requirements (~5 GB); high-quality outputs; actively maintained.
+**Justification:** Widely adopted reference model with extensive community testing and well-documented behaviour; moderate memory requirements; suitable for both CPU and GPU inference; compatible with the broadest range of deployment environments.
 
 #### Pipeline Configuration
 
 | Parameter | Value | Justification |
 |-----------|-------|---------------|
-| `torch_dtype` | `torch.float32` | CPU requires full precision |
-| `safety_checker` | `None` | Disabled for performance in controlled environments |
-| `attention_slicing` | Enabled | Reduces peak memory usage on CPU |
-| `num_inference_steps` | `50` | Quality/performance balance |
-| `guidance_scale` | `7.5` | Optimal prompt adherence |
+| `torch_dtype` | `torch.float16` (CUDA) / `torch.float32` (CPU) | Half-precision on GPU reduces memory consumption and improves throughput; full precision is required on CPU where float16 is not hardware-accelerated |
+| `safety_checker` | `None` | Disabled for performance in controlled environments where content moderation is handled externally |
+| `attention_slicing` | Enabled | Reduces peak memory usage during inference on both CPU and GPU |
+| `num_inference_steps` | `20` | Optimised for acceptable output quality with significantly reduced latency, particularly on CPU hardware |
+| `guidance_scale` | `7.0` | Balanced prompt adherence without over-constraining the diffusion process |
 
 ---
 
@@ -1898,18 +1898,18 @@ No exception shall propagate to the HTTP framework's default error handler, whic
 
 ## Configuration Requirements
 
-All configuration shall be expressed exclusively as environment variables with fully descriptive names. Abbreviations in configuration names are not permitted.
+All configuration shall be expressed exclusively as environment variables with fully descriptive names. Abbreviations in configuration names are not permitted. All environment variables use the prefix `TEXT_TO_IMAGE_` to prevent namespace collisions with other services or system-level variables in shared deployment environments. The implementation uses a Pydantic Settings model with `env_prefix="TEXT_TO_IMAGE_"`, which maps each field name to the corresponding prefixed environment variable automatically. A `.env` file is also supported for local development convenience.
 
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
-| `SERVICE_HOST` | HTTP bind address | `0.0.0.0` | No |
-| `SERVICE_PORT` | HTTP bind port | `8000` | No |
-| `LLAMA_CPP_BASE_URL` | llama.cpp server base URL | `http://localhost:8080` | Yes |
-| `LLAMA_CPP_TIMEOUT_SECONDS` | Timeout for llama.cpp HTTP requests (seconds) | `30` | No |
-| `STABLE_DIFFUSION_MODEL_ID` | Hugging Face model identifier | `stabilityai/stable-diffusion-2-1-base` | No |
-| `STABLE_DIFFUSION_DEVICE` | Inference device (`cpu` or `cuda`) | `cpu` | No |
-| `STABLE_DIFFUSION_INFERENCE_STEPS` | Number of diffusion inference steps | `50` | No |
-| `LOG_LEVEL` | Minimum log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) | `INFO` | No |
+| `TEXT_TO_IMAGE_APPLICATION_HOST` | HTTP bind address for the service | `0.0.0.0` | No |
+| `TEXT_TO_IMAGE_APPLICATION_PORT` | HTTP bind port for the service | `8000` | No |
+| `TEXT_TO_IMAGE_LANGUAGE_MODEL_SERVER_BASE_URL` | Base URL of the llama.cpp server (OpenAI-compatible endpoint) | `http://localhost:8080` | No |
+| `TEXT_TO_IMAGE_LANGUAGE_MODEL_REQUEST_TIMEOUT_SECONDS` | Maximum time in seconds to wait for a response from the llama.cpp server before treating the request as failed | `120` | No |
+| `TEXT_TO_IMAGE_STABLE_DIFFUSION_MODEL_ID` | Hugging Face model identifier or local filesystem path for the Stable Diffusion pipeline | `stable-diffusion-v1-5/stable-diffusion-v1-5` | No |
+| `TEXT_TO_IMAGE_STABLE_DIFFUSION_DEVICE` | Inference device selection; `auto` selects CUDA when a compatible GPU is available, otherwise falls back to CPU; explicit values `cpu` and `cuda` are also supported | `auto` | No |
+| `TEXT_TO_IMAGE_STABLE_DIFFUSION_INFERENCE_STEPS` | Number of diffusion inference steps per image; lower values reduce latency at the cost of output quality | `20` | No |
+| `TEXT_TO_IMAGE_LOG_LEVEL` | Minimum log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) | `INFO` | No |
 
 **Startup validation:** Required configuration values shall be validated during service initialisation. Missing or invalid values shall cause startup failure with a clear, human-readable error message written to stderr and to structured logs.
 
@@ -1974,7 +1974,7 @@ The service is designed for horizontal scaling via stateless instance replicatio
 
 ### Future Extensibility Pathways
 
-1. **GPU acceleration:** The service architecture supports migration to GPU-accelerated inference by changing the `STABLE_DIFFUSION_DEVICE` configuration from `cpu` to `cuda`. No code changes are required for this transition.
+1. **GPU acceleration:** The service architecture supports automatic GPU detection via the `TEXT_TO_IMAGE_STABLE_DIFFUSION_DEVICE` configuration variable. The default value `auto` automatically selects CUDA when a compatible GPU is available, otherwise falling back to CPU. Explicit values `cpu` and `cuda` are also supported for deterministic device selection. When CUDA is active, the pipeline automatically uses `torch.float16` for reduced memory consumption and improved inference throughput. No code changes are required for this transition.
 2. **Additional image models:** The model integration layer can be extended to support alternative image generation models (for example, SDXL, DALL-E) by implementing the same integration interface.
 3. **Additional prompt enhancement models:** The llama.cpp client can be pointed at any OpenAI-compatible completion server, enabling model upgrades or replacements without service code changes.
 4. **Asynchronous generation:** For high-latency operations, a future version could introduce an asynchronous job-based API pattern returning a job identifier and a polling endpoint.
@@ -2004,6 +2004,40 @@ For production or scaled deployment, the following Kubernetes resources are defi
 - **Service: `llama-cpp-service`** — type ClusterIP, port 8080 → targetPort 8080
 - **HorizontalPodAutoscaler:** Target CPU utilisation 70%, memory utilisation 80%
 - **PersistentVolumeClaims:** For model file storage (Stable Diffusion cache and llama.cpp model files)
+
+---
+
+## CI/CD Pipeline Requirements
+
+This section defines the continuous integration and continuous deployment pipeline expectations for the Text-to-Image API Service. These requirements ensure that code changes are validated automatically before deployment.
+
+### Continuous Integration
+
+**Trigger:** Every commit pushed to the main branch or to an open pull request branch shall trigger the CI pipeline.
+
+**Pipeline stages:**
+
+1. **Dependency installation:** Install all Python dependencies from `requirements.txt` into an isolated virtual environment.
+2. **Linting and static analysis:** Run code quality checks (for example, `ruff` or `flake8`) to enforce style consistency and detect common errors.
+3. **Unit and integration tests:** Execute the full `pytest` test suite with coverage measurement. The pipeline shall fail if any test fails or if code coverage falls below the target defined in the Testing Requirements section.
+4. **Schema validation:** Verify that all API request and response models are consistent with the JSON schemas defined in the Data Model and Schema Definition section.
+
+### Continuous Deployment
+
+**Trigger:** Successful completion of the CI pipeline on the main branch.
+
+**Pipeline stages:**
+
+1. **Container image build:** Build a container image containing the service, its dependencies, and the Python runtime.
+2. **Image tagging:** Tag the container image with the Git commit SHA and, for tagged releases, the semantic version number.
+3. **Registry push:** Push the tagged image to the designated container registry.
+4. **Deployment:** Apply the updated image reference to the Kubernetes Deployment manifest and trigger a rolling update.
+
+### Pipeline Non-Functional Expectations
+
+- The CI pipeline (stages 1–4) shall complete within 10 minutes on standard CI runner hardware.
+- Pipeline failures shall produce clear, human-readable error messages identifying the failing stage and the specific error.
+- Pipeline configuration shall be version-controlled alongside the application source code.
 
 ---
 
@@ -2086,7 +2120,7 @@ pip install --no-cache-dir -r requirements.txt
 ```
 
 4. **Prepare model files:**
-   - The Stable Diffusion model (for example, `stabilityai/stable-diffusion-2-1-base`) will be downloaded automatically by the Diffusers library on first use.
+   - The Stable Diffusion model (for example, `stable-diffusion-v1-5/stable-diffusion-v1-5`) will be downloaded automatically by the Diffusers library on first use.
    - A llama.cpp model file (for example, `llama-2-7b-chat.Q4_K_M.gguf`) must be downloaded separately and placed in a known directory.
 
 ### Running llama.cpp as an OpenAI-Compatible HTTP Server
@@ -2109,12 +2143,12 @@ curl http://localhost:8080/health
 ### Running the Text-to-Image API Service
 
 ```bash
-export SERVICE_PORT=8000
-export LLAMA_CPP_BASE_URL=http://localhost:8080
-export STABLE_DIFFUSION_MODEL_ID=stabilityai/stable-diffusion-2-1-base
-export LOG_LEVEL=INFO
+export TEXT_TO_IMAGE_APPLICATION_PORT=8000
+export TEXT_TO_IMAGE_LANGUAGE_MODEL_SERVER_BASE_URL=http://localhost:8080
+export TEXT_TO_IMAGE_STABLE_DIFFUSION_MODEL_ID=stable-diffusion-v1-5/stable-diffusion-v1-5
+export TEXT_TO_IMAGE_LOG_LEVEL=INFO
 
-uvicorn main:app --host 0.0.0.0 --port 8000
+uvicorn main:fastapi_application --host 0.0.0.0 --port 8000
 ```
 
 Verify the service is running:
@@ -2175,14 +2209,14 @@ curl -X POST http://localhost:8000/v1/images/generations \
 
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
-| `SERVICE_HOST` | HTTP bind address | `0.0.0.0` | No |
-| `SERVICE_PORT` | HTTP bind port | `8000` | No |
-| `LLAMA_CPP_BASE_URL` | llama.cpp server base URL | `http://localhost:8080` | Yes |
-| `LLAMA_CPP_TIMEOUT_SECONDS` | Upstream timeout in seconds | `30` | No |
-| `STABLE_DIFFUSION_MODEL_ID` | Hugging Face model identifier | `stabilityai/stable-diffusion-2-1-base` | No |
-| `STABLE_DIFFUSION_DEVICE` | Inference device | `cpu` | No |
-| `STABLE_DIFFUSION_INFERENCE_STEPS` | Diffusion steps | `50` | No |
-| `LOG_LEVEL` | Minimum log level | `INFO` | No |
+| `TEXT_TO_IMAGE_APPLICATION_HOST` | HTTP bind address for the service | `0.0.0.0` | No |
+| `TEXT_TO_IMAGE_APPLICATION_PORT` | HTTP bind port for the service | `8000` | No |
+| `TEXT_TO_IMAGE_LANGUAGE_MODEL_SERVER_BASE_URL` | Base URL of the llama.cpp server | `http://localhost:8080` | No |
+| `TEXT_TO_IMAGE_LANGUAGE_MODEL_REQUEST_TIMEOUT_SECONDS` | Maximum time in seconds to wait for a llama.cpp response | `120` | No |
+| `TEXT_TO_IMAGE_STABLE_DIFFUSION_MODEL_ID` | Hugging Face model identifier or local path | `stable-diffusion-v1-5/stable-diffusion-v1-5` | No |
+| `TEXT_TO_IMAGE_STABLE_DIFFUSION_DEVICE` | Inference device (`auto`, `cpu`, or `cuda`) | `auto` | No |
+| `TEXT_TO_IMAGE_STABLE_DIFFUSION_INFERENCE_STEPS` | Number of diffusion inference steps | `20` | No |
+| `TEXT_TO_IMAGE_LOG_LEVEL` | Minimum log level | `INFO` | No |
 
 ### Appendix B: Document Revision History
 
@@ -2192,6 +2226,7 @@ curl -X POST http://localhost:8000/v1/images/generations \
 | 2.0.0 | 16 Feb 2026 | Restructure with testable requirements |
 | 2.1.0 | 16 Feb 2026 | Added architectural principles, implementation guidance, and code examples; enhanced error handling |
 | 3.0.0 | 16 Feb 2026 | Enterprise-grade rewrite: added glossary; formalised all requirements with intent, step-by-step test procedures, and measurable success criteria; added complete requirements traceability matrix; added requirement categorisation and section creation guides; replaced informal JSON examples with JSON Schema definitions with field-level validation rules; added transient fault handling (RO6); standardised linguistic consistency (British English, consistent verb usage); added specification governance and evolution framework; aligned with Weather Data App reference specification rigour |
+| 3.1.0 | 18 Feb 2026 | Aligned specification with implementation where the implementation was demonstrably superior: adopted `TEXT_TO_IMAGE_` environment variable prefix for namespace isolation; introduced automatic device detection (`auto` default for `TEXT_TO_IMAGE_STABLE_DIFFUSION_DEVICE` with dynamic `torch.float16`/`torch.float32` selection); increased upstream request timeout default from 30 to 120 seconds to accommodate CPU-based large language model inference; updated default Stable Diffusion model to `stable-diffusion-v1-5/stable-diffusion-v1-5`; reduced default inference steps from 50 to 20 and guidance scale from 7.5 to 7.0 for improved CPU latency; increased `max_tokens` from 200 to 512 for richer prompt enhancement output; corrected Uvicorn application reference to `main:fastapi_application`; all environment variable names now use fully descriptive, unabbreviated identifiers consistent with the implementation's Pydantic Settings model; added CI/CD Pipeline Requirements section (previously referenced in Table of Contents but absent from document body) |
 
 ---
 
