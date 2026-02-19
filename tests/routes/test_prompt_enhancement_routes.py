@@ -119,3 +119,21 @@ class TestPromptEnhancementRoutes:
         body = response.json()
         assert body["error"]["code"] == "upstream_service_unavailable"
         assert "Malformed response" in body["error"]["message"]
+
+    @pytest.mark.asyncio
+    async def test_unexpected_error(
+        self, client, mock_language_model_service
+    ):
+        mock_language_model_service.enhance_prompt.side_effect = (
+            RuntimeError("something broke")
+        )
+
+        response = await client.post(
+            "/v1/prompts/enhance",
+            json={"prompt": "A cat"},
+        )
+
+        assert response.status_code == 500
+        body = response.json()
+        assert body["error"]["code"] == "internal_server_error"
+        assert "X-Correlation-ID" in response.headers

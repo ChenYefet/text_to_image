@@ -179,28 +179,8 @@ def register_error_handlers(fastapi_application: fastapi.FastAPI) -> None:
             ).model_dump(),
         )
 
-    @fastapi_application.exception_handler(Exception)
-    async def handle_unexpected_error(
-        request: fastapi.Request,
-        unexpected_error: Exception,
-    ) -> fastapi.responses.JSONResponse:
-        """
-        Return 500 Internal Server Error for any unhandled exception.
-
-        This is the catch-all handler that ensures the service never returns
-        a non-JSON error response, regardless of the failure mode.
-        """
-        logger.exception(
-            "An unexpected error occurred: %s",
-            unexpected_error,
-        )
-        return fastapi.responses.JSONResponse(
-            status_code=500,
-            content=application.models.ErrorResponse(
-                error=application.models.ErrorDetail(
-                    code="internal_server_error",
-                    message="An unexpected internal error occurred.",
-                    correlation_id=_get_correlation_id(request),
-                ),
-            ).model_dump(),
-        )
+    # Note: the catch-all handler for unexpected exceptions (500 Internal
+    # Server Error) lives in CorrelationIdMiddleware rather than here.
+    # Starlette routes ``Exception`` handlers to ServerErrorMiddleware,
+    # which always re-raises after sending the response. Handling it in
+    # the middleware avoids this and fully contains the error.

@@ -19,6 +19,10 @@ def _create_test_app():
     async def test_endpoint(request: fastapi.Request):
         return {"correlation_id": request.state.correlation_id}
 
+    @app.get("/error")
+    async def error_endpoint():
+        raise RuntimeError("something broke")
+
     return app
 
 
@@ -61,3 +65,12 @@ class TestCorrelationIdMiddleware:
         id1 = response1.headers["X-Correlation-ID"]
         id2 = response2.headers["X-Correlation-ID"]
         assert id1 != id2
+
+    @pytest.mark.asyncio
+    async def test_unhandled_exception_returns_json_500(self, client):
+        response = await client.get("/error")
+
+        assert response.status_code == 500
+        body = response.json()
+        assert body["error"]["code"] == "internal_server_error"
+        assert "X-Correlation-ID" in response.headers
