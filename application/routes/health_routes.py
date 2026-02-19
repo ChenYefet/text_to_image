@@ -8,10 +8,6 @@ A detailed ``GET /health/ready`` endpoint checks backend connectivity.
 
 import fastapi
 
-import application.dependencies
-import application.services.image_generation_service
-import application.services.language_model_service
-
 health_router = fastapi.APIRouter(tags=["Health"])
 
 

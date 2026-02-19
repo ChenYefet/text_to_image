@@ -146,7 +146,7 @@ class TestLoadPipeline:
 
     @patch("application.services.image_generation_service.diffusers")
     @patch("application.services.image_generation_service.torch")
-    def test_passes_safety_checker_none(self, mock_torch, mock_diffusers):
+    def test_safety_checker_enabled_by_default(self, mock_torch, mock_diffusers):
         mock_torch.cuda.is_available.return_value = False
         mock_torch.device.return_value = MagicMock(type="cpu")
         mock_torch.float32 = "float32"
@@ -159,6 +159,29 @@ class TestLoadPipeline:
         application.services.image_generation_service.ImageGenerationService.load_pipeline(
             model_id="test-model",
             device_preference="cpu",
+        )
+
+        mock_diffusers.StableDiffusionPipeline.from_pretrained.assert_called_once_with(
+            "test-model",
+            torch_dtype="float32",
+        )
+
+    @patch("application.services.image_generation_service.diffusers")
+    @patch("application.services.image_generation_service.torch")
+    def test_safety_checker_disabled(self, mock_torch, mock_diffusers):
+        mock_torch.cuda.is_available.return_value = False
+        mock_torch.device.return_value = MagicMock(type="cpu")
+        mock_torch.float32 = "float32"
+        mock_pipeline = MagicMock()
+        mock_pipeline.to.return_value = mock_pipeline
+        mock_diffusers.StableDiffusionPipeline.from_pretrained.return_value = (
+            mock_pipeline
+        )
+
+        application.services.image_generation_service.ImageGenerationService.load_pipeline(
+            model_id="test-model",
+            device_preference="cpu",
+            enable_safety_checker=False,
         )
 
         mock_diffusers.StableDiffusionPipeline.from_pretrained.assert_called_once_with(

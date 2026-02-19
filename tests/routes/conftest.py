@@ -52,6 +52,9 @@ def test_app(mock_language_model_service, mock_image_generation_service):
         application.dependencies.get_image_generation_service
     ] = lambda: mock_image_generation_service
 
+    app.state.language_model_service = mock_language_model_service
+    app.state.image_generation_service = mock_image_generation_service
+
     return app
 
 

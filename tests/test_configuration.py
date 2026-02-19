@@ -13,6 +13,13 @@ class TestApplicationConfiguration:
         monkeypatch.delenv("TEXT_TO_IMAGE_APPLICATION_HOST", raising=False)
         monkeypatch.delenv("TEXT_TO_IMAGE_APPLICATION_PORT", raising=False)
         monkeypatch.delenv("TEXT_TO_IMAGE_LANGUAGE_MODEL_REQUEST_TIMEOUT_SECONDS", raising=False)
+        monkeypatch.delenv("TEXT_TO_IMAGE_CORS_ALLOWED_ORIGINS", raising=False)
+        monkeypatch.delenv("TEXT_TO_IMAGE_STABLE_DIFFUSION_SAFETY_CHECKER", raising=False)
+        monkeypatch.delenv("TEXT_TO_IMAGE_LOG_LEVEL", raising=False)
+        monkeypatch.delenv("TEXT_TO_IMAGE_LANGUAGE_MODEL_TEMPERATURE", raising=False)
+        monkeypatch.delenv("TEXT_TO_IMAGE_LANGUAGE_MODEL_MAX_TOKENS", raising=False)
+        monkeypatch.delenv("TEXT_TO_IMAGE_STABLE_DIFFUSION_INFERENCE_STEPS", raising=False)
+        monkeypatch.delenv("TEXT_TO_IMAGE_STABLE_DIFFUSION_GUIDANCE_SCALE", raising=False)
 
         config = configuration.ApplicationConfiguration()
 
@@ -20,9 +27,16 @@ class TestApplicationConfiguration:
         assert config.language_model_path == ""
         assert config.stable_diffusion_model_id == "stable-diffusion-v1-5/stable-diffusion-v1-5"
         assert config.stable_diffusion_device == "auto"
-        assert config.application_host == "0.0.0.0"
+        assert config.application_host == "127.0.0.1"
         assert config.application_port == 8000
         assert config.language_model_request_timeout_seconds == 120.0
+        assert config.cors_allowed_origins == []
+        assert config.stable_diffusion_safety_checker is True
+        assert config.log_level == "INFO"
+        assert config.language_model_temperature == 0.7
+        assert config.language_model_max_tokens == 512
+        assert config.stable_diffusion_inference_steps == 20
+        assert config.stable_diffusion_guidance_scale == 7.0
 
     def test_environment_variable_override(self, monkeypatch):
         monkeypatch.setenv("TEXT_TO_IMAGE_APPLICATION_PORT", "9999")
