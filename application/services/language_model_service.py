@@ -38,8 +38,12 @@ class LanguageModelService:
         self,
         language_model_server_base_url: str,
         request_timeout_seconds: float,
+        temperature: float = 0.7,
+        max_tokens: int = 512,
     ) -> None:
         self.language_model_server_base_url = language_model_server_base_url
+        self._temperature = temperature
+        self._max_tokens = max_tokens
         self.http_client = httpx.AsyncClient(
             base_url=language_model_server_base_url,
             timeout=httpx.Timeout(request_timeout_seconds),
@@ -75,8 +79,8 @@ class LanguageModelService:
                     "content": original_prompt,
                 },
             ],
-            "temperature": 0.7,
-            "max_tokens": 512,
+            "temperature": self._temperature,
+            "max_tokens": self._max_tokens,
         }
 
         try:

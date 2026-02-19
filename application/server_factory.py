@@ -62,6 +62,12 @@ def create_application() -> fastapi.FastAPI:
                 request_timeout_seconds=(
                     application_configuration.language_model_request_timeout_seconds
                 ),
+                temperature=(
+                    application_configuration.language_model_temperature
+                ),
+                max_tokens=(
+                    application_configuration.language_model_max_tokens
+                ),
             )
         )
 
@@ -75,6 +81,12 @@ def create_application() -> fastapi.FastAPI:
                 ),
                 enable_safety_checker=(
                     application_configuration.stable_diffusion_safety_checker
+                ),
+                num_inference_steps=(
+                    application_configuration.stable_diffusion_num_inference_steps
+                ),
+                guidance_scale=(
+                    application_configuration.stable_diffusion_guidance_scale
                 ),
             )
         )

@@ -33,9 +33,13 @@ class ImageGenerationService:
         self,
         pipeline: diffusers.StableDiffusionPipeline,
         device: torch.device,
+        num_inference_steps: int = 20,
+        guidance_scale: float = 7.0,
     ) -> None:
         self._pipeline = pipeline
         self._device = device
+        self._num_inference_steps = num_inference_steps
+        self._guidance_scale = guidance_scale
         self._inference_lock = asyncio.Lock()
 
     @staticmethod
@@ -57,6 +61,8 @@ class ImageGenerationService:
         model_id: str,
         device_preference: str = "auto",
         enable_safety_checker: bool = True,
+        num_inference_steps: int = 20,
+        guidance_scale: float = 7.0,
     ) -> "ImageGenerationService":
         """
         Download (or load from cache) a Stable Diffusion model and return
@@ -66,6 +72,8 @@ class ImageGenerationService:
             model_id: A HuggingFace model ID or a local filesystem path.
             device_preference: ``"auto"``, ``"cpu"``, or ``"cuda"``.
             enable_safety_checker: When False, disables the NSFW safety checker.
+            num_inference_steps: Number of denoising steps per image.
+            guidance_scale: Classifier-free guidance scale.
         """
         device = cls._resolve_device(device_preference)
         dtype = torch.float16 if device.type == "cuda" else torch.float32
@@ -92,7 +100,12 @@ class ImageGenerationService:
 
         logger.info("Stable Diffusion pipeline loaded successfully.")
 
-        return cls(pipeline=pipeline, device=device)
+        return cls(
+            pipeline=pipeline,
+            device=device,
+            num_inference_steps=num_inference_steps,
+            guidance_scale=guidance_scale,
+        )
 
     async def generate_images(
         self,
@@ -161,8 +174,8 @@ class ImageGenerationService:
             width=width,
             height=height,
             num_images_per_prompt=num_images,
-            num_inference_steps=20,
-            guidance_scale=7.0,
+            num_inference_steps=self._num_inference_steps,
+            guidance_scale=self._guidance_scale,
         )
 
     async def close(self) -> None:
