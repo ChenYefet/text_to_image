@@ -23,6 +23,19 @@ class TestPromptEnhancementRoutes:
         )
 
     @pytest.mark.asyncio
+    async def test_invalid_json(self, client):
+        response = await client.post(
+            "/v1/prompts/enhance",
+            content=b"{not valid json",
+            headers={"Content-Type": "application/json"},
+        )
+
+        assert response.status_code == 400
+        body = response.json()
+        assert body["error"]["code"] == "invalid_request_json"
+        assert "X-Correlation-ID" in response.headers
+
+    @pytest.mark.asyncio
     async def test_empty_body(self, client):
         response = await client.post(
             "/v1/prompts/enhance",
