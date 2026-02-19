@@ -5,13 +5,16 @@ Provides cross-cutting concerns that apply to every request/response cycle.
 """
 
 import json
-import logging
 import time
 import uuid
 
 import starlette.types
+import structlog
+import structlog.contextvars
 
-logger = logging.getLogger(__name__)
+import application.metrics
+
+logger = structlog.get_logger()
 
 
 class CorrelationIdMiddleware:
@@ -32,8 +35,13 @@ class CorrelationIdMiddleware:
        and the client receives a proper JSON 500 response.
     """
 
-    def __init__(self, app: starlette.types.ASGIApp) -> None:
+    def __init__(
+        self,
+        app: starlette.types.ASGIApp,
+        metrics_collector: application.metrics.MetricsCollector | None = None,
+    ) -> None:
         self.app = app
+        self._metrics = metrics_collector
 
     async def __call__(
         self,
@@ -55,6 +63,11 @@ class CorrelationIdMiddleware:
             scope["state"] = {}
         scope["state"]["correlation_id"] = correlation_id
 
+        structlog.contextvars.clear_contextvars()
+        structlog.contextvars.bind_contextvars(correlation_id=correlation_id)
+
+        logger.info("http_request_received", method=method, path=path)
+
         async def send_with_correlation_id(message: starlette.types.Message) -> None:
             nonlocal response_status
             if message["type"] == "http.response.start":
@@ -68,7 +81,7 @@ class CorrelationIdMiddleware:
             await self.app(scope, receive, send_with_correlation_id)
         except Exception:
             response_status = 500
-            logger.exception("An unexpected error occurred")
+            logger.exception("unexpected_exception")
             body = json.dumps({
                 "error": {
                     "code": "internal_server_error",
@@ -91,10 +104,16 @@ class CorrelationIdMiddleware:
         finally:
             duration_ms = (time.monotonic() - start_time) * 1000
             logger.info(
-                "%s %s -> %d (%.1fms) [%s]",
-                method,
-                path,
-                response_status,
-                duration_ms,
-                correlation_id,
+                "http_request_completed",
+                method=method,
+                path=path,
+                status=response_status,
+                duration_ms=round(duration_ms, 1),
             )
+            if self._metrics is not None:
+                self._metrics.record_request(
+                    method=method,
+                    path=path,
+                    status=response_status,
+                    duration_ms=round(duration_ms, 1),
+                )

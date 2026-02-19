@@ -7,13 +7,12 @@ original prompt to that endpoint with a system instruction that guides
 the model to produce an enhanced, image-generation-optimised prompt.
 """
 
-import logging
-
 import httpx
+import structlog
 
 import application.exceptions
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 PROMPT_ENHANCEMENT_SYSTEM_INSTRUCTION = (
     "You are an expert prompt engineer specialising in text-to-image generation. "
@@ -68,6 +67,11 @@ class LanguageModelService:
                 When the server responds but the response body is
                 malformed or contains an empty completion.
         """
+        logger.info(
+            "prompt_enhancement_initiated",
+            prompt_length=len(original_prompt),
+        )
+
         chat_completion_request_body = {
             "messages": [
                 {
@@ -91,22 +95,19 @@ class LanguageModelService:
             http_response.raise_for_status()
         except httpx.ConnectError as connection_error:
             logger.error(
-                "Failed to connect to language model server at %s: %s",
-                self.language_model_server_base_url,
-                connection_error,
+                "llama_cpp_connection_failed",
+                error=str(connection_error),
             )
             raise application.exceptions.LanguageModelServiceUnavailableError(
                 detail=(
-                    f"Cannot connect to the language model server at "
-                    f"{self.language_model_server_base_url}. "
-                    f"Ensure that llama.cpp is running in OpenAI-compatible mode."
+                    "The language model server is not reachable. "
+                    "Ensure that llama.cpp is running in OpenAI-compatible mode."
                 ),
             ) from connection_error
         except httpx.HTTPStatusError as http_status_error:
             logger.error(
-                "Language model server returned HTTP %s: %s",
-                http_status_error.response.status_code,
-                http_status_error,
+                "llama_cpp_connection_failed",
+                status_code=http_status_error.response.status_code,
             )
             raise application.exceptions.LanguageModelServiceUnavailableError(
                 detail=(
@@ -116,8 +117,8 @@ class LanguageModelService:
             ) from http_status_error
         except httpx.TimeoutException as timeout_error:
             logger.error(
-                "Request to language model server timed out: %s",
-                timeout_error,
+                "llama_cpp_timeout",
+                error=str(timeout_error),
             )
             raise application.exceptions.LanguageModelServiceUnavailableError(
                 detail="The request to the language model server timed out.",
@@ -131,8 +132,8 @@ class LanguageModelService:
             )
         except (KeyError, IndexError) as parsing_error:
             logger.error(
-                "Unexpected response structure from language model server: %s",
-                response_body,
+                "llama_cpp_connection_failed",
+                error="Unexpected response structure from language model server",
             )
             raise application.exceptions.PromptEnhancementError(
                 detail=(
@@ -146,7 +147,14 @@ class LanguageModelService:
                 detail="The language model returned an empty enhanced prompt.",
             )
 
-        return enhanced_prompt_text.strip()
+        result = enhanced_prompt_text.strip()
+
+        logger.info(
+            "prompt_enhancement_completed",
+            enhanced_prompt_length=len(result),
+        )
+
+        return result
 
     async def close(self) -> None:
         """Close the underlying HTTP client and release network resources."""

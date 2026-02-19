@@ -8,13 +8,14 @@ makes the application straightforward to test and re-create.
 """
 
 import contextlib
-import logging
 
 import fastapi
 import fastapi.middleware.cors
+import structlog
 
 import application.error_handling
 import application.logging_config
+import application.metrics
 import application.middleware
 import application.routes.health_routes
 import application.routes.image_generation_routes
@@ -23,7 +24,7 @@ import application.services.image_generation_service
 import application.services.language_model_service
 import configuration
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 def create_application() -> fastapi.FastAPI:
@@ -42,6 +43,8 @@ def create_application() -> fastapi.FastAPI:
     application.logging_config.configure_logging(
         log_level=application_configuration.log_level,
     )
+
+    metrics_collector = application.metrics.MetricsCollector()
 
     @contextlib.asynccontextmanager
     async def application_lifespan(
@@ -97,19 +100,19 @@ def create_application() -> fastapi.FastAPI:
         fastapi_application.state.image_generation_service = (
             image_generation_service_instance
         )
+        fastapi_application.state.metrics_collector = metrics_collector
 
         logger.info(
-            "Services initialised. Language model server: %s | "
-            "Stable Diffusion model: %s",
-            application_configuration.language_model_server_base_url,
-            application_configuration.stable_diffusion_model_id,
+            "services_initialised",
+            language_model_server=application_configuration.language_model_server_base_url,
+            stable_diffusion_model=application_configuration.stable_diffusion_model_id,
         )
 
         yield
 
         await language_model_service_instance.close()
         await image_generation_service_instance.close()
-        logger.info("Services shut down gracefully.")
+        logger.info("services_shutdown_complete")
 
     fastapi_application = fastapi.FastAPI(
         title="Text-to-Image with Prompt Assist",
@@ -134,6 +137,7 @@ def create_application() -> fastapi.FastAPI:
 
     fastapi_application.add_middleware(
         application.middleware.CorrelationIdMiddleware,
+        metrics_collector=metrics_collector,
     )
 
     fastapi_application.include_router(

@@ -9,6 +9,7 @@ import pytest_asyncio
 
 import application.dependencies
 import application.error_handling
+import application.metrics
 import application.middleware
 import application.routes.health_routes
 import application.routes.image_generation_routes
@@ -33,7 +34,13 @@ def mock_image_generation_service():
 def test_app(mock_language_model_service, mock_image_generation_service):
     app = fastapi.FastAPI()
     application.error_handling.register_error_handlers(app)
-    app.add_middleware(application.middleware.CorrelationIdMiddleware)
+
+    metrics_collector = application.metrics.MetricsCollector()
+
+    app.add_middleware(
+        application.middleware.CorrelationIdMiddleware,
+        metrics_collector=metrics_collector,
+    )
     app.include_router(
         application.routes.prompt_enhancement_routes.prompt_enhancement_router
     )
@@ -54,6 +61,7 @@ def test_app(mock_language_model_service, mock_image_generation_service):
 
     app.state.language_model_service = mock_language_model_service
     app.state.image_generation_service = mock_image_generation_service
+    app.state.metrics_collector = metrics_collector
 
     return app
 

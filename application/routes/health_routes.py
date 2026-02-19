@@ -1,9 +1,10 @@
 """
-Route definition for the health-check endpoint.
+Route definitions for health, readiness, and metrics endpoints.
 
 Provides a lightweight ``GET /health`` endpoint that downstream load
 balancers and orchestrators can poll to verify service availability.
 A detailed ``GET /health/ready`` endpoint checks backend connectivity.
+A ``GET /metrics`` endpoint exposes request count and latency metrics.
 """
 
 import fastapi
@@ -56,3 +57,19 @@ async def readiness_check(request: fastapi.Request) -> dict:
         content={"status": "ready" if all_ok else "not_ready", "checks": checks},
         status_code=status_code,
     )
+
+
+@health_router.get(
+    "/metrics",
+    summary="Request metrics",
+    description=(
+        "Returns request count and latency metrics in JSON format "
+        "for operational monitoring (NFR11)."
+    ),
+    status_code=200,
+)
+async def metrics(request: fastapi.Request) -> dict:
+    collector = getattr(request.app.state, "metrics_collector", None)
+    if collector is None:
+        return {"request_counts": {}, "request_latencies": {}}
+    return collector.snapshot()

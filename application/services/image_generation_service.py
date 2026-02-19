@@ -9,14 +9,14 @@ from HuggingFace Hub on first run and cached locally for subsequent starts.
 import asyncio
 import base64
 import io
-import logging
 
 import diffusers
+import structlog
 import torch
 
 import application.exceptions
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 class ImageGenerationService:
@@ -79,10 +79,10 @@ class ImageGenerationService:
         dtype = torch.float16 if device.type == "cuda" else torch.float32
 
         logger.info(
-            "Loading Stable Diffusion pipeline '%s' on %s (dtype=%s) ...",
-            model_id,
-            device,
-            dtype,
+            "stable_diffusion_pipeline_loading",
+            model_id=model_id,
+            device=str(device),
+            dtype=str(dtype),
         )
 
         pipeline_kwargs: dict = {
@@ -98,7 +98,7 @@ class ImageGenerationService:
         pipeline = pipeline.to(device)
         pipeline.enable_attention_slicing()
 
-        logger.info("Stable Diffusion pipeline loaded successfully.")
+        logger.info("stable_diffusion_pipeline_loaded")
 
         return cls(
             pipeline=pipeline,
@@ -127,6 +127,13 @@ class ImageGenerationService:
             ImageGenerationError:
                 When the pipeline produces no images.
         """
+        logger.info(
+            "image_generation_initiated",
+            image_width=image_width,
+            image_height=image_height,
+            number_of_images=number_of_images,
+        )
+
         async with self._inference_lock:
             try:
                 result = await asyncio.to_thread(
@@ -138,8 +145,8 @@ class ImageGenerationService:
                 )
             except RuntimeError as runtime_error:
                 logger.error(
-                    "Stable Diffusion inference failed: %s",
-                    runtime_error,
+                    "stable_diffusion_inference_failed",
+                    error=str(runtime_error),
                 )
                 raise application.exceptions.ImageGenerationServiceUnavailableError(
                     detail="Image generation failed during inference.",
@@ -158,6 +165,13 @@ class ImageGenerationService:
             pil_image.save(buffer, format="PNG")
             encoded = base64.b64encode(buffer.getvalue()).decode("utf-8")
             base64_encoded_images.append(encoded)
+
+        logger.info(
+            "image_generation_completed",
+            image_count=len(base64_encoded_images),
+            image_width=image_width,
+            image_height=image_height,
+        )
 
         return base64_encoded_images
 
@@ -183,4 +197,4 @@ class ImageGenerationService:
         del self._pipeline
         if self._device.type == "cuda":
             torch.cuda.empty_cache()
-        logger.info("Stable Diffusion pipeline released.")
+        logger.info("stable_diffusion_pipeline_released")

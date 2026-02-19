@@ -1,41 +1,89 @@
 """
 Structured logging configuration for the application.
 
-Configures the root logger to emit JSON-formatted log records, making
-logs machine-parseable for log aggregation systems (ELK, CloudWatch, etc.).
+Configures structlog to emit JSON-formatted log records with the mandatory
+fields required by the specification (NFR9): timestamp (ISO 8601 UTC),
+level, event, correlation_id, and service_name.
+
+Both structlog-native loggers and standard library loggers (used by
+third-party packages such as Uvicorn and httpx) are routed through the
+same processing pipeline and produce identical JSON output.
 """
 
-import json
 import logging
 import sys
 
+import structlog
 
-class JsonFormatter(logging.Formatter):
-    """Format log records as single-line JSON objects."""
+SERVICE_NAME = "text-to-image-api"
 
-    def format(self, record: logging.LogRecord) -> str:
-        log_entry = {
-            "timestamp": self.formatTime(record, self.datefmt),
-            "level": record.levelname,
-            "logger": record.name,
-            "message": record.getMessage(),
-        }
-        if record.exc_info and record.exc_info[0] is not None:
-            log_entry["exception"] = self.formatException(record.exc_info)
-        return json.dumps(log_entry)
+
+def _add_service_name(
+    logger: structlog.types.WrappedLogger,
+    method_name: str,
+    event_dict: structlog.types.EventDict,
+) -> structlog.types.EventDict:
+    """Inject the service name into every log entry."""
+    event_dict["service_name"] = SERVICE_NAME
+    return event_dict
+
+
+def _uppercase_level(
+    logger: structlog.types.WrappedLogger,
+    method_name: str,
+    event_dict: structlog.types.EventDict,
+) -> structlog.types.EventDict:
+    """Normalise the log level to uppercase (e.g. INFO, ERROR)."""
+    if "level" in event_dict:
+        event_dict["level"] = event_dict["level"].upper()
+    return event_dict
 
 
 def configure_logging(log_level: str = "INFO") -> None:
     """
-    Configure the root logger with structured JSON output to stderr.
+    Configure structlog for structured JSON logging to stderr.
+
+    Both structlog-native loggers and standard library loggers are
+    processed through the same pipeline, producing JSON output with
+    the mandatory fields: timestamp, level, event, service_name.
+    The correlation_id field is injected per-request via contextvars.
 
     Should be called once during application startup, before any log
     messages are emitted.
     """
+    level = getattr(logging, log_level.upper(), logging.INFO)
+
+    shared_processors: list[structlog.types.Processor] = [
+        structlog.contextvars.merge_contextvars,
+        _add_service_name,
+        structlog.stdlib.add_log_level,
+        _uppercase_level,
+        structlog.processors.TimeStamper(fmt="iso", utc=True),
+    ]
+
+    structlog.configure(
+        processors=[
+            *shared_processors,
+            structlog.processors.format_exc_info,
+            structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
+        ],
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        wrapper_class=structlog.stdlib.BoundLogger,
+        cache_logger_on_first_use=True,
+    )
+
+    formatter = structlog.stdlib.ProcessorFormatter(
+        processors=[
+            structlog.stdlib.ProcessorFormatter.remove_processors_meta,
+            structlog.processors.JSONRenderer(),
+        ],
+        foreign_pre_chain=shared_processors,
+    )
+
     handler = logging.StreamHandler(sys.stderr)
-    handler.setFormatter(JsonFormatter())
+    handler.setFormatter(formatter)
 
     root_logger = logging.getLogger()
     root_logger.handlers.clear()
     root_logger.addHandler(handler)
-    root_logger.setLevel(getattr(logging, log_level.upper(), logging.INFO))
+    root_logger.setLevel(level)

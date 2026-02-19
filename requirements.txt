@@ -8,3 +8,4 @@ transformers>=4.46.0
 accelerate>=1.2.0
 torch>=2.5.0
 safetensors>=0.4.0
+structlog>=23.1.0

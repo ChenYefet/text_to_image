@@ -13,16 +13,15 @@ The mapping follows the specification requirements:
     - Unexpected internal errors          ->  500 Internal Server Error
 """
 
-import logging
-
 import fastapi
 import fastapi.exceptions
 import fastapi.responses
+import structlog
 
 import application.exceptions
 import application.models
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 def _get_correlation_id(request: fastapi.Request) -> str:
@@ -52,7 +51,7 @@ def register_error_handlers(fastapi_application: fastapi.FastAPI) -> None:
         and schema validation errors (request_validation_failed).
         """
         errors = validation_error.errors()
-        logger.warning("Request validation failed: %s", errors)
+        logger.warning("http_validation_failed", errors=errors)
 
         is_json_error = any(
             error.get("type", "").startswith("json") for error in errors
@@ -88,8 +87,9 @@ def register_error_handlers(fastapi_application: fastapi.FastAPI) -> None:
         cannot be reached.
         """
         logger.error(
-            "Language model service unavailable: %s",
-            unavailable_error.detail,
+            "upstream_service_error",
+            upstream="language_model",
+            detail=unavailable_error.detail,
         )
         return fastapi.responses.JSONResponse(
             status_code=502,
@@ -114,8 +114,9 @@ def register_error_handlers(fastapi_application: fastapi.FastAPI) -> None:
         encounters a runtime failure.
         """
         logger.error(
-            "Image generation service unavailable: %s",
-            unavailable_error.detail,
+            "upstream_service_error",
+            upstream="image_generation",
+            detail=unavailable_error.detail,
         )
         return fastapi.responses.JSONResponse(
             status_code=502,
@@ -139,8 +140,9 @@ def register_error_handlers(fastapi_application: fastapi.FastAPI) -> None:
         Return 502 Bad Gateway when prompt enhancement fails.
         """
         logger.error(
-            "Prompt enhancement failed: %s",
-            enhancement_error.detail,
+            "upstream_service_error",
+            upstream="language_model",
+            detail=enhancement_error.detail,
         )
         return fastapi.responses.JSONResponse(
             status_code=502,
@@ -165,8 +167,9 @@ def register_error_handlers(fastapi_application: fastapi.FastAPI) -> None:
         for a non-connectivity reason.
         """
         logger.error(
-            "Image generation failed: %s",
-            generation_error.detail,
+            "upstream_service_error",
+            upstream="image_generation",
+            detail=generation_error.detail,
         )
         return fastapi.responses.JSONResponse(
             status_code=502,

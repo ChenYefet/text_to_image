@@ -1,4 +1,4 @@
-"""Tests for the GET /health and GET /health/ready endpoints."""
+"""Tests for the GET /health, GET /health/ready, and GET /metrics endpoints."""
 
 import pytest
 
@@ -38,3 +38,42 @@ class TestReadinessRoutes:
         response = await client.get("/health/ready")
 
         assert "X-Correlation-ID" in response.headers
+
+
+class TestMetricsRoutes:
+
+    @pytest.mark.asyncio
+    async def test_metrics_returns_200(self, client):
+        response = await client.get("/metrics")
+
+        assert response.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_metrics_contains_expected_keys(self, client):
+        response = await client.get("/metrics")
+
+        body = response.json()
+        assert "request_counts" in body
+        assert "request_latencies" in body
+
+    @pytest.mark.asyncio
+    async def test_metrics_records_requests(self, client):
+        await client.get("/health")
+        await client.get("/health")
+
+        response = await client.get("/metrics")
+        body = response.json()
+
+        assert body["request_counts"].get("GET /health 200", 0) >= 2
+
+    @pytest.mark.asyncio
+    async def test_metrics_has_latency_data(self, client):
+        await client.get("/health")
+
+        response = await client.get("/metrics")
+        body = response.json()
+
+        assert "GET /health" in body["request_latencies"]
+        latency = body["request_latencies"]["GET /health"]
+        assert latency["count"] >= 1
+        assert latency["min_ms"] >= 0

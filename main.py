@@ -5,16 +5,9 @@ This module creates the FastAPI application instance and starts the Uvicorn
 ASGI server when executed directly.
 """
 
-import logging
-
 import uvicorn
 
 import application.server_factory
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
-)
 
 fastapi_application = application.server_factory.create_application()
 
