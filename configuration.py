@@ -22,9 +22,11 @@ class ApplicationConfiguration(pydantic_settings.BaseSettings):
     language_model_path: str = ""
     stable_diffusion_model_id: str = "stable-diffusion-v1-5/stable-diffusion-v1-5"
     stable_diffusion_device: str = "auto"
-    application_host: str = "0.0.0.0"
+    application_host: str = "127.0.0.1"
     application_port: int = 8000
     language_model_request_timeout_seconds: float = 120.0
+    cors_allowed_origins: list[str] = []
+    stable_diffusion_safety_checker: bool = True
 
     model_config = pydantic_settings.SettingsConfigDict(
         env_file=".env",

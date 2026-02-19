@@ -56,6 +56,7 @@ class ImageGenerationService:
         cls,
         model_id: str,
         device_preference: str = "auto",
+        enable_safety_checker: bool = True,
     ) -> "ImageGenerationService":
         """
         Download (or load from cache) a Stable Diffusion model and return
@@ -64,6 +65,7 @@ class ImageGenerationService:
         Args:
             model_id: A HuggingFace model ID or a local filesystem path.
             device_preference: ``"auto"``, ``"cpu"``, or ``"cuda"``.
+            enable_safety_checker: When False, disables the NSFW safety checker.
         """
         device = cls._resolve_device(device_preference)
         dtype = torch.float16 if device.type == "cuda" else torch.float32
@@ -75,10 +77,15 @@ class ImageGenerationService:
             dtype,
         )
 
+        pipeline_kwargs: dict = {
+            "torch_dtype": dtype,
+        }
+        if not enable_safety_checker:
+            pipeline_kwargs["safety_checker"] = None
+
         pipeline = diffusers.StableDiffusionPipeline.from_pretrained(
             model_id,
-            torch_dtype=dtype,
-            safety_checker=None,
+            **pipeline_kwargs,
         )
         pipeline = pipeline.to(device)
         pipeline.enable_attention_slicing()
@@ -122,10 +129,7 @@ class ImageGenerationService:
                     runtime_error,
                 )
                 raise application.exceptions.ImageGenerationServiceUnavailableError(
-                    detail=(
-                        f"Image generation failed during inference: "
-                        f"{runtime_error}"
-                    ),
+                    detail="Image generation failed during inference.",
                 ) from runtime_error
 
         pil_images = result.images

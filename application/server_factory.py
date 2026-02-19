@@ -11,6 +11,7 @@ import contextlib
 import logging
 
 import fastapi
+import fastapi.middleware.cors
 
 import application.error_handling
 import application.middleware
@@ -68,6 +69,9 @@ def create_application() -> fastapi.FastAPI:
                 device_preference=(
                     application_configuration.stable_diffusion_device
                 ),
+                enable_safety_checker=(
+                    application_configuration.stable_diffusion_safety_checker
+                ),
             )
         )
 
@@ -103,6 +107,14 @@ def create_application() -> fastapi.FastAPI:
     )
 
     application.error_handling.register_error_handlers(fastapi_application)
+
+    if application_configuration.cors_allowed_origins:
+        fastapi_application.add_middleware(
+            fastapi.middleware.cors.CORSMiddleware,
+            allow_origins=application_configuration.cors_allowed_origins,
+            allow_methods=["GET", "POST"],
+            allow_headers=["*"],
+        )
 
     fastapi_application.add_middleware(
         application.middleware.CorrelationIdMiddleware,
