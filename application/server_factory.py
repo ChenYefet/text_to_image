@@ -91,6 +91,9 @@ def create_application() -> fastapi.FastAPI:
                 guidance_scale=(
                     application_configuration.stable_diffusion_guidance_scale
                 ),
+                inference_timeout_per_unit_seconds=(
+                    application_configuration.stable_diffusion_inference_timeout_per_unit_seconds
+                ),
             )
         )
 

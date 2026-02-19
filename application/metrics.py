@@ -5,7 +5,10 @@ Provides a thread-safe collector for request counts and latencies,
 exposed via the GET /metrics endpoint in JSON format.
 """
 
+import collections
 import threading
+
+_MAX_LATENCIES_PER_KEY = 1000
 
 
 class MetricsCollector:
@@ -14,12 +17,14 @@ class MetricsCollector:
 
     Records request counts (by method, path, and status code) and
     request latencies (by method and path) for operational monitoring.
+    Latency lists are capped at ``_MAX_LATENCIES_PER_KEY`` entries to
+    prevent unbounded memory growth; older entries are discarded.
     """
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._request_counts: dict[str, int] = {}
-        self._request_latencies: dict[str, list[float]] = {}
+        self._request_latencies: dict[str, collections.deque[float]] = {}
 
     def record_request(
         self,
@@ -37,7 +42,9 @@ class MetricsCollector:
 
             latency_key = f"{method} {path}"
             if latency_key not in self._request_latencies:
-                self._request_latencies[latency_key] = []
+                self._request_latencies[latency_key] = collections.deque(
+                    maxlen=_MAX_LATENCIES_PER_KEY,
+                )
             self._request_latencies[latency_key].append(duration_ms)
 
     def snapshot(self) -> dict:

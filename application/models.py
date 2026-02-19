@@ -8,6 +8,15 @@ use field names aligned with the API specification.
 import pydantic
 
 # ──────────────────────────────────────────────────────────────────────────────
+#  Request Constants
+# ──────────────────────────────────────────────────────────────────────────────
+
+PROMPT_MAX_LENGTH = 2000
+MAX_IMAGES_PER_REQUEST = 4
+DEFAULT_IMAGE_SIZE = "512x512"
+SUPPORTED_IMAGE_SIZES = {"512x512", "768x768", "1024x1024"}
+
+# ──────────────────────────────────────────────────────────────────────────────
 #  Request Models
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -23,12 +32,13 @@ class PromptEnhancementRequest(pydantic.BaseModel):
     prompt: str = pydantic.Field(
         ...,
         min_length=1,
-        max_length=2000,
+        max_length=PROMPT_MAX_LENGTH,
         pattern=r".*\S.*",
         description=(
-            "The original user-supplied prompt to be enhanced by the "
-            "language model. Must be between 1 and 2000 characters and "
-            "contain at least one non-whitespace character."
+            f"The original user-supplied prompt to be enhanced by the "
+            f"language model. Must be between 1 and "
+            f"{PROMPT_MAX_LENGTH} characters and contain at least one "
+            f"non-whitespace character."
         ),
         examples=["A cat sitting on a windowsill"],
     )
@@ -48,12 +58,13 @@ class ImageGenerationRequest(pydantic.BaseModel):
     prompt: str = pydantic.Field(
         ...,
         min_length=1,
-        max_length=2000,
+        max_length=PROMPT_MAX_LENGTH,
         pattern=r".*\S.*",
         description=(
-            "The text prompt describing the desired image. "
-            "Must be between 1 and 2000 characters and contain at "
-            "least one non-whitespace character."
+            f"The text prompt describing the desired image. "
+            f"Must be between 1 and "
+            f"{PROMPT_MAX_LENGTH} characters and contain at "
+            f"least one non-whitespace character."
         ),
         examples=["A sunset over a mountain range with vivid colours"],
     )
@@ -69,37 +80,33 @@ class ImageGenerationRequest(pydantic.BaseModel):
     number_of_images: int = pydantic.Field(
         default=1,
         ge=1,
-        le=4,
+        le=MAX_IMAGES_PER_REQUEST,
         alias="n",
         description=(
-            "The number of images to generate in a single request. "
-            "Accepts values from 1 to 4 inclusive."
+            f"The number of images to generate in a single request. "
+            f"Accepts values from 1 to "
+            f"{MAX_IMAGES_PER_REQUEST} inclusive."
         ),
     )
 
     size: str = pydantic.Field(
-        default="512x512",
+        default=DEFAULT_IMAGE_SIZE,
         description=(
             "The dimensions of the generated image in WIDTHxHEIGHT format. "
-            "Supported sizes: 512x512, 768x768, 1024x1024."
+            f"Supported sizes: {', '.join(sorted(SUPPORTED_IMAGE_SIZES))}."
         ),
-        examples=["512x512", "768x768", "1024x1024"],
+        examples=sorted(SUPPORTED_IMAGE_SIZES),
     )
 
     @pydantic.field_validator("size")
     @classmethod
     def validate_image_size_dimensions(cls, image_size_value: str) -> str:
         """Validate that the requested image size is among the supported dimensions."""
-        supported_image_dimensions = {
-            "512x512",
-            "768x768",
-            "1024x1024",
-        }
-        if image_size_value not in supported_image_dimensions:
+        if image_size_value not in SUPPORTED_IMAGE_SIZES:
             raise ValueError(
                 f"The image size '{image_size_value}' is not supported. "
                 f"Supported sizes are: "
-                f"{', '.join(sorted(supported_image_dimensions))}."
+                f"{', '.join(sorted(SUPPORTED_IMAGE_SIZES))}."
             )
         return image_size_value
 

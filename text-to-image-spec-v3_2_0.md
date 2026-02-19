@@ -1,10 +1,10 @@
 # Technical Specification: Text-to-Image Generation Service with Prompt Enhancement
 
-**Document Version:** 3.1.0
+**Document Version:** 3.2.0
 **Status:** Final — Panel Review Ready
 **Target Audience:** Senior Engineering Panel, Implementation Teams
 **Specification Authority:** Principal Technical Specification Authority
-**Date:** 18 February 2026
+**Date:** 19 February 2026
 
 ---
 
@@ -1970,7 +1970,6 @@ All configuration shall be expressed exclusively as environment variables with f
 | `TEXT_TO_IMAGE_APPLICATION_HOST` | HTTP bind address for the service | `127.0.0.1` | No |
 | `TEXT_TO_IMAGE_APPLICATION_PORT` | HTTP bind port for the service | `8000` | No |
 | `TEXT_TO_IMAGE_LANGUAGE_MODEL_SERVER_BASE_URL` | Base URL of the llama.cpp server (OpenAI-compatible endpoint) | `http://localhost:8080` | No |
-| `TEXT_TO_IMAGE_LANGUAGE_MODEL_PATH` | Path to the GGUF model file; not used at runtime — serves as a convenient reference for the `--model` argument passed to llama.cpp | *(empty)* | No |
 | `TEXT_TO_IMAGE_LANGUAGE_MODEL_REQUEST_TIMEOUT_SECONDS` | Maximum time in seconds to wait for a response from the llama.cpp server before treating the request as failed | `120` | No |
 | `TEXT_TO_IMAGE_LANGUAGE_MODEL_TEMPERATURE` | Sampling temperature for prompt enhancement; higher values produce more creative output | `0.7` | No |
 | `TEXT_TO_IMAGE_LANGUAGE_MODEL_MAX_TOKENS` | Maximum number of tokens the language model may generate for an enhanced prompt | `512` | No |
@@ -1979,6 +1978,7 @@ All configuration shall be expressed exclusively as environment variables with f
 | `TEXT_TO_IMAGE_STABLE_DIFFUSION_INFERENCE_STEPS` | Number of diffusion inference steps per image; lower values reduce latency at the cost of output quality | `20` | No |
 | `TEXT_TO_IMAGE_STABLE_DIFFUSION_GUIDANCE_SCALE` | Classifier-free guidance scale; higher values follow the prompt more closely | `7.0` | No |
 | `TEXT_TO_IMAGE_STABLE_DIFFUSION_SAFETY_CHECKER` | Enable the NSFW safety checker (`true`/`false`); disabling removes content filtering from generated images | `true` | No |
+| `TEXT_TO_IMAGE_STABLE_DIFFUSION_INFERENCE_TIMEOUT_PER_UNIT_SECONDS` | Base timeout (seconds) for generating one 512×512 image. The service scales automatically: `base × n_images × (w × h) / (512 × 512)`, with a 30× multiplier applied on CPU. GPU operators can usually leave the default; CPU operators on slow hardware should increase it. | `60` | No |
 | `TEXT_TO_IMAGE_CORS_ALLOWED_ORIGINS` | Allowed CORS origins (JSON list); empty list disables CORS | `[]` | No |
 | `TEXT_TO_IMAGE_LOG_LEVEL` | Minimum log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) | `INFO` | No |
 
@@ -2008,9 +2008,18 @@ This section consolidates logging, metrics, and tracing expectations.
 | `prompt_enhancement_completed` | INFO | llama.cpp invocation completed successfully |
 | `image_generation_initiated` | INFO | Stable Diffusion inference started |
 | `image_generation_completed` | INFO | Stable Diffusion inference completed successfully |
+| `stable_diffusion_pipeline_loading` | INFO | Stable Diffusion model download/load started |
+| `stable_diffusion_pipeline_loaded` | INFO | Stable Diffusion model loaded and ready |
+| `stable_diffusion_pipeline_released` | INFO | Stable Diffusion pipeline released on shutdown |
+| `services_initialised` | INFO | All services initialised and ready to serve traffic |
+| `services_shutdown_complete` | INFO | All services shut down gracefully |
 | `llama_cpp_connection_failed` | ERROR | Failed to connect to llama.cpp server |
+| `llama_cpp_http_error` | ERROR | llama.cpp returned a non-success HTTP status code |
+| `llama_cpp_response_parsing_failed` | ERROR | llama.cpp response body could not be parsed |
 | `llama_cpp_timeout` | ERROR | llama.cpp request timed out |
-| `stable_diffusion_inference_failed` | ERROR | Stable Diffusion inference failed |
+| `stable_diffusion_inference_failed` | ERROR | Stable Diffusion inference failed with a runtime error |
+| `stable_diffusion_inference_timeout` | ERROR | Stable Diffusion inference exceeded the computed timeout |
+| `upstream_service_error` | ERROR | An upstream service error was mapped to an HTTP error response |
 | `unexpected_exception` | ERROR | An unhandled exception was caught by global handler |
 
 ---

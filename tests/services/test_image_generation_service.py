@@ -127,6 +127,29 @@ class TestGenerateImages:
             )
 
     @pytest.mark.asyncio
+    async def test_inference_timeout(self):
+        service = _make_service()
+        # With per-unit base of 0.01s and 512×512×1 the computed timeout is 0.01s
+        service._inference_timeout_per_unit_seconds = 0.01
+
+        def slow_inference(*args, **kwargs):
+            import time
+            time.sleep(1)
+
+        service._pipeline.side_effect = slow_inference
+
+        with pytest.raises(
+            application.exceptions.ImageGenerationServiceUnavailableError,
+            match="timed out",
+        ):
+            await service.generate_images(
+                prompt="A cat",
+                image_width=512,
+                image_height=512,
+                number_of_images=1,
+            )
+
+    @pytest.mark.asyncio
     async def test_no_images(self):
         service = _make_service()
         mock_result = MagicMock()
@@ -212,3 +235,58 @@ class TestClose:
         ) as mock_torch:
             await service.close()
             mock_torch.cuda.empty_cache.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_close_twice_is_safe(self):
+        service = _make_service(device_type="cpu")
+
+        with patch(
+            "application.services.image_generation_service.torch"
+        ):
+            await service.close()
+            await service.close()  # should not raise
+
+
+class TestComputeTimeout:
+
+    def test_gpu_baseline_image(self):
+        service = _make_service(device_type="cuda")
+        service._inference_timeout_per_unit_seconds = 60.0
+        # 1 image × 512×512 → 60s (no multiplier on GPU)
+        assert service._compute_timeout(512, 512, 1) == pytest.approx(60.0)
+
+    def test_gpu_four_baseline_images(self):
+        service = _make_service(device_type="cuda")
+        service._inference_timeout_per_unit_seconds = 60.0
+        # 4 images × 512×512 → 240s
+        assert service._compute_timeout(512, 512, 4) == pytest.approx(240.0)
+
+    def test_gpu_double_resolution(self):
+        service = _make_service(device_type="cuda")
+        service._inference_timeout_per_unit_seconds = 60.0
+        # 1 image × 1024×1024 → pixel_scale=4.0 → 240s
+        assert service._compute_timeout(1024, 1024, 1) == pytest.approx(240.0)
+
+    def test_gpu_worst_case(self):
+        service = _make_service(device_type="cuda")
+        service._inference_timeout_per_unit_seconds = 60.0
+        # 4 images × 1024×1024 → 960s
+        assert service._compute_timeout(1024, 1024, 4) == pytest.approx(960.0)
+
+    def test_cpu_baseline_image(self):
+        service = _make_service(device_type="cpu")
+        service._inference_timeout_per_unit_seconds = 60.0
+        # 1 image × 512×512 × 30 → 1800s
+        assert service._compute_timeout(512, 512, 1) == pytest.approx(1800.0)
+
+    def test_cpu_double_resolution(self):
+        service = _make_service(device_type="cpu")
+        service._inference_timeout_per_unit_seconds = 60.0
+        # 1 image × 1024×1024 × 30 → 7200s
+        assert service._compute_timeout(1024, 1024, 1) == pytest.approx(7200.0)
+
+    def test_cpu_worst_case(self):
+        service = _make_service(device_type="cpu")
+        service._inference_timeout_per_unit_seconds = 60.0
+        # 4 images × 1024×1024 × 30 → 28800s
+        assert service._compute_timeout(1024, 1024, 4) == pytest.approx(28800.0)

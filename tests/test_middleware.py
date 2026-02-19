@@ -74,3 +74,16 @@ class TestCorrelationIdMiddleware:
         body = response.json()
         assert body["error"]["code"] == "internal_server_error"
         assert "X-Correlation-ID" in response.headers
+
+    @pytest.mark.asyncio
+    async def test_non_http_scope_passed_through(self):
+        """Non-HTTP scopes (e.g. websocket, lifespan) bypass the middleware."""
+        inner_called = False
+
+        async def inner_app(scope, receive, send):
+            nonlocal inner_called
+            inner_called = True
+
+        middleware = application.middleware.CorrelationIdMiddleware(inner_app)
+        await middleware({"type": "lifespan"}, None, None)
+        assert inner_called

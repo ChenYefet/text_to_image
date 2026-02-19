@@ -106,7 +106,7 @@ class LanguageModelService:
             ) from connection_error
         except httpx.HTTPStatusError as http_status_error:
             logger.error(
-                "llama_cpp_connection_failed",
+                "llama_cpp_http_error",
                 status_code=http_status_error.response.status_code,
             )
             raise application.exceptions.LanguageModelServiceUnavailableError(
@@ -132,7 +132,7 @@ class LanguageModelService:
             )
         except (KeyError, IndexError) as parsing_error:
             logger.error(
-                "llama_cpp_connection_failed",
+                "llama_cpp_response_parsing_failed",
                 error="Unexpected response structure from language model server",
             )
             raise application.exceptions.PromptEnhancementError(

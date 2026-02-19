@@ -19,6 +19,10 @@ import application.exceptions
 logger = structlog.get_logger()
 
 
+_BASELINE_PIXELS = 512 * 512
+_CPU_TIMEOUT_MULTIPLIER = 30
+
+
 class ImageGenerationService:
     """
     In-process image generation service backed by a ``diffusers``
@@ -27,7 +31,16 @@ class ImageGenerationService:
     Inference calls are dispatched to a thread via ``asyncio.to_thread``
     so the async event loop is never blocked. An ``asyncio.Lock`` serialises
     concurrent inference requests to avoid GPU memory contention.
+
+    The inference timeout scales automatically with request complexity and
+    device type::
+
+        timeout = base × n_images × (w × h) / (512 × 512) [× 30 on CPU]
+
+    so large or CPU-bound requests get proportionally more time.
     """
+
+    DEFAULT_INFERENCE_TIMEOUT_PER_UNIT_SECONDS = 60.0
 
     def __init__(
         self,
@@ -35,11 +48,13 @@ class ImageGenerationService:
         device: torch.device,
         num_inference_steps: int = 20,
         guidance_scale: float = 7.0,
+        inference_timeout_per_unit_seconds: float = DEFAULT_INFERENCE_TIMEOUT_PER_UNIT_SECONDS,
     ) -> None:
         self._pipeline = pipeline
         self._device = device
         self._num_inference_steps = num_inference_steps
         self._guidance_scale = guidance_scale
+        self._inference_timeout_per_unit_seconds = inference_timeout_per_unit_seconds
         self._inference_lock = asyncio.Lock()
 
     @staticmethod
@@ -63,6 +78,7 @@ class ImageGenerationService:
         enable_safety_checker: bool = True,
         num_inference_steps: int = 20,
         guidance_scale: float = 7.0,
+        inference_timeout_per_unit_seconds: float = DEFAULT_INFERENCE_TIMEOUT_PER_UNIT_SECONDS,
     ) -> "ImageGenerationService":
         """
         Download (or load from cache) a Stable Diffusion model and return
@@ -74,6 +90,9 @@ class ImageGenerationService:
             enable_safety_checker: When False, disables the NSFW safety checker.
             num_inference_steps: Number of denoising steps per image.
             guidance_scale: Classifier-free guidance scale.
+            inference_timeout_per_unit_seconds: Base timeout (seconds) for a
+                single 512×512 image. Actual timeout scales with the number of
+                images and pixel area: ``base × n_images × (w × h) / (512×512)``.
         """
         device = cls._resolve_device(device_preference)
         dtype = torch.float16 if device.type == "cuda" else torch.float32
@@ -105,7 +124,29 @@ class ImageGenerationService:
             device=device,
             num_inference_steps=num_inference_steps,
             guidance_scale=guidance_scale,
+            inference_timeout_per_unit_seconds=inference_timeout_per_unit_seconds,
         )
+
+    def _compute_timeout(
+        self,
+        image_width: int,
+        image_height: int,
+        number_of_images: int,
+    ) -> float:
+        """
+        Compute the inference timeout for a specific request.
+
+        Scales linearly with both the number of images and the pixel area
+        relative to a 512×512 baseline.  On CPU a fixed multiplier is applied
+        to account for the slower inference speed::
+
+            timeout = base × n_images × (w × h) / (512 × 512) [× CPU multiplier]
+        """
+        pixel_scale = (image_width * image_height) / _BASELINE_PIXELS
+        timeout = self._inference_timeout_per_unit_seconds * number_of_images * pixel_scale
+        if self._device.type != "cuda":
+            timeout *= _CPU_TIMEOUT_MULTIPLIER
+        return timeout
 
     async def generate_images(
         self,
@@ -134,15 +175,31 @@ class ImageGenerationService:
             number_of_images=number_of_images,
         )
 
+        timeout_seconds = self._compute_timeout(image_width, image_height, number_of_images)
+
         async with self._inference_lock:
             try:
-                result = await asyncio.to_thread(
-                    self._run_inference,
-                    prompt,
-                    image_width,
-                    image_height,
-                    number_of_images,
+                result = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        self._run_inference,
+                        prompt,
+                        image_width,
+                        image_height,
+                        number_of_images,
+                    ),
+                    timeout=timeout_seconds,
                 )
+            except TimeoutError as timeout_error:
+                logger.error(
+                    "stable_diffusion_inference_timeout",
+                    timeout_seconds=timeout_seconds,
+                )
+                raise application.exceptions.ImageGenerationServiceUnavailableError(
+                    detail=(
+                        f"Image generation timed out after "
+                        f"{timeout_seconds}s."
+                    ),
+                ) from timeout_error
             except RuntimeError as runtime_error:
                 logger.error(
                     "stable_diffusion_inference_failed",
@@ -194,6 +251,8 @@ class ImageGenerationService:
 
     async def close(self) -> None:
         """Delete the pipeline and free GPU memory if applicable."""
+        if not hasattr(self, "_pipeline"):
+            return
         del self._pipeline
         if self._device.type == "cuda":
             torch.cuda.empty_cache()

@@ -215,7 +215,7 @@ copy .env.example .env
 
 Open `.env` in a text editor. The defaults are suitable for a standard local setup and typically don't require changes. See the [Configuration Reference](#configuration-reference) section below for the full list of environment variables.
 
-The file also contains an optional `TEXT_TO_IMAGE_LANGUAGE_MODEL_PATH` setting where you can record the path to your GGUF model file. This is not used by the application at runtime but serves as a convenient reference for the `--model` argument you pass to llama.cpp in Step 7.
+The file also contains a comment where you can note the path to your GGUF model file for easy reference when starting llama.cpp in Step 7.
 
 ### Step 7: Start the llama.cpp Server
 
@@ -584,6 +584,7 @@ text_to_image/
     ├── test_configuration.py
     ├── test_dependencies.py
     ├── test_exceptions.py
+    ├── test_integration.py
     ├── test_logging_config.py
     ├── test_metrics.py
     ├── test_middleware.py
@@ -620,7 +621,6 @@ All configuration is loaded from environment variables prefixed with `TEXT_TO_IM
 | Variable | Description | Default |
 |---|---|---|
 | `TEXT_TO_IMAGE_LANGUAGE_MODEL_SERVER_BASE_URL` | Base URL of the llama.cpp server | `http://localhost:8080` |
-| `TEXT_TO_IMAGE_LANGUAGE_MODEL_PATH` | Path to GGUF model file (reference only, not used at runtime) | *(empty)* |
 | `TEXT_TO_IMAGE_LANGUAGE_MODEL_REQUEST_TIMEOUT_SECONDS` | Max seconds to wait for a language model response | `120.0` |
 | `TEXT_TO_IMAGE_LANGUAGE_MODEL_TEMPERATURE` | Sampling temperature for prompt enhancement | `0.7` |
 | `TEXT_TO_IMAGE_LANGUAGE_MODEL_MAX_TOKENS` | Max tokens the language model may generate | `512` |
@@ -629,6 +629,7 @@ All configuration is loaded from environment variables prefixed with `TEXT_TO_IM
 | `TEXT_TO_IMAGE_STABLE_DIFFUSION_INFERENCE_STEPS` | Number of denoising steps per image | `20` |
 | `TEXT_TO_IMAGE_STABLE_DIFFUSION_GUIDANCE_SCALE` | Classifier-free guidance scale | `7.0` |
 | `TEXT_TO_IMAGE_STABLE_DIFFUSION_SAFETY_CHECKER` | Enable NSFW safety checker (`true`/`false`) | `true` |
+| `TEXT_TO_IMAGE_STABLE_DIFFUSION_INFERENCE_TIMEOUT_PER_UNIT_SECONDS` | Base timeout (seconds) for one 512×512 image; auto-scaled by request size and ×30 on CPU | `60.0` |
 | `TEXT_TO_IMAGE_APPLICATION_HOST` | HTTP bind address | `127.0.0.1` |
 | `TEXT_TO_IMAGE_APPLICATION_PORT` | HTTP bind port | `8000` |
 | `TEXT_TO_IMAGE_CORS_ALLOWED_ORIGINS` | Allowed CORS origins (JSON list) | `[]` *(disabled)* |
