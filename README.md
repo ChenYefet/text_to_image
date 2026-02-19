@@ -497,28 +497,53 @@ text_to_image/
 ├── main.py                                        # Application entry point
 ├── configuration.py                               # Environment-based configuration
 ├── requirements.txt                               # Python dependencies
+├── requirements-dev.txt                           # Development dependencies (pytest, ruff, etc.)
+├── pyproject.toml                                 # Tool configuration (ruff, pytest)
 ├── .env.example                                   # Example environment variables
 ├── .env                                           # Your local environment config (not in git)
 ├── README.md                                      # This file
-├── text-to-image-spec-v3_0_0.md                   # Original project specification
+├── text-to-image-spec-v3_1_0.md                   # Project specification
+├── .github/
+│   └── workflows/
+│       └── ci.yml                                 # CI pipeline (lint + test)
 ├── llama.cpp/                                     # llama.cpp binaries (not in git)
 │   ├── llama-server.exe (Windows) or llama-server (Linux/macOS)
 │   └── ggml*.dll / *.so files
-└── application/
+├── application/
+│   ├── __init__.py
+│   ├── server_factory.py                          # FastAPI application factory
+│   ├── dependencies.py                            # Dependency injection providers
+│   ├── models.py                                  # Request and response Pydantic models
+│   ├── exceptions.py                              # Custom exception classes
+│   ├── error_handling.py                          # Centralised error handler registration
+│   ├── middleware.py                              # ASGI middleware (catch-all error handler)
+│   ├── services/
+│   │   ├── __init__.py
+│   │   ├── language_model_service.py              # llama.cpp integration
+│   │   └── image_generation_service.py            # Stable Diffusion pipeline (diffusers)
+│   └── routes/
+│       ├── __init__.py
+│       ├── health_routes.py                       # GET /health
+│       ├── prompt_enhancement_routes.py           # POST /v1/prompts/enhance
+│       └── image_generation_routes.py             # POST /v1/images/generations
+└── tests/
     ├── __init__.py
-    ├── server_factory.py                          # FastAPI application factory
-    ├── dependencies.py                            # Dependency injection providers
-    ├── models.py                                  # Request and response Pydantic models
-    ├── exceptions.py                              # Custom exception classes
-    ├── error_handling.py                          # Centralised error handler registration
-    ├── services/
+    ├── conftest.py
+    ├── test_configuration.py
+    ├── test_dependencies.py
+    ├── test_exceptions.py
+    ├── test_middleware.py
+    ├── test_models.py
+    ├── routes/
     │   ├── __init__.py
-    │   ├── language_model_service.py              # llama.cpp integration
-    │   └── image_generation_service.py            # Stable Diffusion pipeline (diffusers)
-    └── routes/
+    │   ├── conftest.py
+    │   ├── test_health_routes.py
+    │   ├── test_prompt_enhancement_routes.py
+    │   └── test_image_generation_routes.py
+    └── services/
         ├── __init__.py
-        ├── prompt_enhancement_routes.py           # POST /v1/prompts/enhance
-        └── image_generation_routes.py             # POST /v1/images/generations
+        ├── test_language_model_service.py
+        └── test_image_generation_service.py
 ```
 
 **Note:** The `llama.cpp/` directory and `.env` file are excluded from git (via `.gitignore`) as they contain platform-specific binaries and local configuration. You must set these up manually as described in the setup instructions above.
