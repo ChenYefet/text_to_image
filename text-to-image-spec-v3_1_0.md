@@ -830,15 +830,15 @@ The non-functional requirements are specified before functional requirements bec
 **Preconditions:**
 
 - The Text-to-Image API Service is running and accessible
-- A metrics endpoint (for example, `/metrics`) is exposed by the service, or metrics are emitted via structured logs
+- The `GET /metrics` endpoint is exposed by the service
 
 **Verification:**
 
 - Test procedure:
 
     1. Execute [RO1](#ro1--prompt-enhancement) and [RO2](#ro2--image-generation-without-enhancement) at least once each (recommended tool: terminal with `curl`)
-    2. Query the service metrics endpoint: `curl http://localhost:8000/metrics` (recommended tool: terminal with `curl`). If no dedicated metrics endpoint exists, inspect the structured log output for latency fields.
-    3. Inspect the returned data for request count and latency metrics
+    2. Query the service metrics endpoint: `curl http://localhost:8000/metrics` (recommended tool: terminal with `curl`)
+    3. Inspect the returned JSON for `request_counts` and `request_latencies` fields
 
 - Success criteria:
 
@@ -1292,6 +1292,29 @@ The functional requirements define the observable behaviour of the system: the o
     - The response body contains `"status": "healthy"` (or an equivalent status field)
     - The response time is < 500 milliseconds
 
+##### Readiness check endpoint
+
+30. The service shall expose a `GET /health/ready` endpoint that reports the initialisation status of backend services (language model client, image generation pipeline). The endpoint shall return HTTP 200 with `{"status": "ready"}` when all backends are initialised, and HTTP 503 with `{"status": "not_ready"}` when any backend is unavailable.
+
+**Intent:** To enable orchestrators (for example, Kubernetes readiness probes) to distinguish between a service that is alive but still loading models and one that is fully ready to accept traffic. This prevents load balancers from routing requests to instances that have not yet completed model loading.
+
+**Preconditions:**
+
+- The Text-to-Image API Service is running and accessible
+
+**Verification:**
+
+- Test procedure:
+
+    1. Execute: `curl -s -w "\nHTTP_STATUS:%{http_code}\n" http://localhost:8000/health/ready` (recommended tool: terminal with `curl`)
+    2. Record the HTTP status code and response body
+
+- Success criteria:
+
+    - The HTTP status code is 200 when all backend services are initialised
+    - The response body is valid JSON containing `"status": "ready"` and a `"checks"` object with `"image_generation"` and `"language_model"` fields
+    - Each check field is `"ok"` when the corresponding service is initialised
+
 ---
 
 #### Configuration-Driven Behaviour
@@ -1371,6 +1394,7 @@ This matrix links functional requirements, reference operations, and non-functio
 | 27 (Health check endpoint) | — | 4 (Horizontal scaling) |
 | 28 (Configuration externalisation) | — | 4 (Horizontal scaling), 5 (Statelessness) |
 | 29 (Graceful shutdown) | RO2 | 4 (Horizontal scaling) |
+| 30 (Readiness check endpoint) | — | 4 (Horizontal scaling), 7 (Partial availability) |
 
 ---
 
@@ -1701,6 +1725,52 @@ All responses include:
 
 **Response Body:** `{"status": "healthy"}`
 
+### Endpoint: GET /health/ready
+
+**Purpose:** Report readiness status including backend service initialisation checks. Used by Kubernetes readiness probes and load balancers to determine whether an instance can accept traffic.
+
+**HTTP Status Code Mapping:**
+
+| Status | Condition |
+|--------|-----------|
+| 200 | All backend services are initialised and ready |
+| 503 | One or more backend services are unavailable or still loading |
+
+**Response Body (200):** `{"status": "ready", "checks": {"image_generation": "ok", "language_model": "ok"}}`
+
+**Response Body (503):** `{"status": "not_ready", "checks": {"image_generation": "unavailable", "language_model": "ok"}}`
+
+### Endpoint: GET /metrics
+
+**Purpose:** Expose request count and latency metrics in structured JSON format for operational monitoring (requirement 11).
+
+**HTTP Status Code Mapping:**
+
+| Status | Condition |
+|--------|-----------|
+| 200 | Metrics returned successfully |
+
+**Response Body:**
+
+```json
+{
+  "request_counts": {
+    "POST /v1/prompts/enhance 200": 5,
+    "POST /v1/images/generations 200": 3,
+    "POST /v1/prompts/enhance 400": 1
+  },
+  "request_latencies": {
+    "POST /v1/prompts/enhance": {
+      "count": 6,
+      "min_ms": 1.2,
+      "max_ms": 450.3,
+      "avg_ms": 120.5,
+      "p95_ms": 430.1
+    }
+  }
+}
+```
+
 ---
 
 ## Technology Stack and Justification
@@ -1902,13 +1972,19 @@ All configuration shall be expressed exclusively as environment variables with f
 
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
-| `TEXT_TO_IMAGE_APPLICATION_HOST` | HTTP bind address for the service | `0.0.0.0` | No |
+| `TEXT_TO_IMAGE_APPLICATION_HOST` | HTTP bind address for the service | `127.0.0.1` | No |
 | `TEXT_TO_IMAGE_APPLICATION_PORT` | HTTP bind port for the service | `8000` | No |
 | `TEXT_TO_IMAGE_LANGUAGE_MODEL_SERVER_BASE_URL` | Base URL of the llama.cpp server (OpenAI-compatible endpoint) | `http://localhost:8080` | No |
+| `TEXT_TO_IMAGE_LANGUAGE_MODEL_PATH` | Path to the GGUF model file; not used at runtime — serves as a convenient reference for the `--model` argument passed to llama.cpp | *(empty)* | No |
 | `TEXT_TO_IMAGE_LANGUAGE_MODEL_REQUEST_TIMEOUT_SECONDS` | Maximum time in seconds to wait for a response from the llama.cpp server before treating the request as failed | `120` | No |
+| `TEXT_TO_IMAGE_LANGUAGE_MODEL_TEMPERATURE` | Sampling temperature for prompt enhancement; higher values produce more creative output | `0.7` | No |
+| `TEXT_TO_IMAGE_LANGUAGE_MODEL_MAX_TOKENS` | Maximum number of tokens the language model may generate for an enhanced prompt | `512` | No |
 | `TEXT_TO_IMAGE_STABLE_DIFFUSION_MODEL_ID` | Hugging Face model identifier or local filesystem path for the Stable Diffusion pipeline | `stable-diffusion-v1-5/stable-diffusion-v1-5` | No |
 | `TEXT_TO_IMAGE_STABLE_DIFFUSION_DEVICE` | Inference device selection; `auto` selects CUDA when a compatible GPU is available, otherwise falls back to CPU; explicit values `cpu` and `cuda` are also supported | `auto` | No |
 | `TEXT_TO_IMAGE_STABLE_DIFFUSION_INFERENCE_STEPS` | Number of diffusion inference steps per image; lower values reduce latency at the cost of output quality | `20` | No |
+| `TEXT_TO_IMAGE_STABLE_DIFFUSION_GUIDANCE_SCALE` | Classifier-free guidance scale; higher values follow the prompt more closely | `7.0` | No |
+| `TEXT_TO_IMAGE_STABLE_DIFFUSION_SAFETY_CHECKER` | Enable the NSFW safety checker (`true`/`false`); disabling removes content filtering from generated images | `true` | No |
+| `TEXT_TO_IMAGE_CORS_ALLOWED_ORIGINS` | Allowed CORS origins (JSON list); empty list disables CORS | `[]` | No |
 | `TEXT_TO_IMAGE_LOG_LEVEL` | Minimum log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) | `INFO` | No |
 
 **Startup validation:** Required configuration values shall be validated during service initialisation. Missing or invalid values shall cause startup failure with a clear, human-readable error message written to stderr and to structured logs.
@@ -1926,7 +2002,7 @@ This section consolidates logging, metrics, and tracing expectations.
 - **Error logging:** Upstream failures shall produce ERROR-level log entries as specified in requirement 10 (Error Observability).
 - **Metrics:** The service shall expose performance metrics as specified in requirement 11 (Performance Metrics Collection).
 
-**Logging event taxonomy (informative):**
+**Logging event taxonomy (normative):**
 
 | Event Name | Level | Description |
 |------------|-------|-------------|
@@ -2209,13 +2285,19 @@ curl -X POST http://localhost:8000/v1/images/generations \
 
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
-| `TEXT_TO_IMAGE_APPLICATION_HOST` | HTTP bind address for the service | `0.0.0.0` | No |
+| `TEXT_TO_IMAGE_APPLICATION_HOST` | HTTP bind address for the service | `127.0.0.1` | No |
 | `TEXT_TO_IMAGE_APPLICATION_PORT` | HTTP bind port for the service | `8000` | No |
 | `TEXT_TO_IMAGE_LANGUAGE_MODEL_SERVER_BASE_URL` | Base URL of the llama.cpp server | `http://localhost:8080` | No |
+| `TEXT_TO_IMAGE_LANGUAGE_MODEL_PATH` | Path to GGUF model file (reference only, not used at runtime) | *(empty)* | No |
 | `TEXT_TO_IMAGE_LANGUAGE_MODEL_REQUEST_TIMEOUT_SECONDS` | Maximum time in seconds to wait for a llama.cpp response | `120` | No |
+| `TEXT_TO_IMAGE_LANGUAGE_MODEL_TEMPERATURE` | Sampling temperature for prompt enhancement | `0.7` | No |
+| `TEXT_TO_IMAGE_LANGUAGE_MODEL_MAX_TOKENS` | Maximum tokens the language model may generate | `512` | No |
 | `TEXT_TO_IMAGE_STABLE_DIFFUSION_MODEL_ID` | Hugging Face model identifier or local path | `stable-diffusion-v1-5/stable-diffusion-v1-5` | No |
 | `TEXT_TO_IMAGE_STABLE_DIFFUSION_DEVICE` | Inference device (`auto`, `cpu`, or `cuda`) | `auto` | No |
 | `TEXT_TO_IMAGE_STABLE_DIFFUSION_INFERENCE_STEPS` | Number of diffusion inference steps | `20` | No |
+| `TEXT_TO_IMAGE_STABLE_DIFFUSION_GUIDANCE_SCALE` | Classifier-free guidance scale | `7.0` | No |
+| `TEXT_TO_IMAGE_STABLE_DIFFUSION_SAFETY_CHECKER` | Enable NSFW safety checker (`true`/`false`) | `true` | No |
+| `TEXT_TO_IMAGE_CORS_ALLOWED_ORIGINS` | Allowed CORS origins (JSON list) | `[]` | No |
 | `TEXT_TO_IMAGE_LOG_LEVEL` | Minimum log level | `INFO` | No |
 
 ### Appendix B: Document Revision History
@@ -2227,6 +2309,7 @@ curl -X POST http://localhost:8000/v1/images/generations \
 | 2.1.0 | 16 Feb 2026 | Added architectural principles, implementation guidance, and code examples; enhanced error handling |
 | 3.0.0 | 16 Feb 2026 | Enterprise-grade rewrite: added glossary; formalised all requirements with intent, step-by-step test procedures, and measurable success criteria; added complete requirements traceability matrix; added requirement categorisation and section creation guides; replaced informal JSON examples with JSON Schema definitions with field-level validation rules; added transient fault handling (RO6); standardised linguistic consistency (British English, consistent verb usage); added specification governance and evolution framework; aligned with Weather Data App reference specification rigour |
 | 3.1.0 | 18 Feb 2026 | Aligned specification with implementation where the implementation was demonstrably superior: adopted `TEXT_TO_IMAGE_` environment variable prefix for namespace isolation; introduced automatic device detection (`auto` default for `TEXT_TO_IMAGE_STABLE_DIFFUSION_DEVICE` with dynamic `torch.float16`/`torch.float32` selection); increased upstream request timeout default from 30 to 120 seconds to accommodate CPU-based large language model inference; updated default Stable Diffusion model to `stable-diffusion-v1-5/stable-diffusion-v1-5`; reduced default inference steps from 50 to 20 and guidance scale from 7.5 to 7.0 for improved CPU latency; increased `max_tokens` from 200 to 512 for richer prompt enhancement output; corrected Uvicorn application reference to `main:fastapi_application`; all environment variable names now use fully descriptive, unabbreviated identifiers consistent with the implementation's Pydantic Settings model; added CI/CD Pipeline Requirements section (previously referenced in Table of Contents but absent from document body) |
+| 3.2.0 | 19 Feb 2026 | Observability alignment: adopted structlog as the structured logging library (NFR9); added normative logging event taxonomy with 11 mandatory events; added `GET /metrics` endpoint for in-memory performance metrics (NFR11); added `GET /health/ready` readiness endpoint (FR30); expanded configuration tables with 6 additional environment variables (`LANGUAGE_MODEL_PATH`, `LANGUAGE_MODEL_TEMPERATURE`, `LANGUAGE_MODEL_MAX_TOKENS`, `STABLE_DIFFUSION_GUIDANCE_SCALE`, `STABLE_DIFFUSION_SAFETY_CHECKER`, `CORS_ALLOWED_ORIGINS`); corrected `APPLICATION_HOST` default from `0.0.0.0` to `127.0.0.1`; added readiness and metrics endpoint definitions to API Contract section; updated requirements traceability matrix with FR30 |
 
 ---
 

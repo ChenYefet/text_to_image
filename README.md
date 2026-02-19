@@ -17,6 +17,7 @@ llama.cpp language model.
 | **HTTP Client** | httpx | Async-native HTTP client with comprehensive timeout configuration, connection pooling, and structured error handling for service-to-service communication. |
 | **Language Model** | llama.cpp (OpenAI-compatible mode) | Lightweight, CPU-only inference server that exposes an OpenAI-compatible `/v1/chat/completions` endpoint. No GPU required. |
 | **Image Generation** | HuggingFace diffusers | In-process Stable Diffusion pipeline loaded via the `diffusers` library. Auto-detects GPU/CPU, downloads the model from HuggingFace Hub on first run, and requires no external server process. |
+| **Structured Logging** | structlog | JSON-formatted structured logging with mandatory fields (`timestamp`, `level`, `event`, `correlation_id`, `service_name`). Handles both native structlog loggers and stdlib loggers through the same JSON pipeline. |
 
 ### Scalability Considerations
 
@@ -257,9 +258,9 @@ The service starts on `http://localhost:8000` by default. You will see log outpu
 ```
 INFO:     Started server process
 INFO:     Waiting for application startup.
-{"timestamp": "...", "level": "INFO", "logger": "application.services.image_generation_service", "message": "Loading Stable Diffusion pipeline 'stable-diffusion-v1-5/stable-diffusion-v1-5' on cuda (dtype=torch.float16) ..."}
-{"timestamp": "...", "level": "INFO", "logger": "application.services.image_generation_service", "message": "Stable Diffusion pipeline loaded successfully."}
-{"timestamp": "...", "level": "INFO", "logger": "application.server_factory", "message": "Services initialised. Language model server: http://localhost:8080 | Stable Diffusion model: stable-diffusion-v1-5/stable-diffusion-v1-5"}
+{"event": "stable_diffusion_pipeline_loading", "level": "INFO", "timestamp": "...", "service_name": "text-to-image-api", "model_id": "stable-diffusion-v1-5/stable-diffusion-v1-5", "device": "cuda", "dtype": "torch.float16"}
+{"event": "stable_diffusion_pipeline_loaded", "level": "INFO", "timestamp": "...", "service_name": "text-to-image-api"}
+{"event": "services_initialised", "level": "INFO", "timestamp": "...", "service_name": "text-to-image-api", "language_model_server": "http://localhost:8080", "stable_diffusion_model": "stable-diffusion-v1-5/stable-diffusion-v1-5"}
 INFO:     Application startup complete.
 INFO:     Uvicorn running on http://127.0.0.1:8000
 ```
@@ -463,6 +464,30 @@ Returns readiness status including backend service checks. Returns HTTP 503 if a
 }
 ```
 
+### GET /metrics
+
+Returns in-memory performance metrics including request counts and latency statistics.
+
+**Response body (200 OK):**
+
+```json
+{
+    "request_counts": {
+        "GET /health 200": 5,
+        "POST /v1/images/generations 200": 2
+    },
+    "request_latencies": {
+        "GET /health": {
+            "count": 5,
+            "min_ms": 0.1,
+            "max_ms": 1.2,
+            "avg_ms": 0.5,
+            "p95_ms": 1.1
+        }
+    }
+}
+```
+
 ---
 
 ## Error Handling
@@ -542,14 +567,15 @@ text_to_image/
 │   ├── exceptions.py                              # Custom exception classes
 │   ├── error_handling.py                          # Centralised error handler registration
 │   ├── middleware.py                              # ASGI middleware (correlation ID, request logging)
-│   ├── logging_config.py                          # Structured JSON logging configuration
+│   ├── logging_config.py                          # Structured JSON logging configuration (structlog)
+│   ├── metrics.py                                 # In-memory performance metrics collector
 │   ├── services/
 │   │   ├── __init__.py
 │   │   ├── language_model_service.py              # llama.cpp integration
 │   │   └── image_generation_service.py            # Stable Diffusion pipeline (diffusers)
 │   └── routes/
 │       ├── __init__.py
-│       ├── health_routes.py                       # GET /health, GET /health/ready
+│       ├── health_routes.py                       # GET /health, GET /health/ready, GET /metrics
 │       ├── prompt_enhancement_routes.py           # POST /v1/prompts/enhance
 │       └── image_generation_routes.py             # POST /v1/images/generations
 └── tests/
@@ -558,6 +584,8 @@ text_to_image/
     ├── test_configuration.py
     ├── test_dependencies.py
     ├── test_exceptions.py
+    ├── test_logging_config.py
+    ├── test_metrics.py
     ├── test_middleware.py
     ├── test_models.py
     ├── routes/
