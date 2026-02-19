@@ -212,11 +212,7 @@ cp .env.example .env
 copy .env.example .env
 ```
 
-Open `.env` in a text editor. The defaults are suitable for a standard local setup and typically don't require changes. Key settings:
-
-- `TEXT_TO_IMAGE_LANGUAGE_MODEL_SERVER_BASE_URL` — URL of the llama.cpp server (default: `http://localhost:8080`)
-- `TEXT_TO_IMAGE_STABLE_DIFFUSION_MODEL_ID` — HuggingFace model ID (default: `stable-diffusion-v1-5/stable-diffusion-v1-5`)
-- `TEXT_TO_IMAGE_STABLE_DIFFUSION_DEVICE` — `auto`, `cpu`, or `cuda` (default: `auto`)
+Open `.env` in a text editor. The defaults are suitable for a standard local setup and typically don't require changes. See the [Configuration Reference](#configuration-reference) section below for the full list of environment variables.
 
 The file also contains an optional `TEXT_TO_IMAGE_LANGUAGE_MODEL_PATH` setting where you can record the path to your GGUF model file. This is not used by the application at runtime but serves as a convenient reference for the `--model` argument you pass to llama.cpp in Step 7.
 
@@ -261,11 +257,11 @@ The service starts on `http://localhost:8000` by default. You will see log outpu
 ```
 INFO:     Started server process
 INFO:     Waiting for application startup.
-... | INFO     | application.services.image_generation_service | Loading Stable Diffusion pipeline 'stable-diffusion-v1-5/stable-diffusion-v1-5' on cuda (dtype=torch.float16) ...
-... | INFO     | application.services.image_generation_service | Stable Diffusion pipeline loaded successfully.
-... | INFO     | application.server_factory | Services initialised. Language model server: http://localhost:8080 | Stable Diffusion model: stable-diffusion-v1-5/stable-diffusion-v1-5
+{"timestamp": "...", "level": "INFO", "logger": "application.services.image_generation_service", "message": "Loading Stable Diffusion pipeline 'stable-diffusion-v1-5/stable-diffusion-v1-5' on cuda (dtype=torch.float16) ..."}
+{"timestamp": "...", "level": "INFO", "logger": "application.services.image_generation_service", "message": "Stable Diffusion pipeline loaded successfully."}
+{"timestamp": "...", "level": "INFO", "logger": "application.server_factory", "message": "Services initialised. Language model server: http://localhost:8080 | Stable Diffusion model: stable-diffusion-v1-5/stable-diffusion-v1-5"}
 INFO:     Application startup complete.
-INFO:     Uvicorn running on http://0.0.0.0:8000
+INFO:     Uvicorn running on http://127.0.0.1:8000
 ```
 
 ### Step 9: Test the Service
@@ -298,12 +294,12 @@ Next, test image generation:
 ```bash
 curl -X POST http://localhost:8000/v1/images/generations \
     -H "Content-Type: application/json" \
-    -d '{"prompt": "a cat", "use_enhancer": false, "n": 1, "size": "256x256"}'
+    -d '{"prompt": "a cat", "use_enhancer": false, "n": 1, "size": "512x512"}'
 ```
 
 **Windows (PowerShell):**
 ```powershell
-curl.exe --% -X POST http://localhost:8000/v1/images/generations -H "Content-Type: application/json" -d "{\"prompt\": \"a cat\", \"use_enhancer\": false, \"n\": 1, \"size\": \"256x256\"}"
+curl.exe --% -X POST http://localhost:8000/v1/images/generations -H "Content-Type: application/json" -d "{\"prompt\": \"a cat\", \"use_enhancer\": false, \"n\": 1, \"size\": \"512x512\"}"
 ```
 
 ⏱️ **Note:** Image generation on CPU can take several minutes. On GPU (CUDA) it completes in seconds.
@@ -312,11 +308,10 @@ You should receive a JSON response containing a base64-encoded image:
 
 ```json
 {
-    "created_at_unix_timestamp": 1700000000,
+    "created": 1700000000,
     "data": [
         {
-            "base64_encoded_image": "iVBORw0KGgoAAAANSUhEUgAA...",
-            "content_type": "image/png"
+            "b64_json": "iVBORw0KGgoAAAANSUhEUgAA..."
         }
     ]
 }
@@ -328,17 +323,17 @@ To view the generated image, save the response to a file and decode the base64 d
 ```bash
 curl -s -X POST http://localhost:8000/v1/images/generations \
     -H "Content-Type: application/json" \
-    -d '{"prompt": "a cat", "use_enhancer": false, "n": 1, "size": "256x256"}' \
+    -d '{"prompt": "a cat", "use_enhancer": false, "n": 1, "size": "512x512"}' \
     -o response.json
 
-python -c "import json, base64; data=json.load(open('response.json')); open('output.png','wb').write(base64.b64decode(data['data'][0]['base64_encoded_image']))"
+python -c "import json, base64; data=json.load(open('response.json')); open('output.png','wb').write(base64.b64decode(data['data'][0]['b64_json']))"
 ```
 
 **Windows (PowerShell):**
 ```powershell
-curl.exe --% -X POST http://localhost:8000/v1/images/generations -H "Content-Type: application/json" -d "{\"prompt\": \"a cat\", \"use_enhancer\": false, \"n\": 1, \"size\": \"256x256\"}" -o response.json
+curl.exe --% -X POST http://localhost:8000/v1/images/generations -H "Content-Type: application/json" -d "{\"prompt\": \"a cat\", \"use_enhancer\": false, \"n\": 1, \"size\": \"512x512\"}" -o response.json
 
-python -c "import json, base64; data=json.load(open('response.json')); open('output.png','wb').write(base64.b64decode(data['data'][0]['base64_encoded_image']))"
+python -c "import json, base64; data=json.load(open('response.json')); open('output.png','wb').write(base64.b64decode(data['data'][0]['b64_json']))"
 ```
 
 Open `output.png` to view the generated image.
@@ -422,11 +417,10 @@ Generates one or more images from a text prompt.
 
 ```json
 {
-    "created_at_unix_timestamp": 1700000000,
+    "created": 1700000000,
     "data": [
         {
-            "base64_encoded_image": "iVBORw0KGgoAAAANSUhEUgAA...",
-            "content_type": "image/png"
+            "b64_json": "iVBORw0KGgoAAAANSUhEUgAA..."
         }
     ]
 }
@@ -436,10 +430,38 @@ Generates one or more images from a text prompt.
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `prompt` | string | Yes | — | The text prompt describing the desired image (1–4 096 characters). |
+| `prompt` | string | Yes | — | The text prompt describing the desired image (1–2000 characters). |
 | `use_enhancer` | boolean | No | `false` | When `true`, the prompt is enhanced by the language model before generation. |
 | `n` | integer | No | `1` | Number of images to generate (1–4). |
-| `size` | string | No | `"512x512"` | Image dimensions. Supported: `256x256`, `512x512`, `768x768`, `1024x1024`. |
+| `size` | string | No | `"512x512"` | Image dimensions. Supported: `512x512`, `768x768`, `1024x1024`. |
+
+### GET /health
+
+Returns service liveness status.
+
+**Response body (200 OK):**
+
+```json
+{
+    "status": "healthy"
+}
+```
+
+### GET /health/ready
+
+Returns readiness status including backend service checks. Returns HTTP 503 if any backend is unavailable.
+
+**Response body (200 OK):**
+
+```json
+{
+    "status": "ready",
+    "checks": {
+        "image_generation": "ok",
+        "language_model": "ok"
+    }
+}
+```
 
 ---
 
@@ -449,8 +471,11 @@ All error responses follow a consistent JSON structure:
 
 ```json
 {
-    "error": "A human-readable description of what went wrong.",
-    "status_code": 400
+    "error": {
+        "code": "request_validation_failed",
+        "message": "A human-readable description of what went wrong.",
+        "correlation_id": "550e8400-e29b-41d4-a716-446655440000"
+    }
 }
 ```
 
@@ -516,14 +541,15 @@ text_to_image/
 │   ├── models.py                                  # Request and response Pydantic models
 │   ├── exceptions.py                              # Custom exception classes
 │   ├── error_handling.py                          # Centralised error handler registration
-│   ├── middleware.py                              # ASGI middleware (catch-all error handler)
+│   ├── middleware.py                              # ASGI middleware (correlation ID, request logging)
+│   ├── logging_config.py                          # Structured JSON logging configuration
 │   ├── services/
 │   │   ├── __init__.py
 │   │   ├── language_model_service.py              # llama.cpp integration
 │   │   └── image_generation_service.py            # Stable Diffusion pipeline (diffusers)
 │   └── routes/
 │       ├── __init__.py
-│       ├── health_routes.py                       # GET /health
+│       ├── health_routes.py                       # GET /health, GET /health/ready
 │       ├── prompt_enhancement_routes.py           # POST /v1/prompts/enhance
 │       └── image_generation_routes.py             # POST /v1/images/generations
 └── tests/
@@ -556,6 +582,29 @@ Once the service is running, FastAPI automatically generates interactive documen
 
 - **Swagger UI:** [http://localhost:8000/docs](http://localhost:8000/docs)
 - **ReDoc:** [http://localhost:8000/redoc](http://localhost:8000/redoc)
+
+---
+
+## Configuration Reference
+
+All configuration is loaded from environment variables prefixed with `TEXT_TO_IMAGE_`. A `.env` file is also supported for local development.
+
+| Variable | Description | Default |
+|---|---|---|
+| `TEXT_TO_IMAGE_LANGUAGE_MODEL_SERVER_BASE_URL` | Base URL of the llama.cpp server | `http://localhost:8080` |
+| `TEXT_TO_IMAGE_LANGUAGE_MODEL_PATH` | Path to GGUF model file (reference only, not used at runtime) | *(empty)* |
+| `TEXT_TO_IMAGE_LANGUAGE_MODEL_REQUEST_TIMEOUT_SECONDS` | Max seconds to wait for a language model response | `120.0` |
+| `TEXT_TO_IMAGE_LANGUAGE_MODEL_TEMPERATURE` | Sampling temperature for prompt enhancement | `0.7` |
+| `TEXT_TO_IMAGE_LANGUAGE_MODEL_MAX_TOKENS` | Max tokens the language model may generate | `512` |
+| `TEXT_TO_IMAGE_STABLE_DIFFUSION_MODEL_ID` | HuggingFace model ID or local path | `stable-diffusion-v1-5/stable-diffusion-v1-5` |
+| `TEXT_TO_IMAGE_STABLE_DIFFUSION_DEVICE` | Inference device: `auto`, `cpu`, or `cuda` | `auto` |
+| `TEXT_TO_IMAGE_STABLE_DIFFUSION_INFERENCE_STEPS` | Number of denoising steps per image | `20` |
+| `TEXT_TO_IMAGE_STABLE_DIFFUSION_GUIDANCE_SCALE` | Classifier-free guidance scale | `7.0` |
+| `TEXT_TO_IMAGE_STABLE_DIFFUSION_SAFETY_CHECKER` | Enable NSFW safety checker (`true`/`false`) | `true` |
+| `TEXT_TO_IMAGE_APPLICATION_HOST` | HTTP bind address | `127.0.0.1` |
+| `TEXT_TO_IMAGE_APPLICATION_PORT` | HTTP bind port | `8000` |
+| `TEXT_TO_IMAGE_CORS_ALLOWED_ORIGINS` | Allowed CORS origins (JSON list) | `[]` *(disabled)* |
+| `TEXT_TO_IMAGE_LOG_LEVEL` | Log level: `DEBUG`, `INFO`, `WARNING`, `ERROR` | `INFO` |
 
 ---
 
@@ -608,7 +657,7 @@ Once the service is running, FastAPI automatically generates interactive documen
 - For faster generation:
   - Install CUDA-enabled PyTorch if you have an NVIDIA GPU: see [https://pytorch.org/get-started/locally/](https://pytorch.org/get-started/locally/)
   - Verify GPU is being used by checking the startup logs: should show `Device: cuda` not `Device: cpu`
-- Reduce image size to `256x256` or `512x512` for faster CPU generation
+- Use `512x512` (the smallest supported size) for faster CPU generation
 
 ### Windows: "DLL load failed" or "The specified module could not be found"
 

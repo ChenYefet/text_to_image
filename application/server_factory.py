@@ -83,7 +83,7 @@ def create_application() -> fastapi.FastAPI:
                     application_configuration.stable_diffusion_safety_checker
                 ),
                 num_inference_steps=(
-                    application_configuration.stable_diffusion_num_inference_steps
+                    application_configuration.stable_diffusion_inference_steps
                 ),
                 guidance_scale=(
                     application_configuration.stable_diffusion_guidance_scale
