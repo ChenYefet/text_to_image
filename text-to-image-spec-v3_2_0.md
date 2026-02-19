@@ -1619,12 +1619,8 @@ This section defines the API request and response schemas and validation rules. 
           "description": "Human-readable error description safe for display to end users."
         },
         "details": {
-          "description": "Additional context; may be a string, an object with field-level errors, or an array of validation errors.",
-          "oneOf": [
-            {"type": "string"},
-            {"type": "object"},
-            {"type": "array"}
-          ]
+          "description": "Additional context about the error, when available.",
+          "type": ["string", "null"]
         },
         "correlation_id": {
           "type": "string",
@@ -1882,7 +1878,6 @@ llama.cpp is deployed as a separate process exposing an OpenAI-compatible HTTP A
 
 ```json
 {
-  "model": "llama-model",
   "messages": [
     {
       "role": "system",
@@ -1937,7 +1932,7 @@ The service shall extract `choices[0].message.content` and strip leading and tra
 | Parameter | Value | Justification |
 |-----------|-------|---------------|
 | `torch_dtype` | `torch.float16` (CUDA) / `torch.float32` (CPU) | Half-precision on GPU reduces memory consumption and improves throughput; full precision is required on CPU where float16 is not hardware-accelerated |
-| `safety_checker` | `None` | Disabled for performance in controlled environments where content moderation is handled externally |
+| `safety_checker` | Configurable (default: enabled) | Controlled via `TEXT_TO_IMAGE_STABLE_DIFFUSION_SAFETY_CHECKER`; enabled by default for safe operation, can be disabled for performance in controlled environments where content moderation is handled externally |
 | `attention_slicing` | Enabled | Reduces peak memory usage during inference on both CPU and GPU |
 | `num_inference_steps` | `20` | Optimised for acceptable output quality with significantly reduced latency, particularly on CPU hardware |
 | `guidance_scale` | `7.0` | Balanced prompt adherence without over-constraining the diffusion process |

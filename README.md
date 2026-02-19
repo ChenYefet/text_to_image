@@ -552,7 +552,7 @@ text_to_image/
 ├── .env.example                                   # Example environment variables
 ├── .env                                           # Your local environment config (not in git)
 ├── README.md                                      # This file
-├── text-to-image-spec-v3_1_0.md                   # Project specification
+├── text-to-image-spec-v3_2_0.md                   # Project specification
 ├── .github/
 │   └── workflows/
 │       └── ci.yml                                 # CI pipeline (lint + test)

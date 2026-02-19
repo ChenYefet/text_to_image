@@ -21,4 +21,5 @@ if __name__ == "__main__":
         host=application_configuration.application_host,
         port=application_configuration.application_port,
         reload=False,
+        timeout_graceful_shutdown=60,
     )
