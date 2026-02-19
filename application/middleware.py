@@ -6,6 +6,7 @@ Provides cross-cutting concerns that apply to every request/response cycle.
 
 import json
 import logging
+import time
 import uuid
 
 import starlette.types
@@ -45,13 +46,19 @@ class CorrelationIdMiddleware:
             return
 
         correlation_id = str(uuid.uuid4())
+        method = scope.get("method", "")
+        path = scope.get("path", "")
+        start_time = time.monotonic()
+        response_status = 0
 
         if "state" not in scope:
             scope["state"] = {}
         scope["state"]["correlation_id"] = correlation_id
 
         async def send_with_correlation_id(message: starlette.types.Message) -> None:
+            nonlocal response_status
             if message["type"] == "http.response.start":
+                response_status = message.get("status", 0)
                 headers = list(message.get("headers", []))
                 headers.append((b"x-correlation-id", correlation_id.encode()))
                 message["headers"] = headers
@@ -60,6 +67,7 @@ class CorrelationIdMiddleware:
         try:
             await self.app(scope, receive, send_with_correlation_id)
         except Exception:
+            response_status = 500
             logger.exception("An unexpected error occurred")
             body = json.dumps({
                 "error": {
@@ -80,3 +88,13 @@ class CorrelationIdMiddleware:
                 "type": "http.response.body",
                 "body": body,
             })
+        finally:
+            duration_ms = (time.monotonic() - start_time) * 1000
+            logger.info(
+                "%s %s -> %d (%.1fms) [%s]",
+                method,
+                path,
+                response_status,
+                duration_ms,
+                correlation_id,
+            )

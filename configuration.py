@@ -27,6 +27,7 @@ class ApplicationConfiguration(pydantic_settings.BaseSettings):
     language_model_request_timeout_seconds: float = 120.0
     cors_allowed_origins: list[str] = []
     stable_diffusion_safety_checker: bool = True
+    log_level: str = "INFO"
 
     model_config = pydantic_settings.SettingsConfigDict(
         env_file=".env",

@@ -14,6 +14,7 @@ import fastapi
 import fastapi.middleware.cors
 
 import application.error_handling
+import application.logging_config
 import application.middleware
 import application.routes.health_routes
 import application.routes.image_generation_routes
@@ -38,6 +39,9 @@ def create_application() -> fastapi.FastAPI:
       5. Includes all route handlers.
     """
     application_configuration = configuration.ApplicationConfiguration()
+    application.logging_config.configure_logging(
+        log_level=application_configuration.log_level,
+    )
 
     @contextlib.asynccontextmanager
     async def application_lifespan(
