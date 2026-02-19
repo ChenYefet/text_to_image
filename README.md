@@ -632,10 +632,9 @@ Once the service is running, FastAPI automatically generates interactive documen
 
 **Problem:** The image generation endpoint returns a 200 OK response with base64 data, but the decoded image is entirely black.
 
-**Cause:** The Stable Diffusion v1.5 safety checker can produce false NSFW detections, particularly on CPU. When this happens, the image is silently replaced with a black image. The only indication is a warning in the server logs: `Potential NSFW content was detected in one or more images. A black image will be returned instead.` This happens more frequently at smaller image sizes — in testing, `256x256` produced black images ~20% of the time for the same prompt that never triggered false positives at `512x512` or larger.
+**Cause:** The Stable Diffusion v1.5 safety checker can produce false NSFW detections. When this happens, the image is silently replaced with a black image. The only indication is a warning in the server logs: `Potential NSFW content was detected in one or more images. A black image will be returned instead.` The API enforces a minimum image size of `512x512` to mitigate this — in testing, `256x256` produced black images ~20% of the time for prompts that never triggered false positives at `512x512` or larger.
 
 **Solution:**
-- Use `512x512` or larger image sizes to reduce the likelihood of false NSFW detections
 - Try a different prompt or add more descriptive detail
 - Check the server terminal for NSFW warnings
 
