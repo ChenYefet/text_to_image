@@ -85,6 +85,16 @@ class TestReadinessRoutes:
         assert body["status"] == "not_ready"
         assert body["checks"]["image_generation"] == "unavailable"
 
+    @pytest.mark.asyncio
+    async def test_not_ready_when_language_model_check_raises(self, client, mock_language_model_service):
+        mock_language_model_service.check_health = AsyncMock(side_effect=RuntimeError("unexpected"))
+
+        response = await client.get("/health/ready")
+
+        assert response.status_code == 503
+        body = response.json()
+        assert body["checks"]["language_model"] == "unavailable"
+
 
 class TestMetricsRoutes:
     @pytest.mark.asyncio
