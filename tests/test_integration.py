@@ -327,7 +327,10 @@ class TestImageGenerationFlow:
         assert body["error"]["code"] == "model_unavailable"
 
     @pytest.mark.asyncio
-    async def test_enhancer_failure_during_generation(self, integration_client, mock_lm_service):
+    async def test_enhancer_failure_falls_back_to_original_prompt(
+        self, integration_client, mock_lm_service, mock_img_service
+    ):
+        """When the enhancer fails during image generation, the original prompt is used."""
         mock_lm_service.enhance_prompt.side_effect = application.exceptions.LanguageModelServiceUnavailableError(
             detail="Timeout",
         )
@@ -337,9 +340,12 @@ class TestImageGenerationFlow:
             json={"prompt": "A sunset", "use_enhancer": True},
         )
 
-        assert response.status_code == 502
+        assert response.status_code == 200
         body = response.json()
-        assert body["error"]["code"] == "upstream_service_unavailable"
+        assert len(body["data"]) == 1
+        # The original prompt should have been used for generation
+        call_kwargs = mock_img_service.generate_images.call_args
+        assert call_kwargs.kwargs["prompt"] == "A sunset"
 
 
 # ─── Validation Through Full Stack ───────────────────────────────────────────

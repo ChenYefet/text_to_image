@@ -11,12 +11,16 @@ import time
 import typing
 
 import fastapi
+import structlog
 
 import application.dependencies
+import application.exceptions
 import application.models
 import application.rate_limiting
 import application.services.image_generation_service
 import application.services.language_model_service
+
+logger = structlog.get_logger()
 
 image_generation_router = fastapi.APIRouter(
     prefix="/v1/images",
@@ -62,9 +66,19 @@ async def handle_image_generation_request(
     prompt_for_generation = image_generation_request.prompt
 
     if image_generation_request.use_enhancer:
-        prompt_for_generation = await language_model_service.enhance_prompt(
-            original_prompt=image_generation_request.prompt,
-        )
+        try:
+            prompt_for_generation = await language_model_service.enhance_prompt(
+                original_prompt=image_generation_request.prompt,
+            )
+        except (
+            application.exceptions.LanguageModelServiceUnavailableError,
+            application.exceptions.PromptEnhancementError,
+        ) as enhancement_error:
+            logger.warning(
+                "prompt_enhancement_fallback",
+                error=enhancement_error.detail,
+            )
+            # Fall back to the original prompt instead of failing the request
 
     image_width, image_height = image_generation_request.parse_image_width_and_height()
 
