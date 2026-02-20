@@ -6,11 +6,13 @@ import fastapi
 import httpx
 import pytest
 import pytest_asyncio
+import slowapi.errors
 
 import application.dependencies
 import application.error_handling
 import application.metrics
 import application.middleware
+import application.rate_limiting
 import application.routes.health_routes
 import application.routes.image_generation_routes
 import application.routes.prompt_enhancement_routes
@@ -49,6 +51,13 @@ def test_app(mock_language_model_service, mock_image_generation_service):
 
     app.dependency_overrides[application.dependencies.get_image_generation_service] = lambda: (
         mock_image_generation_service
+    )
+
+    app.state.limiter = application.rate_limiting.limiter
+    application.rate_limiting.configure_rate_limit("1000/minute")
+    app.add_exception_handler(
+        slowapi.errors.RateLimitExceeded,
+        application.rate_limiting.rate_limit_exceeded_handler,
     )
 
     app.state.language_model_service = mock_language_model_service

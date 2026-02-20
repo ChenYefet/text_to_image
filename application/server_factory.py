@@ -12,12 +12,14 @@ import contextlib
 
 import fastapi
 import fastapi.middleware.cors
+import slowapi.errors
 import structlog
 
 import application.error_handling
 import application.logging_config
 import application.metrics
 import application.middleware
+import application.rate_limiting
 import application.routes.health_routes
 import application.routes.image_generation_routes
 import application.routes.prompt_enhancement_routes
@@ -106,6 +108,13 @@ def create_application() -> fastapi.FastAPI:
     )
 
     application.error_handling.register_error_handlers(fastapi_application)
+
+    application.rate_limiting.configure_rate_limit(application_configuration.rate_limit)
+    fastapi_application.state.limiter = application.rate_limiting.limiter
+    fastapi_application.add_exception_handler(
+        slowapi.errors.RateLimitExceeded,
+        application.rate_limiting.rate_limit_exceeded_handler,  # type: ignore[arg-type]
+    )
 
     if application_configuration.cors_allowed_origins:
         fastapi_application.add_middleware(

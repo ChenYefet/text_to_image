@@ -22,6 +22,7 @@ class TestApplicationConfiguration:
         monkeypatch.delenv("TEXT_TO_IMAGE_STABLE_DIFFUSION_INFERENCE_STEPS", raising=False)
         monkeypatch.delenv("TEXT_TO_IMAGE_STABLE_DIFFUSION_GUIDANCE_SCALE", raising=False)
         monkeypatch.delenv("TEXT_TO_IMAGE_STABLE_DIFFUSION_INFERENCE_TIMEOUT_PER_UNIT_SECONDS", raising=False)
+        monkeypatch.delenv("TEXT_TO_IMAGE_RATE_LIMIT", raising=False)
 
         config = configuration.ApplicationConfiguration()
 
@@ -39,6 +40,7 @@ class TestApplicationConfiguration:
         assert config.stable_diffusion_inference_steps == 20
         assert config.stable_diffusion_guidance_scale == 7.0
         assert config.stable_diffusion_inference_timeout_per_unit_seconds == 60.0
+        assert config.rate_limit == "10/minute"
 
     def test_environment_variable_override(self, monkeypatch):
         monkeypatch.setenv("TEXT_TO_IMAGE_APPLICATION_PORT", "9999")

@@ -112,6 +112,7 @@ async def cors_client(mock_lm_service, mock_img_service):
         config.stable_diffusion_inference_timeout_per_unit_seconds = 60.0
         config.cors_allowed_origins = ["http://localhost:3000"]
         config.log_level = "INFO"
+        config.rate_limit = "1000/minute"
 
         app = application.server_factory.create_application()
         async with app.router.lifespan_context(app):
@@ -576,3 +577,52 @@ class TestConcurrency:
 
         correlation_ids = [r.headers["x-correlation-id"] for r in responses]
         assert len(set(correlation_ids)) == 5
+
+
+# ─── Rate Limiting ──────────────────────────────────────────────────────────
+
+
+class TestRateLimiting:
+    @pytest.mark.asyncio
+    async def test_rate_limit_returns_429(self, mock_lm_service, mock_img_service):
+        """Exceeding the rate limit must return a 429 JSON response."""
+        import application.rate_limiting
+
+        with (
+            patch("configuration.ApplicationConfiguration") as mock_config_cls,
+            _patched_services(mock_lm_service, mock_img_service),
+        ):
+            config = mock_config_cls.return_value
+            config.language_model_server_base_url = "http://localhost:8080"
+            config.language_model_request_timeout_seconds = 120.0
+            config.language_model_temperature = 0.7
+            config.language_model_max_tokens = 512
+            config.stable_diffusion_model_id = "test-model"
+            config.stable_diffusion_device = "cpu"
+            config.stable_diffusion_safety_checker = True
+            config.stable_diffusion_inference_steps = 20
+            config.stable_diffusion_guidance_scale = 7.0
+            config.stable_diffusion_inference_timeout_per_unit_seconds = 60.0
+            config.cors_allowed_origins = []
+            config.log_level = "INFO"
+            config.rate_limit = "2/minute"
+
+            application.rate_limiting.limiter.reset()
+
+            app = application.server_factory.create_application()
+            async with app.router.lifespan_context(app):
+                transport = httpx.ASGITransport(app=app)
+                async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+                    # First two requests should succeed
+                    r1 = await client.post("/v1/prompts/enhance", json={"prompt": "A cat"})
+                    assert r1.status_code == 200
+
+                    r2 = await client.post("/v1/prompts/enhance", json={"prompt": "A dog"})
+                    assert r2.status_code == 200
+
+                    # Third request should be rate limited
+                    r3 = await client.post("/v1/prompts/enhance", json={"prompt": "A bird"})
+                    assert r3.status_code == 429
+                    body = r3.json()
+                    assert body["error"]["code"] == "rate_limit_exceeded"
+                    assert "x-correlation-id" in r3.headers

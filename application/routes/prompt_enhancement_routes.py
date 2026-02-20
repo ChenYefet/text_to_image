@@ -12,6 +12,7 @@ import fastapi
 
 import application.dependencies
 import application.models
+import application.rate_limiting
 import application.services.language_model_service
 
 prompt_enhancement_router = fastapi.APIRouter(
@@ -32,7 +33,9 @@ prompt_enhancement_router = fastapi.APIRouter(
     ),
     status_code=200,
 )
+@application.rate_limiting.inference_rate_limit
 async def handle_prompt_enhancement_request(
+    request: fastapi.Request,
     prompt_enhancement_request: application.models.PromptEnhancementRequest,
     language_model_service: typing.Annotated[
         application.services.language_model_service.LanguageModelService,

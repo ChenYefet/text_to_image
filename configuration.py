@@ -60,6 +60,14 @@ class ApplicationConfiguration(pydantic_settings.BaseSettings):
             "Actual timeout: base × n_images × (w × h) / (512 × 512) [× 30 on CPU]."
         ),
     )
+    rate_limit: str = pydantic.Field(
+        default="10/minute",
+        description=(
+            "Rate limit for inference endpoints (prompt enhancement and image "
+            "generation). Uses the format 'count/period' where period is one "
+            "of: second, minute, hour, day. Set to '0/second' to disable."
+        ),
+    )
 
     model_config = pydantic_settings.SettingsConfigDict(
         env_file=".env",

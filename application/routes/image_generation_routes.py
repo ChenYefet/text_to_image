@@ -14,6 +14,7 @@ import fastapi
 
 import application.dependencies
 import application.models
+import application.rate_limiting
 import application.services.image_generation_service
 import application.services.language_model_service
 
@@ -34,7 +35,9 @@ image_generation_router = fastapi.APIRouter(
     ),
     status_code=200,
 )
+@application.rate_limiting.inference_rate_limit
 async def handle_image_generation_request(
+    request: fastapi.Request,
     image_generation_request: application.models.ImageGenerationRequest,
     image_generation_service: typing.Annotated[
         application.services.image_generation_service.ImageGenerationService,
