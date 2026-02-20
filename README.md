@@ -17,6 +17,7 @@ llama.cpp language model.
 | **HTTP Client** | httpx | Async-native HTTP client with comprehensive timeout configuration, connection pooling, and structured error handling for service-to-service communication. |
 | **Language Model** | llama.cpp (OpenAI-compatible mode) | Lightweight, CPU-only inference server that exposes an OpenAI-compatible `/v1/chat/completions` endpoint. No GPU required. |
 | **Image Generation** | HuggingFace diffusers | In-process Stable Diffusion pipeline loaded via the `diffusers` library. Auto-detects GPU/CPU, downloads the model from HuggingFace Hub on first run, and requires no external server process. |
+| **Rate Limiting** | slowapi | IP-based rate limiting for inference-heavy endpoints. Configurable via environment variable using a `count/period` format (e.g., `10/minute`). |
 | **Structured Logging** | structlog | JSON-formatted structured logging with mandatory fields (`timestamp`, `level`, `event`, `correlation_id`, `service_name`). Handles both native structlog loggers and stdlib loggers through the same JSON pipeline. |
 
 ### Scalability Considerations
@@ -24,6 +25,7 @@ llama.cpp language model.
 - **Asynchronous throughout** — every I/O operation uses `async`/`await`, and Stable Diffusion inference is dispatched to a thread pool to avoid blocking the event loop.
 - **Connection pooling** — persistent `httpx.AsyncClient` instances reuse TCP connections across requests, reducing handshake overhead.
 - **Inference serialisation** — an `asyncio.Lock` serialises concurrent image generation requests to prevent GPU memory contention.
+- **Rate limiting** — inference endpoints are throttled per client IP using `slowapi`, preventing any single client from monopolising GPU/CPU resources.
 - **Environment-based configuration** — all settings are loaded from environment variables (12-factor app compliant), enabling deployment across development, staging, and production environments without code changes.
 - **Factory pattern** — the application is constructed via a factory function, making it straightforward to create isolated instances for testing or multi-worker deployments.
 
@@ -566,6 +568,7 @@ All error responses follow a consistent JSON structure:
     "error": {
         "code": "request_validation_failed",
         "message": "A human-readable description of what went wrong.",
+        "details": null,
         "correlation_id": "550e8400-e29b-41d4-a716-446655440000"
     }
 }
@@ -575,6 +578,7 @@ All error responses follow a consistent JSON structure:
 |---|---|---|
 | Invalid JSON or validation failure | **400 Bad Request** | The request body contains malformed JSON, missing required fields, or values that fail validation. |
 | Backend service unavailable | **502 Bad Gateway** | The llama.cpp server cannot be reached, or the Stable Diffusion pipeline encountered a runtime error. |
+| Rate limit exceeded | **429 Too Many Requests** | The client has exceeded the configured request rate for inference endpoints. |
 | Unexpected internal error | **500 Internal Server Error** | An unhandled exception occurred within the service. |
 
 ---
@@ -639,6 +643,7 @@ text_to_image/
 │   ├── middleware.py                              # ASGI middleware (correlation ID, request logging)
 │   ├── logging_config.py                          # Structured JSON logging configuration (structlog)
 │   ├── metrics.py                                 # In-memory performance metrics collector
+│   ├── rate_limiting.py                           # IP-based rate limiting (slowapi)
 │   ├── services/
 │   │   ├── __init__.py
 │   │   ├── language_model_service.py              # llama.cpp integration
@@ -704,6 +709,7 @@ All configuration is loaded from environment variables prefixed with `TEXT_TO_IM
 | `TEXT_TO_IMAGE_APPLICATION_PORT` | HTTP bind port | `8000` |
 | `TEXT_TO_IMAGE_CORS_ALLOWED_ORIGINS` | Allowed CORS origins (JSON list) | `[]` *(disabled)* |
 | `TEXT_TO_IMAGE_LOG_LEVEL` | Log level: `DEBUG`, `INFO`, `WARNING`, `ERROR` | `INFO` |
+| `TEXT_TO_IMAGE_RATE_LIMIT` | Rate limit for inference endpoints in `count/period` format (e.g., `10/minute`, `100/hour`). Set to `0/second` to disable. | `10/minute` |
 
 ---
 
