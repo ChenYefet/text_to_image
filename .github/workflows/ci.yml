@@ -32,6 +32,21 @@ jobs:
           source .venv/bin/activate
           ruff check application/ tests/
 
+      - name: Check formatting with ruff
+        run: |
+          source .venv/bin/activate
+          ruff format --check application/ tests/
+
+      - name: Type check with mypy
+        run: |
+          source .venv/bin/activate
+          mypy application/ --ignore-missing-imports
+
+      - name: Audit dependencies for vulnerabilities
+        run: |
+          source .venv/bin/activate
+          pip-audit -r requirements.txt
+
       - name: Run tests with coverage
         run: |
           source .venv/bin/activate

@@ -6,7 +6,6 @@ import application.exceptions
 
 
 class TestPromptEnhancementRoutes:
-
     @pytest.mark.asyncio
     async def test_success(self, client, mock_language_model_service):
         response = await client.post(
@@ -79,13 +78,9 @@ class TestPromptEnhancementRoutes:
         assert "X-Correlation-ID" in response.headers
 
     @pytest.mark.asyncio
-    async def test_service_unavailable(
-        self, client, mock_language_model_service
-    ):
+    async def test_service_unavailable(self, client, mock_language_model_service):
         mock_language_model_service.enhance_prompt.side_effect = (
-            application.exceptions.LanguageModelServiceUnavailableError(
-                detail="Server down"
-            )
+            application.exceptions.LanguageModelServiceUnavailableError(detail="Server down")
         )
 
         response = await client.post(
@@ -100,13 +95,9 @@ class TestPromptEnhancementRoutes:
         assert "Server down" in body["error"]["message"]
 
     @pytest.mark.asyncio
-    async def test_enhancement_error(
-        self, client, mock_language_model_service
-    ):
-        mock_language_model_service.enhance_prompt.side_effect = (
-            application.exceptions.PromptEnhancementError(
-                detail="Malformed response"
-            )
+    async def test_enhancement_error(self, client, mock_language_model_service):
+        mock_language_model_service.enhance_prompt.side_effect = application.exceptions.PromptEnhancementError(
+            detail="Malformed response"
         )
 
         response = await client.post(
@@ -121,12 +112,8 @@ class TestPromptEnhancementRoutes:
         assert "Malformed response" in body["error"]["message"]
 
     @pytest.mark.asyncio
-    async def test_unexpected_error(
-        self, client, mock_language_model_service
-    ):
-        mock_language_model_service.enhance_prompt.side_effect = (
-            RuntimeError("something broke")
-        )
+    async def test_unexpected_error(self, client, mock_language_model_service):
+        mock_language_model_service.enhance_prompt.side_effect = RuntimeError("something broke")
 
         response = await client.post(
             "/v1/prompts/enhance",

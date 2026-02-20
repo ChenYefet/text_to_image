@@ -110,10 +110,7 @@ class LanguageModelService:
                 status_code=http_status_error.response.status_code,
             )
             raise application.exceptions.LanguageModelServiceUnavailableError(
-                detail=(
-                    f"The language model server returned HTTP status "
-                    f"{http_status_error.response.status_code}."
-                ),
+                detail=(f"The language model server returned HTTP status {http_status_error.response.status_code}."),
             ) from http_status_error
         except httpx.TimeoutException as timeout_error:
             logger.error(
@@ -127,19 +124,14 @@ class LanguageModelService:
         response_body = http_response.json()
 
         try:
-            enhanced_prompt_text = (
-                response_body["choices"][0]["message"]["content"]
-            )
+            enhanced_prompt_text = response_body["choices"][0]["message"]["content"]
         except (KeyError, IndexError) as parsing_error:
             logger.error(
                 "llama_cpp_response_parsing_failed",
                 error="Unexpected response structure from language model server",
             )
             raise application.exceptions.PromptEnhancementError(
-                detail=(
-                    "The language model returned an unexpected response "
-                    "structure."
-                ),
+                detail=("The language model returned an unexpected response structure."),
             ) from parsing_error
 
         if not enhanced_prompt_text or not enhanced_prompt_text.strip():
@@ -147,7 +139,7 @@ class LanguageModelService:
                 detail="The language model returned an empty enhanced prompt.",
             )
 
-        result = enhanced_prompt_text.strip()
+        result: str = enhanced_prompt_text.strip()
 
         logger.info(
             "prompt_enhancement_completed",

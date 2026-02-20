@@ -7,6 +7,8 @@ A detailed ``GET /health/ready`` endpoint checks backend connectivity.
 A ``GET /metrics`` endpoint exposes request count and latency metrics.
 """
 
+import typing
+
 import fastapi
 
 health_router = fastapi.APIRouter(tags=["Health"])
@@ -31,20 +33,16 @@ async def health_check() -> dict:
     ),
     status_code=200,
 )
-async def readiness_check(request: fastapi.Request) -> dict:
+async def readiness_check(request: fastapi.Request) -> fastapi.responses.JSONResponse:
     checks: dict[str, str] = {}
 
-    image_service = getattr(
-        request.app.state, "image_generation_service", None
-    )
+    image_service = getattr(request.app.state, "image_generation_service", None)
     if image_service is not None:
         checks["image_generation"] = "ok"
     else:
         checks["image_generation"] = "unavailable"
 
-    lm_service = getattr(
-        request.app.state, "language_model_service", None
-    )
+    lm_service = getattr(request.app.state, "language_model_service", None)
     if lm_service is not None:
         checks["language_model"] = "ok"
     else:
@@ -62,14 +60,12 @@ async def readiness_check(request: fastapi.Request) -> dict:
 @health_router.get(
     "/metrics",
     summary="Request metrics",
-    description=(
-        "Returns request count and latency metrics in JSON format "
-        "for operational monitoring (NFR11)."
-    ),
+    description=("Returns request count and latency metrics in JSON format for operational monitoring (NFR11)."),
     status_code=200,
 )
-async def metrics(request: fastapi.Request) -> dict:
+async def metrics(request: fastapi.Request) -> dict[str, typing.Any]:
     collector = getattr(request.app.state, "metrics_collector", None)
     if collector is None:
         return {"request_counts": {}, "request_latencies": {}}
-    return collector.snapshot()
+    result: dict[str, typing.Any] = collector.snapshot()
+    return result

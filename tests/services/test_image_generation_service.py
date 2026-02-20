@@ -26,15 +26,12 @@ def _make_service(device_type="cpu"):
 
 
 class TestResolveDevice:
-
     @patch("application.services.image_generation_service.torch")
     def test_auto_with_cuda(self, mock_torch):
         mock_torch.cuda.is_available.return_value = True
         mock_torch.device.return_value = MagicMock(type="cuda")
 
-        application.services.image_generation_service.ImageGenerationService._resolve_device(
-            "auto"
-        )
+        application.services.image_generation_service.ImageGenerationService._resolve_device("auto")
 
         mock_torch.device.assert_called_with("cuda")
 
@@ -43,9 +40,7 @@ class TestResolveDevice:
         mock_torch.cuda.is_available.return_value = False
         mock_torch.device.return_value = MagicMock(type="cpu")
 
-        application.services.image_generation_service.ImageGenerationService._resolve_device(
-            "auto"
-        )
+        application.services.image_generation_service.ImageGenerationService._resolve_device("auto")
 
         mock_torch.device.assert_called_with("cpu")
 
@@ -53,9 +48,7 @@ class TestResolveDevice:
     def test_explicit_cpu(self, mock_torch):
         mock_torch.device.return_value = MagicMock(type="cpu")
 
-        application.services.image_generation_service.ImageGenerationService._resolve_device(
-            "cpu"
-        )
+        application.services.image_generation_service.ImageGenerationService._resolve_device("cpu")
 
         mock_torch.device.assert_called_with("cpu")
 
@@ -63,15 +56,12 @@ class TestResolveDevice:
     def test_explicit_cuda(self, mock_torch):
         mock_torch.device.return_value = MagicMock(type="cuda")
 
-        application.services.image_generation_service.ImageGenerationService._resolve_device(
-            "cuda"
-        )
+        application.services.image_generation_service.ImageGenerationService._resolve_device("cuda")
 
         mock_torch.device.assert_called_with("cuda")
 
 
 class TestGenerateImages:
-
     @pytest.mark.asyncio
     async def test_success(self):
         service = _make_service()
@@ -91,6 +81,7 @@ class TestGenerateImages:
         assert isinstance(images[0], str)
         # Verify it's valid base64 by decoding
         import base64
+
         decoded = base64.b64decode(images[0])
         assert len(decoded) > 0
 
@@ -116,9 +107,7 @@ class TestGenerateImages:
         service = _make_service()
         service._pipeline.side_effect = RuntimeError("GPU out of memory")
 
-        with pytest.raises(
-            application.exceptions.ImageGenerationServiceUnavailableError
-        ):
+        with pytest.raises(application.exceptions.ImageGenerationServiceUnavailableError):
             await service.generate_images(
                 prompt="A cat",
                 image_width=512,
@@ -134,6 +123,7 @@ class TestGenerateImages:
 
         def slow_inference(*args, **kwargs):
             import time
+
             time.sleep(1)
 
         service._pipeline.side_effect = slow_inference
@@ -166,7 +156,6 @@ class TestGenerateImages:
 
 
 class TestLoadPipeline:
-
     @patch("application.services.image_generation_service.diffusers")
     @patch("application.services.image_generation_service.torch")
     def test_safety_checker_enabled_by_default(self, mock_torch, mock_diffusers):
@@ -175,9 +164,7 @@ class TestLoadPipeline:
         mock_torch.float32 = "float32"
         mock_pipeline = MagicMock()
         mock_pipeline.to.return_value = mock_pipeline
-        mock_diffusers.StableDiffusionPipeline.from_pretrained.return_value = (
-            mock_pipeline
-        )
+        mock_diffusers.StableDiffusionPipeline.from_pretrained.return_value = mock_pipeline
 
         application.services.image_generation_service.ImageGenerationService.load_pipeline(
             model_id="test-model",
@@ -197,9 +184,7 @@ class TestLoadPipeline:
         mock_torch.float32 = "float32"
         mock_pipeline = MagicMock()
         mock_pipeline.to.return_value = mock_pipeline
-        mock_diffusers.StableDiffusionPipeline.from_pretrained.return_value = (
-            mock_pipeline
-        )
+        mock_diffusers.StableDiffusionPipeline.from_pretrained.return_value = mock_pipeline
 
         application.services.image_generation_service.ImageGenerationService.load_pipeline(
             model_id="test-model",
@@ -215,14 +200,11 @@ class TestLoadPipeline:
 
 
 class TestClose:
-
     @pytest.mark.asyncio
     async def test_close_cpu(self):
         service = _make_service(device_type="cpu")
 
-        with patch(
-            "application.services.image_generation_service.torch"
-        ) as mock_torch:
+        with patch("application.services.image_generation_service.torch") as mock_torch:
             await service.close()
             mock_torch.cuda.empty_cache.assert_not_called()
 
@@ -230,9 +212,7 @@ class TestClose:
     async def test_close_cuda(self):
         service = _make_service(device_type="cuda")
 
-        with patch(
-            "application.services.image_generation_service.torch"
-        ) as mock_torch:
+        with patch("application.services.image_generation_service.torch") as mock_torch:
             await service.close()
             mock_torch.cuda.empty_cache.assert_called_once()
 
@@ -240,15 +220,12 @@ class TestClose:
     async def test_close_twice_is_safe(self):
         service = _make_service(device_type="cpu")
 
-        with patch(
-            "application.services.image_generation_service.torch"
-        ):
+        with patch("application.services.image_generation_service.torch"):
             await service.close()
             await service.close()  # should not raise
 
 
 class TestComputeTimeout:
-
     def test_gpu_baseline_image(self):
         service = _make_service(device_type="cuda")
         service._inference_timeout_per_unit_seconds = 60.0

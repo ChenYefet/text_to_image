@@ -82,25 +82,31 @@ class CorrelationIdMiddleware:
         except Exception:
             response_status = 500
             logger.exception("unexpected_exception")
-            body = json.dumps({
-                "error": {
-                    "code": "internal_server_error",
-                    "message": "An unexpected internal error occurred.",
-                    "correlation_id": correlation_id,
+            body = json.dumps(
+                {
+                    "error": {
+                        "code": "internal_server_error",
+                        "message": "An unexpected internal error occurred.",
+                        "correlation_id": correlation_id,
+                    }
                 }
-            }).encode()
-            await send({
-                "type": "http.response.start",
-                "status": 500,
-                "headers": [
-                    (b"content-type", b"application/json"),
-                    (b"x-correlation-id", correlation_id.encode()),
-                ],
-            })
-            await send({
-                "type": "http.response.body",
-                "body": body,
-            })
+            ).encode()
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 500,
+                    "headers": [
+                        (b"content-type", b"application/json"),
+                        (b"x-correlation-id", correlation_id.encode()),
+                    ],
+                }
+            )
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": body,
+                }
+            )
         finally:
             duration_ms = (time.monotonic() - start_time) * 1000
             logger.info(

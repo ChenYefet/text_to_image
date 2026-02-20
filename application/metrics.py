@@ -36,9 +36,7 @@ class MetricsCollector:
         """Record a completed HTTP request."""
         with self._lock:
             count_key = f"{method} {path} {status}"
-            self._request_counts[count_key] = (
-                self._request_counts.get(count_key, 0) + 1
-            )
+            self._request_counts[count_key] = self._request_counts.get(count_key, 0) + 1
 
             latency_key = f"{method} {path}"
             if latency_key not in self._request_latencies:

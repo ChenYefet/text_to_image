@@ -63,9 +63,7 @@ async def handle_image_generation_request(
             original_prompt=image_generation_request.prompt,
         )
 
-    image_width, image_height = (
-        image_generation_request.parse_image_width_and_height()
-    )
+    image_width, image_height = image_generation_request.parse_image_width_and_height()
 
     base64_encoded_images = await image_generation_service.generate_images(
         prompt=prompt_for_generation,

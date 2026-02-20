@@ -72,9 +72,7 @@ def register_error_handlers(fastapi_application: fastapi.FastAPI) -> None:
         errors = validation_error.errors()
         logger.warning("http_validation_failed", errors=errors)
 
-        is_json_error = any(
-            error.get("type", "").startswith("json") for error in errors
-        )
+        is_json_error = any(error.get("type", "").startswith("json") for error in errors)
 
         if is_json_error:
             code = "invalid_request_json"
@@ -102,7 +100,10 @@ def register_error_handlers(fastapi_application: fastapi.FastAPI) -> None:
             detail=unavailable_error.detail,
         )
         return _build_error_response(
-            502, "upstream_service_unavailable", unavailable_error.detail, _get_correlation_id(request),
+            502,
+            "upstream_service_unavailable",
+            unavailable_error.detail,
+            _get_correlation_id(request),
         )
 
     @fastapi_application.exception_handler(
@@ -122,7 +123,10 @@ def register_error_handlers(fastapi_application: fastapi.FastAPI) -> None:
             detail=unavailable_error.detail,
         )
         return _build_error_response(
-            502, "model_unavailable", unavailable_error.detail, _get_correlation_id(request),
+            502,
+            "model_unavailable",
+            unavailable_error.detail,
+            _get_correlation_id(request),
         )
 
     @fastapi_application.exception_handler(
@@ -141,7 +145,10 @@ def register_error_handlers(fastapi_application: fastapi.FastAPI) -> None:
             detail=enhancement_error.detail,
         )
         return _build_error_response(
-            502, "upstream_service_unavailable", enhancement_error.detail, _get_correlation_id(request),
+            502,
+            "upstream_service_unavailable",
+            enhancement_error.detail,
+            _get_correlation_id(request),
         )
 
     @fastapi_application.exception_handler(
@@ -161,7 +168,10 @@ def register_error_handlers(fastapi_application: fastapi.FastAPI) -> None:
             detail=generation_error.detail,
         )
         return _build_error_response(
-            502, "model_unavailable", generation_error.detail, _get_correlation_id(request),
+            502,
+            "model_unavailable",
+            generation_error.detail,
+            _get_correlation_id(request),
         )
 
     # Note: the catch-all handler for unexpected exceptions (500 Internal

@@ -30,14 +30,11 @@ def _create_test_app():
 async def client():
     app = _create_test_app()
     transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(
-        transport=transport, base_url="http://testserver"
-    ) as ac:
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as ac:
         yield ac
 
 
 class TestCorrelationIdMiddleware:
-
     @pytest.mark.asyncio
     async def test_header_present(self, client):
         response = await client.get("/test")

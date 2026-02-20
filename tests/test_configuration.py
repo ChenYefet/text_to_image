@@ -7,7 +7,6 @@ import configuration
 
 
 class TestApplicationConfiguration:
-
     def test_default_values(self, monkeypatch):
         monkeypatch.delenv("TEXT_TO_IMAGE_LANGUAGE_MODEL_SERVER_BASE_URL", raising=False)
         monkeypatch.delenv("TEXT_TO_IMAGE_STABLE_DIFFUSION_MODEL_ID", raising=False)
@@ -54,7 +53,6 @@ class TestApplicationConfiguration:
 
 
 class TestConfigurationValidation:
-
     def test_port_below_minimum_rejected(self, monkeypatch):
         monkeypatch.setenv("TEXT_TO_IMAGE_APPLICATION_PORT", "0")
         with pytest.raises(pydantic.ValidationError):

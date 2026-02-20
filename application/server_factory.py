@@ -7,6 +7,7 @@ registration. Using a factory function (rather than a module-level global)
 makes the application straightforward to test and re-create.
 """
 
+import collections.abc
 import contextlib
 
 import fastapi
@@ -49,7 +50,7 @@ def create_application() -> fastapi.FastAPI:
     @contextlib.asynccontextmanager
     async def application_lifespan(
         fastapi_application: fastapi.FastAPI,
-    ):
+    ) -> collections.abc.AsyncIterator[None]:
         """
         Manage the lifecycle of shared service instances.
 
@@ -57,52 +58,28 @@ def create_application() -> fastapi.FastAPI:
         Stable Diffusion pipeline in-process. On shutdown, close them
         to release resources.
         """
-        language_model_service_instance = (
-            application.services.language_model_service.LanguageModelService(
-                language_model_server_base_url=(
-                    application_configuration.language_model_server_base_url
-                ),
-                request_timeout_seconds=(
-                    application_configuration.language_model_request_timeout_seconds
-                ),
-                temperature=(
-                    application_configuration.language_model_temperature
-                ),
-                max_tokens=(
-                    application_configuration.language_model_max_tokens
-                ),
-            )
+        language_model_service_instance = application.services.language_model_service.LanguageModelService(
+            language_model_server_base_url=(application_configuration.language_model_server_base_url),
+            request_timeout_seconds=(application_configuration.language_model_request_timeout_seconds),
+            temperature=(application_configuration.language_model_temperature),
+            max_tokens=(application_configuration.language_model_max_tokens),
         )
 
         image_generation_service_instance = (
             application.services.image_generation_service.ImageGenerationService.load_pipeline(
-                model_id=(
-                    application_configuration.stable_diffusion_model_id
-                ),
-                device_preference=(
-                    application_configuration.stable_diffusion_device
-                ),
-                enable_safety_checker=(
-                    application_configuration.stable_diffusion_safety_checker
-                ),
-                num_inference_steps=(
-                    application_configuration.stable_diffusion_inference_steps
-                ),
-                guidance_scale=(
-                    application_configuration.stable_diffusion_guidance_scale
-                ),
+                model_id=(application_configuration.stable_diffusion_model_id),
+                device_preference=(application_configuration.stable_diffusion_device),
+                enable_safety_checker=(application_configuration.stable_diffusion_safety_checker),
+                num_inference_steps=(application_configuration.stable_diffusion_inference_steps),
+                guidance_scale=(application_configuration.stable_diffusion_guidance_scale),
                 inference_timeout_per_unit_seconds=(
                     application_configuration.stable_diffusion_inference_timeout_per_unit_seconds
                 ),
             )
         )
 
-        fastapi_application.state.language_model_service = (
-            language_model_service_instance
-        )
-        fastapi_application.state.image_generation_service = (
-            image_generation_service_instance
-        )
+        fastapi_application.state.language_model_service = language_model_service_instance
+        fastapi_application.state.image_generation_service = image_generation_service_instance
         fastapi_application.state.metrics_collector = metrics_collector
 
         logger.info(

@@ -7,7 +7,6 @@ import application.models
 
 
 class TestPromptEnhancementRequest:
-
     def test_valid_prompt(self):
         req = application.models.PromptEnhancementRequest(prompt="A cat")
         assert req.prompt == "A cat"
@@ -26,13 +25,10 @@ class TestPromptEnhancementRequest:
 
     def test_extra_fields_rejected(self):
         with pytest.raises(pydantic.ValidationError):
-            application.models.PromptEnhancementRequest(
-                prompt="A cat", foo="bar"
-            )
+            application.models.PromptEnhancementRequest(prompt="A cat", foo="bar")
 
 
 class TestImageGenerationRequest:
-
     def test_defaults(self):
         req = application.models.ImageGenerationRequest(prompt="A sunset")
         assert req.use_enhancer is False
@@ -40,14 +36,10 @@ class TestImageGenerationRequest:
         assert req.size == "512x512"
 
     def test_alias_n(self):
-        req = application.models.ImageGenerationRequest.model_validate(
-            {"prompt": "x", "n": 3}
-        )
+        req = application.models.ImageGenerationRequest.model_validate({"prompt": "x", "n": 3})
         assert req.number_of_images == 3
 
-    @pytest.mark.parametrize(
-        "size", ["512x512", "768x768", "1024x1024"]
-    )
+    @pytest.mark.parametrize("size", ["512x512", "768x768", "1024x1024"])
     def test_valid_sizes(self, size):
         req = application.models.ImageGenerationRequest(prompt="x", size=size)
         assert req.size == size
@@ -62,15 +54,11 @@ class TestImageGenerationRequest:
 
     def test_n_too_low(self):
         with pytest.raises(pydantic.ValidationError):
-            application.models.ImageGenerationRequest.model_validate(
-                {"prompt": "x", "n": 0}
-            )
+            application.models.ImageGenerationRequest.model_validate({"prompt": "x", "n": 0})
 
     def test_n_too_high(self):
         with pytest.raises(pydantic.ValidationError):
-            application.models.ImageGenerationRequest.model_validate(
-                {"prompt": "x", "n": 5}
-            )
+            application.models.ImageGenerationRequest.model_validate({"prompt": "x", "n": 5})
 
     def test_parse_image_width_and_height(self):
         req = application.models.ImageGenerationRequest(prompt="x", size="768x768")
@@ -86,33 +74,24 @@ class TestImageGenerationRequest:
 
     def test_extra_fields_rejected(self):
         with pytest.raises(pydantic.ValidationError):
-            application.models.ImageGenerationRequest(
-                prompt="A sunset", foo="bar"
-            )
+            application.models.ImageGenerationRequest(prompt="A sunset", foo="bar")
 
 
 class TestPromptEnhancementResponse:
-
     def test_instantiation(self):
-        resp = application.models.PromptEnhancementResponse(
-            enhanced_prompt="An enhanced cat"
-        )
+        resp = application.models.PromptEnhancementResponse(enhanced_prompt="An enhanced cat")
         assert resp.enhanced_prompt == "An enhanced cat"
 
 
 class TestGeneratedImageData:
-
     def test_instantiation(self):
         data = application.models.GeneratedImageData(b64_json="abc123")
         assert data.b64_json == "abc123"
 
 
 class TestImageGenerationResponse:
-
     def test_instantiation(self):
-        image_data = application.models.GeneratedImageData(
-            b64_json="abc123"
-        )
+        image_data = application.models.GeneratedImageData(b64_json="abc123")
         resp = application.models.ImageGenerationResponse(
             created=1700000000,
             data=[image_data],
@@ -122,7 +101,6 @@ class TestImageGenerationResponse:
 
 
 class TestErrorDetail:
-
     def test_instantiation(self):
         detail = application.models.ErrorDetail(
             code="internal_server_error",
@@ -145,7 +123,6 @@ class TestErrorDetail:
 
 
 class TestErrorResponse:
-
     def test_instantiation(self):
         err = application.models.ErrorResponse(
             error=application.models.ErrorDetail(

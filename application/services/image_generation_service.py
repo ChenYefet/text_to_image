@@ -195,10 +195,7 @@ class ImageGenerationService:
                     timeout_seconds=timeout_seconds,
                 )
                 raise application.exceptions.ImageGenerationServiceUnavailableError(
-                    detail=(
-                        f"Image generation timed out after "
-                        f"{timeout_seconds}s."
-                    ),
+                    detail=(f"Image generation timed out after {timeout_seconds}s."),
                 ) from timeout_error
             except RuntimeError as runtime_error:
                 logger.error(
@@ -240,7 +237,7 @@ class ImageGenerationService:
         num_images: int,
     ) -> diffusers.pipelines.stable_diffusion.StableDiffusionPipelineOutput:
         """Synchronous pipeline call, intended to be run via ``to_thread``."""
-        return self._pipeline(
+        return self._pipeline(  # type: ignore[operator,no-any-return]
             prompt=prompt,
             width=width,
             height=height,

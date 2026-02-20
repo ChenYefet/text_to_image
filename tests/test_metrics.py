@@ -4,7 +4,6 @@ import application.metrics
 
 
 class TestMetricsCollector:
-
     def test_initial_snapshot_is_empty(self):
         collector = application.metrics.MetricsCollector()
         snapshot = collector.snapshot()

@@ -157,10 +157,7 @@ class ImageGenerationResponse(pydantic.BaseModel):
 
     created: int = pydantic.Field(
         ...,
-        description=(
-            "The Unix timestamp (in seconds) indicating when the "
-            "images were generated."
-        ),
+        description=("The Unix timestamp (in seconds) indicating when the images were generated."),
     )
 
     data: list[GeneratedImageData] = pydantic.Field(

@@ -18,7 +18,7 @@ def get_language_model_service(
     """
     Retrieve the shared LanguageModelService instance from application state.
     """
-    return request.app.state.language_model_service
+    return request.app.state.language_model_service  # type: ignore[no-any-return]
 
 
 def get_image_generation_service(
@@ -27,4 +27,4 @@ def get_image_generation_service(
     """
     Retrieve the shared ImageGenerationService instance from application state.
     """
-    return request.app.state.image_generation_service
+    return request.app.state.image_generation_service  # type: ignore[no-any-return]

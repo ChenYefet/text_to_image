@@ -1,4 +1,4 @@
-.PHONY: run test lint format coverage clean docker-build docker-up docker-down
+.PHONY: run test lint format format-check typecheck audit coverage ci clean docker-build docker-up docker-down
 
 run:
 	uvicorn main:fastapi_application --host 127.0.0.1 --port 8000 --reload
@@ -15,8 +15,16 @@ format:
 format-check:
 	ruff format --check application/ tests/
 
+typecheck:
+	mypy application/ --ignore-missing-imports
+
+audit:
+	pip-audit -r requirements.txt
+
 coverage:
 	pytest --cov=application --cov-report=term-missing --cov-fail-under=80
+
+ci: lint format-check typecheck audit coverage
 
 docker-build:
 	docker compose build
@@ -30,5 +38,5 @@ docker-down:
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null; \
 	find . -type f -name "*.pyc" -delete 2>/dev/null; \
-	rm -rf .coverage htmlcov .pytest_cache; \
+	rm -rf .coverage htmlcov .pytest_cache .mypy_cache; \
 	true

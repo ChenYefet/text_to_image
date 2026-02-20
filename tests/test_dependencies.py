@@ -6,7 +6,6 @@ import application.dependencies
 
 
 class TestGetLanguageModelService:
-
     def test_returns_service_from_app_state(self):
         mock_service = MagicMock()
         mock_request = MagicMock()
@@ -18,7 +17,6 @@ class TestGetLanguageModelService:
 
 
 class TestGetImageGenerationService:
-
     def test_returns_service_from_app_state(self):
         mock_service = MagicMock()
         mock_request = MagicMock()

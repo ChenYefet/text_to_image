@@ -9,7 +9,6 @@ import application.routes.health_routes
 
 
 class TestHealthRoutes:
-
     @pytest.mark.asyncio
     async def test_health_returns_200(self, client):
         response = await client.get("/health")
@@ -25,7 +24,6 @@ class TestHealthRoutes:
 
 
 class TestReadinessRoutes:
-
     @pytest.mark.asyncio
     async def test_ready_when_services_available(
         self, client, mock_language_model_service, mock_image_generation_service
@@ -54,9 +52,7 @@ class TestReadinessRoutes:
         app.include_router(application.routes.health_routes.health_router)
 
         transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(
-            transport=transport, base_url="http://testserver"
-        ) as client:
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
             response = await client.get("/health/ready")
 
         assert response.status_code == 503
@@ -67,7 +63,6 @@ class TestReadinessRoutes:
 
 
 class TestMetricsRoutes:
-
     @pytest.mark.asyncio
     async def test_metrics_returns_200(self, client):
         response = await client.get("/metrics")
@@ -114,9 +109,7 @@ class TestMetricsRoutes:
         app.include_router(application.routes.health_routes.health_router)
 
         transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(
-            transport=transport, base_url="http://testserver"
-        ) as client:
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
             response = await client.get("/metrics")
 
         assert response.status_code == 200

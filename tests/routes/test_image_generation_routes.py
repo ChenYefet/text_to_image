@@ -6,7 +6,6 @@ import application.exceptions
 
 
 class TestImageGenerationRoutes:
-
     @pytest.mark.asyncio
     async def test_success(self, client, mock_image_generation_service):
         response = await client.post(
@@ -117,13 +116,9 @@ class TestImageGenerationRoutes:
         assert "X-Correlation-ID" in response.headers
 
     @pytest.mark.asyncio
-    async def test_service_unavailable(
-        self, client, mock_image_generation_service
-    ):
+    async def test_service_unavailable(self, client, mock_image_generation_service):
         mock_image_generation_service.generate_images.side_effect = (
-            application.exceptions.ImageGenerationServiceUnavailableError(
-                detail="Pipeline not loaded"
-            )
+            application.exceptions.ImageGenerationServiceUnavailableError(detail="Pipeline not loaded")
         )
 
         response = await client.post(
@@ -138,13 +133,9 @@ class TestImageGenerationRoutes:
         assert "Pipeline not loaded" in body["error"]["message"]
 
     @pytest.mark.asyncio
-    async def test_generation_error(
-        self, client, mock_image_generation_service
-    ):
-        mock_image_generation_service.generate_images.side_effect = (
-            application.exceptions.ImageGenerationError(
-                detail="No images returned"
-            )
+    async def test_generation_error(self, client, mock_image_generation_service):
+        mock_image_generation_service.generate_images.side_effect = application.exceptions.ImageGenerationError(
+            detail="No images returned"
         )
 
         response = await client.post(

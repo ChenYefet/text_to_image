@@ -41,23 +41,15 @@ def test_app(mock_language_model_service, mock_image_generation_service):
         application.middleware.CorrelationIdMiddleware,
         metrics_collector=metrics_collector,
     )
-    app.include_router(
-        application.routes.prompt_enhancement_routes.prompt_enhancement_router
-    )
-    app.include_router(
-        application.routes.image_generation_routes.image_generation_router
-    )
-    app.include_router(
-        application.routes.health_routes.health_router
-    )
+    app.include_router(application.routes.prompt_enhancement_routes.prompt_enhancement_router)
+    app.include_router(application.routes.image_generation_routes.image_generation_router)
+    app.include_router(application.routes.health_routes.health_router)
 
-    app.dependency_overrides[
-        application.dependencies.get_language_model_service
-    ] = lambda: mock_language_model_service
+    app.dependency_overrides[application.dependencies.get_language_model_service] = lambda: mock_language_model_service
 
-    app.dependency_overrides[
-        application.dependencies.get_image_generation_service
-    ] = lambda: mock_image_generation_service
+    app.dependency_overrides[application.dependencies.get_image_generation_service] = lambda: (
+        mock_image_generation_service
+    )
 
     app.state.language_model_service = mock_language_model_service
     app.state.image_generation_service = mock_image_generation_service
@@ -69,7 +61,5 @@ def test_app(mock_language_model_service, mock_image_generation_service):
 @pytest_asyncio.fixture
 async def client(test_app):
     transport = httpx.ASGITransport(app=test_app)
-    async with httpx.AsyncClient(
-        transport=transport, base_url="http://testserver"
-    ) as ac:
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as ac:
         yield ac

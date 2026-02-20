@@ -9,7 +9,6 @@ import application.logging_config
 
 
 class TestConfigureLogging:
-
     def setup_method(self):
         """Reset structlog configuration before each test."""
         structlog.reset_defaults()
@@ -93,9 +92,7 @@ class TestConfigureLogging:
     def test_contextvars_are_included(self, capsys):
         application.logging_config.configure_logging(log_level="INFO")
         structlog.contextvars.clear_contextvars()
-        structlog.contextvars.bind_contextvars(
-            correlation_id="test-correlation-id"
-        )
+        structlog.contextvars.bind_contextvars(correlation_id="test-correlation-id")
 
         test_logger = structlog.get_logger("test")
         test_logger.info("test_event")

@@ -20,15 +20,12 @@ def _mock_json_response(content_text, status_code=200):
     """Create a mock httpx.Response with the standard chat-completion shape."""
     response = MagicMock(spec=httpx.Response)
     response.status_code = status_code
-    response.json.return_value = {
-        "choices": [{"message": {"content": content_text}}]
-    }
+    response.json.return_value = {"choices": [{"message": {"content": content_text}}]}
     response.raise_for_status = MagicMock()
     return response
 
 
 class TestEnhancePrompt:
-
     @pytest.mark.asyncio
     async def test_success(self):
         service = _make_service()
@@ -56,13 +53,9 @@ class TestEnhancePrompt:
     async def test_connection_error(self):
         service = _make_service()
         service.http_client = AsyncMock()
-        service.http_client.post = AsyncMock(
-            side_effect=httpx.ConnectError("Connection refused")
-        )
+        service.http_client.post = AsyncMock(side_effect=httpx.ConnectError("Connection refused"))
 
-        with pytest.raises(
-            application.exceptions.LanguageModelServiceUnavailableError
-        ):
+        with pytest.raises(application.exceptions.LanguageModelServiceUnavailableError):
             await service.enhance_prompt("A cat")
 
     @pytest.mark.asyncio
@@ -79,22 +72,16 @@ class TestEnhancePrompt:
             )
         )
 
-        with pytest.raises(
-            application.exceptions.LanguageModelServiceUnavailableError
-        ):
+        with pytest.raises(application.exceptions.LanguageModelServiceUnavailableError):
             await service.enhance_prompt("A cat")
 
     @pytest.mark.asyncio
     async def test_timeout(self):
         service = _make_service()
         service.http_client = AsyncMock()
-        service.http_client.post = AsyncMock(
-            side_effect=httpx.TimeoutException("Timed out")
-        )
+        service.http_client.post = AsyncMock(side_effect=httpx.TimeoutException("Timed out"))
 
-        with pytest.raises(
-            application.exceptions.LanguageModelServiceUnavailableError
-        ):
+        with pytest.raises(application.exceptions.LanguageModelServiceUnavailableError):
             await service.enhance_prompt("A cat")
 
     @pytest.mark.asyncio
@@ -121,7 +108,6 @@ class TestEnhancePrompt:
 
 
 class TestClose:
-
     @pytest.mark.asyncio
     async def test_close_calls_aclose(self):
         service = _make_service()

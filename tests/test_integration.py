@@ -86,9 +86,7 @@ async def integration_client(mock_lm_service, mock_img_service):
         app = application.server_factory.create_application()
         async with app.router.lifespan_context(app):
             transport = httpx.ASGITransport(app=app)
-            async with httpx.AsyncClient(
-                transport=transport, base_url="http://testserver"
-            ) as client:
+            async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
                 yield client
 
 
@@ -118,9 +116,7 @@ async def cors_client(mock_lm_service, mock_img_service):
         app = application.server_factory.create_application()
         async with app.router.lifespan_context(app):
             transport = httpx.ASGITransport(app=app)
-            async with httpx.AsyncClient(
-                transport=transport, base_url="http://testserver"
-            ) as client:
+            async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
                 yield client
 
 
@@ -128,11 +124,8 @@ async def cors_client(mock_lm_service, mock_img_service):
 
 
 class TestServerFactory:
-
     @pytest.mark.asyncio
-    async def test_create_application_returns_working_app(
-        self, integration_client
-    ):
+    async def test_create_application_returns_working_app(self, integration_client):
         response = await integration_client.get("/health")
         assert response.status_code == 200
         assert response.json() == {"status": "healthy"}
@@ -158,11 +151,8 @@ class TestServerFactory:
 
 
 class TestLifespan:
-
     @pytest.mark.asyncio
-    async def test_services_initialised_on_startup(
-        self, mock_lm_service, mock_img_service
-    ):
+    async def test_services_initialised_on_startup(self, mock_lm_service, mock_img_service):
         """Services must be set on app.state after lifespan startup."""
         with _patched_services(mock_lm_service, mock_img_service):
             app = application.server_factory.create_application()
@@ -171,9 +161,7 @@ class TestLifespan:
                 assert app.state.image_generation_service is mock_img_service
 
     @pytest.mark.asyncio
-    async def test_services_closed_on_shutdown(
-        self, mock_lm_service, mock_img_service
-    ):
+    async def test_services_closed_on_shutdown(self, mock_lm_service, mock_img_service):
         """Services must be closed when the lifespan exits."""
         with _patched_services(mock_lm_service, mock_img_service):
             app = application.server_factory.create_application()
@@ -185,9 +173,7 @@ class TestLifespan:
         mock_img_service.close.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_metrics_collector_on_app_state(
-        self, mock_lm_service, mock_img_service
-    ):
+    async def test_metrics_collector_on_app_state(self, mock_lm_service, mock_img_service):
         """The metrics collector must be set on app.state."""
         with _patched_services(mock_lm_service, mock_img_service):
             app = application.server_factory.create_application()
@@ -200,11 +186,8 @@ class TestLifespan:
 
 
 class TestPromptEnhancementFlow:
-
     @pytest.mark.asyncio
-    async def test_successful_enhancement(
-        self, integration_client, mock_lm_service
-    ):
+    async def test_successful_enhancement(self, integration_client, mock_lm_service):
         response = await integration_client.post(
             "/v1/prompts/enhance",
             json={"prompt": "A cat"},
@@ -218,13 +201,9 @@ class TestPromptEnhancementFlow:
         )
 
     @pytest.mark.asyncio
-    async def test_enhancement_service_unavailable(
-        self, integration_client, mock_lm_service
-    ):
-        mock_lm_service.enhance_prompt.side_effect = (
-            application.exceptions.LanguageModelServiceUnavailableError(
-                detail="llama.cpp not reachable",
-            )
+    async def test_enhancement_service_unavailable(self, integration_client, mock_lm_service):
+        mock_lm_service.enhance_prompt.side_effect = application.exceptions.LanguageModelServiceUnavailableError(
+            detail="llama.cpp not reachable",
         )
 
         response = await integration_client.post(
@@ -238,13 +217,9 @@ class TestPromptEnhancementFlow:
         assert "llama.cpp not reachable" in body["error"]["message"]
 
     @pytest.mark.asyncio
-    async def test_enhancement_malformed_response(
-        self, integration_client, mock_lm_service
-    ):
-        mock_lm_service.enhance_prompt.side_effect = (
-            application.exceptions.PromptEnhancementError(
-                detail="Unexpected response structure",
-            )
+    async def test_enhancement_malformed_response(self, integration_client, mock_lm_service):
+        mock_lm_service.enhance_prompt.side_effect = application.exceptions.PromptEnhancementError(
+            detail="Unexpected response structure",
         )
 
         response = await integration_client.post(
@@ -258,11 +233,8 @@ class TestPromptEnhancementFlow:
 
 
 class TestImageGenerationFlow:
-
     @pytest.mark.asyncio
-    async def test_successful_generation(
-        self, integration_client, mock_img_service
-    ):
+    async def test_successful_generation(self, integration_client, mock_img_service):
         response = await integration_client.post(
             "/v1/images/generations",
             json={"prompt": "A sunset"},
@@ -277,9 +249,7 @@ class TestImageGenerationFlow:
         mock_img_service.generate_images.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_generation_with_enhancer(
-        self, integration_client, mock_lm_service, mock_img_service
-    ):
+    async def test_generation_with_enhancer(self, integration_client, mock_lm_service, mock_img_service):
         response = await integration_client.post(
             "/v1/images/generations",
             json={"prompt": "A sunset", "use_enhancer": True},
@@ -294,9 +264,7 @@ class TestImageGenerationFlow:
         assert call_kwargs.kwargs["prompt"] == "Enhanced prompt text"
 
     @pytest.mark.asyncio
-    async def test_generation_without_enhancer_skips_lm(
-        self, integration_client, mock_lm_service, mock_img_service
-    ):
+    async def test_generation_without_enhancer_skips_lm(self, integration_client, mock_lm_service, mock_img_service):
         response = await integration_client.post(
             "/v1/images/generations",
             json={"prompt": "A sunset", "use_enhancer": False},
@@ -306,11 +274,11 @@ class TestImageGenerationFlow:
         mock_lm_service.enhance_prompt.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_generation_custom_size_and_count(
-        self, integration_client, mock_img_service
-    ):
+    async def test_generation_custom_size_and_count(self, integration_client, mock_img_service):
         mock_img_service.generate_images.return_value = [
-            "img1", "img2", "img3",
+            "img1",
+            "img2",
+            "img3",
         ]
 
         response = await integration_client.post(
@@ -327,13 +295,9 @@ class TestImageGenerationFlow:
         assert call_kwargs.kwargs["number_of_images"] == 3
 
     @pytest.mark.asyncio
-    async def test_generation_service_unavailable(
-        self, integration_client, mock_img_service
-    ):
-        mock_img_service.generate_images.side_effect = (
-            application.exceptions.ImageGenerationServiceUnavailableError(
-                detail="Pipeline not loaded",
-            )
+    async def test_generation_service_unavailable(self, integration_client, mock_img_service):
+        mock_img_service.generate_images.side_effect = application.exceptions.ImageGenerationServiceUnavailableError(
+            detail="Pipeline not loaded",
         )
 
         response = await integration_client.post(
@@ -347,13 +311,9 @@ class TestImageGenerationFlow:
         assert "Pipeline not loaded" in body["error"]["message"]
 
     @pytest.mark.asyncio
-    async def test_generation_error(
-        self, integration_client, mock_img_service
-    ):
-        mock_img_service.generate_images.side_effect = (
-            application.exceptions.ImageGenerationError(
-                detail="No images returned",
-            )
+    async def test_generation_error(self, integration_client, mock_img_service):
+        mock_img_service.generate_images.side_effect = application.exceptions.ImageGenerationError(
+            detail="No images returned",
         )
 
         response = await integration_client.post(
@@ -366,13 +326,9 @@ class TestImageGenerationFlow:
         assert body["error"]["code"] == "model_unavailable"
 
     @pytest.mark.asyncio
-    async def test_enhancer_failure_during_generation(
-        self, integration_client, mock_lm_service
-    ):
-        mock_lm_service.enhance_prompt.side_effect = (
-            application.exceptions.LanguageModelServiceUnavailableError(
-                detail="Timeout",
-            )
+    async def test_enhancer_failure_during_generation(self, integration_client, mock_lm_service):
+        mock_lm_service.enhance_prompt.side_effect = application.exceptions.LanguageModelServiceUnavailableError(
+            detail="Timeout",
         )
 
         response = await integration_client.post(
@@ -389,7 +345,6 @@ class TestImageGenerationFlow:
 
 
 class TestValidationFlow:
-
     @pytest.mark.asyncio
     async def test_invalid_json_returns_400(self, integration_client):
         response = await integration_client.post(
@@ -445,11 +400,8 @@ class TestValidationFlow:
 
 
 class TestCorrelationIdPropagation:
-
     @pytest.mark.asyncio
-    async def test_success_response_has_correlation_id(
-        self, integration_client
-    ):
+    async def test_success_response_has_correlation_id(self, integration_client):
         response = await integration_client.get("/health")
         assert "x-correlation-id" in response.headers
         correlation_id = response.headers["x-correlation-id"]
@@ -458,9 +410,7 @@ class TestCorrelationIdPropagation:
         assert correlation_id.count("-") == 4
 
     @pytest.mark.asyncio
-    async def test_error_response_has_correlation_id(
-        self, integration_client
-    ):
+    async def test_error_response_has_correlation_id(self, integration_client):
         response = await integration_client.post(
             "/v1/prompts/enhance",
             json={},
@@ -473,13 +423,9 @@ class TestCorrelationIdPropagation:
         assert body["error"]["correlation_id"] == response.headers["x-correlation-id"]
 
     @pytest.mark.asyncio
-    async def test_502_error_has_correlation_id(
-        self, integration_client, mock_lm_service
-    ):
-        mock_lm_service.enhance_prompt.side_effect = (
-            application.exceptions.LanguageModelServiceUnavailableError(
-                detail="Not reachable",
-            )
+    async def test_502_error_has_correlation_id(self, integration_client, mock_lm_service):
+        mock_lm_service.enhance_prompt.side_effect = application.exceptions.LanguageModelServiceUnavailableError(
+            detail="Not reachable",
         )
 
         response = await integration_client.post(
@@ -493,9 +439,7 @@ class TestCorrelationIdPropagation:
         assert body["error"]["correlation_id"] == response.headers["x-correlation-id"]
 
     @pytest.mark.asyncio
-    async def test_each_request_gets_unique_correlation_id(
-        self, integration_client
-    ):
+    async def test_each_request_gets_unique_correlation_id(self, integration_client):
         response1 = await integration_client.get("/health")
         response2 = await integration_client.get("/health")
 
@@ -504,9 +448,7 @@ class TestCorrelationIdPropagation:
         assert id1 != id2
 
     @pytest.mark.asyncio
-    async def test_unhandled_exception_returns_json_500_with_correlation_id(
-        self, integration_client, mock_img_service
-    ):
+    async def test_unhandled_exception_returns_json_500_with_correlation_id(self, integration_client, mock_img_service):
         mock_img_service.generate_images.side_effect = ValueError(
             "totally unexpected",
         )
@@ -527,7 +469,6 @@ class TestCorrelationIdPropagation:
 
 
 class TestMetricsFlow:
-
     @pytest.mark.asyncio
     async def test_metrics_recorded_for_requests(self, integration_client):
         # Make a few requests
@@ -560,9 +501,7 @@ class TestMetricsFlow:
         assert health_latency["max_ms"] >= health_latency["min_ms"]
 
     @pytest.mark.asyncio
-    async def test_error_requests_tracked_in_metrics(
-        self, integration_client
-    ):
+    async def test_error_requests_tracked_in_metrics(self, integration_client):
         await integration_client.post(
             "/v1/prompts/enhance",
             json={},
@@ -578,7 +517,6 @@ class TestMetricsFlow:
 
 
 class TestCorsMiddleware:
-
     @pytest.mark.asyncio
     async def test_cors_preflight_allowed_origin(self, cors_client):
         response = await cors_client.options(
@@ -606,9 +544,7 @@ class TestCorsMiddleware:
         assert "access-control-allow-origin" not in response.headers
 
     @pytest.mark.asyncio
-    async def test_cors_not_added_when_origins_empty(
-        self, integration_client
-    ):
+    async def test_cors_not_added_when_origins_empty(self, integration_client):
         response = await integration_client.options(
             "/v1/prompts/enhance",
             headers={
@@ -625,11 +561,8 @@ class TestCorsMiddleware:
 
 
 class TestConcurrency:
-
     @pytest.mark.asyncio
-    async def test_parallel_requests_get_distinct_correlation_ids(
-        self, integration_client
-    ):
+    async def test_parallel_requests_get_distinct_correlation_ids(self, integration_client):
         """Concurrent requests must each receive a unique correlation ID."""
         import asyncio
 
@@ -641,7 +574,5 @@ class TestConcurrency:
             integration_client.get("/health"),
         )
 
-        correlation_ids = [
-            r.headers["x-correlation-id"] for r in responses
-        ]
+        correlation_ids = [r.headers["x-correlation-id"] for r in responses]
         assert len(set(correlation_ids)) == 5
