@@ -31,6 +31,7 @@ def _build_mock_image_generation_service():
         spec=application.services.image_generation_service.ImageGenerationService,
     )
     service.generate_images = AsyncMock(return_value=["base64encodedimage"])
+    service.check_health.return_value = True
     service.close = AsyncMock()
     return service
 
@@ -41,6 +42,7 @@ def _build_mock_language_model_service():
         spec=application.services.language_model_service.LanguageModelService,
     )
     service.enhance_prompt = AsyncMock(return_value="Enhanced prompt text")
+    service.check_health = AsyncMock(return_value=True)
     service.close = AsyncMock()
     return service
 

@@ -37,14 +37,18 @@ async def readiness_check(request: fastapi.Request) -> fastapi.responses.JSONRes
     checks: dict[str, str] = {}
 
     image_service = getattr(request.app.state, "image_generation_service", None)
-    if image_service is not None:
+    if image_service is not None and image_service.check_health():
         checks["image_generation"] = "ok"
     else:
         checks["image_generation"] = "unavailable"
 
     lm_service = getattr(request.app.state, "language_model_service", None)
     if lm_service is not None:
-        checks["language_model"] = "ok"
+        try:
+            lm_healthy = await lm_service.check_health()
+        except Exception:
+            lm_healthy = False
+        checks["language_model"] = "ok" if lm_healthy else "unavailable"
     else:
         checks["language_model"] = "unavailable"
 

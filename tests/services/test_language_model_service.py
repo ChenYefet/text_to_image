@@ -107,6 +107,36 @@ class TestEnhancePrompt:
             await service.enhance_prompt("A cat")
 
 
+class TestCheckHealth:
+    @pytest.mark.asyncio
+    async def test_healthy_when_server_returns_200(self):
+        service = _make_service()
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = 200
+        service.http_client = AsyncMock()
+        service.http_client.get = AsyncMock(return_value=mock_response)
+
+        assert await service.check_health() is True
+
+    @pytest.mark.asyncio
+    async def test_unhealthy_when_server_returns_500(self):
+        service = _make_service()
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = 500
+        service.http_client = AsyncMock()
+        service.http_client.get = AsyncMock(return_value=mock_response)
+
+        assert await service.check_health() is False
+
+    @pytest.mark.asyncio
+    async def test_unhealthy_when_connection_fails(self):
+        service = _make_service()
+        service.http_client = AsyncMock()
+        service.http_client.get = AsyncMock(side_effect=httpx.ConnectError("Connection refused"))
+
+        assert await service.check_health() is False
+
+
 class TestClose:
     @pytest.mark.asyncio
     async def test_close_calls_aclose(self):

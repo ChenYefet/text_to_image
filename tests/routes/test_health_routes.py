@@ -1,5 +1,7 @@
 """Tests for the GET /health, GET /health/ready, and GET /metrics endpoints."""
 
+from unittest.mock import AsyncMock
+
 import fastapi
 import httpx
 import pytest
@@ -25,7 +27,7 @@ class TestHealthRoutes:
 
 class TestReadinessRoutes:
     @pytest.mark.asyncio
-    async def test_ready_when_services_available(
+    async def test_ready_when_services_healthy(
         self, client, mock_language_model_service, mock_image_generation_service
     ):
         response = await client.get("/health/ready")
@@ -60,6 +62,28 @@ class TestReadinessRoutes:
         assert body["status"] == "not_ready"
         assert body["checks"]["image_generation"] == "unavailable"
         assert body["checks"]["language_model"] == "unavailable"
+
+    @pytest.mark.asyncio
+    async def test_not_ready_when_language_model_unhealthy(self, client, mock_language_model_service):
+        mock_language_model_service.check_health = AsyncMock(return_value=False)
+
+        response = await client.get("/health/ready")
+
+        assert response.status_code == 503
+        body = response.json()
+        assert body["status"] == "not_ready"
+        assert body["checks"]["language_model"] == "unavailable"
+
+    @pytest.mark.asyncio
+    async def test_not_ready_when_image_pipeline_unhealthy(self, client, mock_image_generation_service):
+        mock_image_generation_service.check_health = lambda: False
+
+        response = await client.get("/health/ready")
+
+        assert response.status_code == 503
+        body = response.json()
+        assert body["status"] == "not_ready"
+        assert body["checks"]["image_generation"] == "unavailable"
 
 
 class TestMetricsRoutes:

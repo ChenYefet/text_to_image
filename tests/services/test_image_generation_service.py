@@ -199,6 +199,22 @@ class TestLoadPipeline:
         )
 
 
+class TestCheckHealth:
+    def test_healthy_when_pipeline_loaded(self):
+        service = _make_service()
+        assert service.check_health() is True
+
+    def test_unhealthy_after_close(self):
+        service = _make_service()
+        del service._pipeline
+        assert service.check_health() is False
+
+    def test_unhealthy_when_pipeline_is_none(self):
+        service = _make_service()
+        service._pipeline = None
+        assert service.check_health() is False
+
+
 class TestClose:
     @pytest.mark.asyncio
     async def test_close_cpu(self):

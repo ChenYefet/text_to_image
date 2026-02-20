@@ -148,6 +148,14 @@ class LanguageModelService:
 
         return result
 
+    async def check_health(self) -> bool:
+        """Ping the llama.cpp server to verify it is reachable."""
+        try:
+            response = await self.http_client.get("/health", timeout=5.0)
+            return response.status_code == 200
+        except httpx.HTTPError:
+            return False
+
     async def close(self) -> None:
         """Close the underlying HTTP client and release network resources."""
         await self.http_client.aclose()

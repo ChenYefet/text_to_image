@@ -246,6 +246,10 @@ class ImageGenerationService:
             guidance_scale=self._guidance_scale,
         )
 
+    def check_health(self) -> bool:
+        """Return True if the Stable Diffusion pipeline is loaded."""
+        return hasattr(self, "_pipeline") and self._pipeline is not None
+
     async def close(self) -> None:
         """Delete the pipeline and free GPU memory if applicable."""
         if not hasattr(self, "_pipeline"):

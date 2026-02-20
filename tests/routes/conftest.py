@@ -22,6 +22,7 @@ import application.routes.prompt_enhancement_routes
 def mock_language_model_service():
     service = AsyncMock()
     service.enhance_prompt = AsyncMock(return_value="Enhanced prompt")
+    service.check_health = AsyncMock(return_value=True)
     return service
 
 
@@ -29,6 +30,7 @@ def mock_language_model_service():
 def mock_image_generation_service():
     service = AsyncMock()
     service.generate_images = AsyncMock(return_value=["base64encodedimage"])
+    service.check_health = lambda: True
     return service
 
 
