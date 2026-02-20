@@ -113,8 +113,12 @@ EXPOSE 8000
 #   --start-period: wait 120 seconds before the first check (the Stable
 #                   Diffusion model takes a while to load on first start)
 #   --retries    : mark unhealthy after 3 consecutive failures
+#
+# Uses /health/ready instead of /health so that the container is only
+# marked healthy when both the language model client and the Stable
+# Diffusion pipeline are initialised.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready')" || exit 1
 
 # The command that runs when the container starts.
 #

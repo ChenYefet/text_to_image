@@ -70,12 +70,12 @@ services:
               count: all
               capabilities: [gpu]
 
-    # Wait for llama-cpp to be ready before starting the API.
-    # "service_started" means wait for the container to start (not for the
-    # server inside to be fully ready — see the note below).
+    # Wait for llama-cpp to be healthy before starting the API.
+    # "service_healthy" means Docker waits for the llama-cpp health check
+    # to pass, ensuring the model is loaded and ready to serve requests.
     depends_on:
       llama-cpp:
-        condition: service_started
+        condition: service_healthy
 
     # Restart the container if it crashes (e.g. out-of-memory).
     # "unless-stopped" means always restart except when you explicitly
@@ -104,6 +104,15 @@ services:
     # Optional — remove this if you only want the API to access it.
     ports:
       - "8080:8080"
+
+    # Health check to verify the llama.cpp server is loaded and responsive.
+    # The /health endpoint is built into the llama.cpp server binary.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
 
     # Mount your GGUF model file into the container.
     #
