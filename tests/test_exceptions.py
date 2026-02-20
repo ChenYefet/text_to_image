@@ -3,6 +3,18 @@
 import application.exceptions
 
 
+class TestServiceErrorBase:
+
+    def test_all_exceptions_inherit_from_service_error(self):
+        for exc_cls in (
+            application.exceptions.LanguageModelServiceUnavailableError,
+            application.exceptions.ImageGenerationServiceUnavailableError,
+            application.exceptions.PromptEnhancementError,
+            application.exceptions.ImageGenerationError,
+        ):
+            assert issubclass(exc_cls, application.exceptions.ServiceError)
+
+
 class TestLanguageModelServiceUnavailableError:
 
     def test_default_message(self):

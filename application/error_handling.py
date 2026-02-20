@@ -29,6 +29,25 @@ def _get_correlation_id(request: fastapi.Request) -> str:
     return getattr(request.state, "correlation_id", "unknown")
 
 
+def _build_error_response(
+    status_code: int,
+    code: str,
+    message: str,
+    correlation_id: str,
+) -> fastapi.responses.JSONResponse:
+    """Build a consistent JSON error response."""
+    return fastapi.responses.JSONResponse(
+        status_code=status_code,
+        content=application.models.ErrorResponse(
+            error=application.models.ErrorDetail(
+                code=code,
+                message=message,
+                correlation_id=correlation_id,
+            ),
+        ).model_dump(),
+    )
+
+
 def register_error_handlers(fastapi_application: fastapi.FastAPI) -> None:
     """
     Register all custom exception handlers on the given FastAPI application.
@@ -64,16 +83,7 @@ def register_error_handlers(fastapi_application: fastapi.FastAPI) -> None:
             code = "request_validation_failed"
             message = f"Invalid request: {errors}"
 
-        return fastapi.responses.JSONResponse(
-            status_code=400,
-            content=application.models.ErrorResponse(
-                error=application.models.ErrorDetail(
-                    code=code,
-                    message=message,
-                    correlation_id=_get_correlation_id(request),
-                ),
-            ).model_dump(),
-        )
+        return _build_error_response(400, code, message, _get_correlation_id(request))
 
     @fastapi_application.exception_handler(
         application.exceptions.LanguageModelServiceUnavailableError,
@@ -91,15 +101,8 @@ def register_error_handlers(fastapi_application: fastapi.FastAPI) -> None:
             upstream="language_model",
             detail=unavailable_error.detail,
         )
-        return fastapi.responses.JSONResponse(
-            status_code=502,
-            content=application.models.ErrorResponse(
-                error=application.models.ErrorDetail(
-                    code="upstream_service_unavailable",
-                    message=unavailable_error.detail,
-                    correlation_id=_get_correlation_id(request),
-                ),
-            ).model_dump(),
+        return _build_error_response(
+            502, "upstream_service_unavailable", unavailable_error.detail, _get_correlation_id(request),
         )
 
     @fastapi_application.exception_handler(
@@ -118,15 +121,8 @@ def register_error_handlers(fastapi_application: fastapi.FastAPI) -> None:
             upstream="image_generation",
             detail=unavailable_error.detail,
         )
-        return fastapi.responses.JSONResponse(
-            status_code=502,
-            content=application.models.ErrorResponse(
-                error=application.models.ErrorDetail(
-                    code="model_unavailable",
-                    message=unavailable_error.detail,
-                    correlation_id=_get_correlation_id(request),
-                ),
-            ).model_dump(),
+        return _build_error_response(
+            502, "model_unavailable", unavailable_error.detail, _get_correlation_id(request),
         )
 
     @fastapi_application.exception_handler(
@@ -144,15 +140,8 @@ def register_error_handlers(fastapi_application: fastapi.FastAPI) -> None:
             upstream="language_model",
             detail=enhancement_error.detail,
         )
-        return fastapi.responses.JSONResponse(
-            status_code=502,
-            content=application.models.ErrorResponse(
-                error=application.models.ErrorDetail(
-                    code="upstream_service_unavailable",
-                    message=enhancement_error.detail,
-                    correlation_id=_get_correlation_id(request),
-                ),
-            ).model_dump(),
+        return _build_error_response(
+            502, "upstream_service_unavailable", enhancement_error.detail, _get_correlation_id(request),
         )
 
     @fastapi_application.exception_handler(
@@ -171,15 +160,8 @@ def register_error_handlers(fastapi_application: fastapi.FastAPI) -> None:
             upstream="image_generation",
             detail=generation_error.detail,
         )
-        return fastapi.responses.JSONResponse(
-            status_code=502,
-            content=application.models.ErrorResponse(
-                error=application.models.ErrorDetail(
-                    code="model_unavailable",
-                    message=generation_error.detail,
-                    correlation_id=_get_correlation_id(request),
-                ),
-            ).model_dump(),
+        return _build_error_response(
+            502, "model_unavailable", generation_error.detail, _get_correlation_id(request),
         )
 
     # Note: the catch-all handler for unexpected exceptions (500 Internal

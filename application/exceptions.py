@@ -6,58 +6,53 @@ centralised error-handling layer to produce a consistent JSON error response.
 """
 
 
-class LanguageModelServiceUnavailableError(Exception):
+class ServiceError(Exception):
+    """
+    Base exception for all service-level errors.
+
+    Provides a ``detail`` attribute that error handlers use for the
+    human-readable message in the JSON response body.
+    """
+
+    default_detail: str = "A service error occurred."
+
+    def __init__(self, detail: str | None = None) -> None:
+        self.detail = detail or self.default_detail
+        super().__init__(self.detail)
+
+
+class LanguageModelServiceUnavailableError(ServiceError):
     """
     Raised when the llama.cpp language model server cannot be reached
     or returns a non-success HTTP status code.
     """
 
-    def __init__(
-        self,
-        detail: str = "The language model server is unavailable.",
-    ) -> None:
-        self.detail = detail
-        super().__init__(self.detail)
+    default_detail = "The language model server is unavailable."
 
 
-class ImageGenerationServiceUnavailableError(Exception):
+class ImageGenerationServiceUnavailableError(ServiceError):
     """
     Raised when the Stable Diffusion pipeline is not loaded or an
     unexpected runtime error occurs during inference.
     """
 
-    def __init__(
-        self,
-        detail: str = "The image generation server is unavailable.",
-    ) -> None:
-        self.detail = detail
-        super().__init__(self.detail)
+    default_detail = "The image generation server is unavailable."
 
 
-class PromptEnhancementError(Exception):
+class PromptEnhancementError(ServiceError):
     """
     Raised when prompt enhancement fails for a reason other than
     network connectivity (for example, a malformed response from the
     language model).
     """
 
-    def __init__(
-        self,
-        detail: str = "Prompt enhancement failed.",
-    ) -> None:
-        self.detail = detail
-        super().__init__(self.detail)
+    default_detail = "Prompt enhancement failed."
 
 
-class ImageGenerationError(Exception):
+class ImageGenerationError(ServiceError):
     """
     Raised when image generation fails for a reason other than a runtime
     error (for example, the pipeline returned an empty image list).
     """
 
-    def __init__(
-        self,
-        detail: str = "Image generation failed.",
-    ) -> None:
-        self.detail = detail
-        super().__init__(self.detail)
+    default_detail = "Image generation failed."

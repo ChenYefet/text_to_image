@@ -238,7 +238,7 @@ class ImageGenerationService:
         width: int,
         height: int,
         num_images: int,
-    ):
+    ) -> diffusers.pipelines.stable_diffusion.StableDiffusionPipelineOutput:
         """Synchronous pipeline call, intended to be run via ``to_thread``."""
         return self._pipeline(
             prompt=prompt,
