@@ -1,0 +1,39 @@
+# Virtual environments — the container installs its own dependencies.
+venv/
+.venv/
+virtual_environment/
+
+# llama.cpp binaries — not needed in the API container (runs as a
+# separate service in docker-compose).
+llama.cpp/
+
+# Git history and IDE files add nothing to the runtime image.
+.git/
+.github/
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Python caches are rebuilt inside the container.
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# Coverage artefacts — test-time only.
+htmlcov/
+.coverage
+coverage.xml
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment file — configuration is injected via docker-compose or
+# environment variables at runtime, not baked into the image.
+.env
+
+# The spec and Claude configuration are documentation, not runtime code.
+text-to-image-spec-v3_2_0.md
+.claude/

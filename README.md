@@ -72,6 +72,7 @@ Before setting up this project, ensure you have the following installed:
 - **PyTorch** — installed via pip. For GPU acceleration, install the CUDA-enabled build (see [https://pytorch.org/get-started/locally/](https://pytorch.org/get-started/locally/)).
 - **llama.cpp** — pre-built binaries available at [https://github.com/ggml-org/llama.cpp/releases](https://github.com/ggml-org/llama.cpp/releases)
 - **A GGUF model file** — for example, [Meta-Llama-3.2-8B-Instruct](https://huggingface.co/models?search=llama-3.2) or [Mistral-7B-Instruct](https://huggingface.co/models?search=mistral-7b-instruct) quantized to GGUF format (Q4_K_M recommended for ~4.6 GB size)
+- *(Optional)* **Docker** and **Docker Compose** — for containerised deployment without installing Python or dependencies locally. See [Docker Deployment](#docker-deployment) below.
 - *(Recommended)* A Python virtual environment manager (`venv`, `virtualenv`, or `conda`).
 - *(Recommended)* An NVIDIA GPU with CUDA support for faster image generation. CPU-only mode is supported but significantly slower.
 - Approximately **14 GB of free disk space**:
@@ -377,6 +378,72 @@ curl.exe --% -X POST http://localhost:8000/v1/prompts/enhance -H "Content-Type: 
 
 ---
 
+## Docker Deployment
+
+As an alternative to the manual setup above, you can run the entire stack (API service + llama.cpp server) with Docker Compose. This requires no local Python installation.
+
+### Prerequisites
+
+- **Docker Engine** 20.10+ and **Docker Compose** v2+
+- A GGUF model file on your host machine (see [Pre-Setup C](#c-download-a-gguf-model-file))
+- *(Optional)* The [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) for GPU-accelerated image generation
+
+### Quick Start
+
+1. Set the `GGUF_MODEL_PATH` environment variable to the path of your GGUF model file:
+
+   **Linux / macOS:**
+   ```bash
+   export GGUF_MODEL_PATH=~/Models/Meta-Llama-3-8B-Instruct.Q4_K_M.gguf
+   ```
+
+   **Windows (PowerShell):**
+   ```powershell
+   $env:GGUF_MODEL_PATH = "$HOME\Models\Meta-Llama-3-8B-Instruct.Q4_K_M.gguf"
+   ```
+
+   Alternatively, create a `.env` file in the project root:
+   ```
+   GGUF_MODEL_PATH=C:/Users/yourname/Models/Meta-Llama-3-8B-Instruct.Q4_K_M.gguf
+   ```
+
+2. Start the services:
+
+   ```bash
+   docker compose up
+   ```
+
+   On first run this will:
+   - Build the API container image (installs Python dependencies)
+   - Pull the official llama.cpp server image
+   - Download the Stable Diffusion model weights (~4 GB) into a persistent Docker volume
+
+3. Once both services are running, the API is available at `http://localhost:8000/docs`.
+
+4. Test the service:
+
+   ```bash
+   curl -X POST http://localhost:8000/v1/prompts/enhance \
+       -H "Content-Type: application/json" \
+       -d '{"prompt": "a cat"}'
+   ```
+
+### CPU-Only Mode
+
+If you do not have an NVIDIA GPU, remove the `deploy` block from the `api` service in `docker-compose.yml` before running `docker compose up`.
+
+### Stopping and Cleaning Up
+
+```bash
+# Stop the services
+docker compose down
+
+# Stop and remove the HuggingFace model cache volume
+docker compose down --volumes
+```
+
+---
+
 ## API Endpoints
 
 ### POST /v1/prompts/enhance
@@ -551,6 +618,9 @@ text_to_image/
 ├── pyproject.toml                                 # Tool configuration (ruff, pytest)
 ├── .env.example                                   # Example environment variables
 ├── .env                                           # Your local environment config (not in git)
+├── Dockerfile                                     # Multi-stage container build for the API service
+├── docker-compose.yml                             # Runs API + llama.cpp together
+├── .dockerignore                                  # Files excluded from the Docker build context
 ├── README.md                                      # This file
 ├── text-to-image-spec-v3_2_0.md                   # Project specification
 ├── .github/

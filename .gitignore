@@ -9,6 +9,9 @@ venv/
 # llama.cpp binaries (platform-specific, can be re-downloaded)
 llama.cpp/
 
+# Local Docker Compose overrides (e.g. CPU-only mode)
+docker-compose.override.yml
+
 # IDE files
 .vscode/
 .idea/

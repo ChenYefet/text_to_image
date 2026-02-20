@@ -1,0 +1,131 @@
+# =============================================================================
+# docker-compose.yml — Text-to-Image with Prompt Assist
+# =============================================================================
+#
+# This file defines TWO services that run together:
+#
+#   1. api          — Your FastAPI application (image generation + prompt enhance)
+#   2. llama-cpp    — The llama.cpp server that powers prompt enhancement
+#
+# QUICK START:
+#   1. Place your GGUF model file somewhere on disk (e.g. ./models/your-model.gguf)
+#   2. Set the model path in the environment section below (or in a .env file)
+#   3. Run:  docker compose up
+#   4. Open: http://localhost:8000/docs
+#
+# WHAT IS DOCKER COMPOSE?
+#   It lets you define and run multi-container applications with one command.
+#   Instead of manually starting each service, `docker compose up` starts
+#   everything, wires up networking, and manages volumes automatically.
+# =============================================================================
+
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # API Service — your FastAPI text-to-image application
+  # ---------------------------------------------------------------------------
+  api:
+    # Build the image from the Dockerfile in the current directory.
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    # Map port 8000 on your machine to port 8000 inside the container.
+    # After starting, visit http://localhost:8000/docs to see the API.
+    ports:
+      - "8000:8000"
+
+    # Environment variables configure the application.  These override the
+    # defaults in configuration.py.  You can also put them in a .env file.
+    environment:
+      # Point the API at the llama-cpp service.  Docker Compose creates a
+      # private network where services can reach each other by name, so
+      # "http://llama-cpp:8080" resolves to the llama.cpp container.
+      TEXT_TO_IMAGE_LANGUAGE_MODEL_SERVER_BASE_URL: http://llama-cpp:8080
+
+      # Listen on all interfaces (required inside containers).
+      TEXT_TO_IMAGE_APPLICATION_HOST: 0.0.0.0
+      TEXT_TO_IMAGE_APPLICATION_PORT: 8000
+
+      # "auto" picks CUDA when a GPU is available, otherwise falls back to CPU.
+      TEXT_TO_IMAGE_STABLE_DIFFUSION_DEVICE: auto
+
+    # Volumes persist data outside the container.  Without this, the ~4 GB
+    # Stable Diffusion model would be re-downloaded every time you recreate
+    # the container.  The "huggingface-cache" volume stores it permanently.
+    volumes:
+      - huggingface-cache:/data/huggingface
+
+    # Give the container access to all NVIDIA GPUs on the host.
+    # Requires the NVIDIA Container Toolkit to be installed:
+    #   https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html
+    #
+    # CPU VARIANT: Remove this entire "deploy" block if running without a GPU.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    # Wait for llama-cpp to be ready before starting the API.
+    # "service_started" means wait for the container to start (not for the
+    # server inside to be fully ready — see the note below).
+    depends_on:
+      llama-cpp:
+        condition: service_started
+
+    # Restart the container if it crashes (e.g. out-of-memory).
+    # "unless-stopped" means always restart except when you explicitly
+    # run `docker compose stop` or `docker compose down`.
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # llama.cpp Server — provides prompt enhancement via OpenAI-compatible API
+  # ---------------------------------------------------------------------------
+  llama-cpp:
+    # Use the official llama.cpp server image from GitHub Container Registry.
+    image: ghcr.io/ggml-org/llama.cpp:server
+
+    # The command that starts the llama.cpp server.
+    #   --host 0.0.0.0  : listen on all interfaces (reachable from other containers)
+    #   --port 8080      : the port the API service expects
+    #   --model ...      : path to the GGUF model file INSIDE the container
+    #
+    # The model file is mounted from your host machine via the volume below.
+    command: >
+      --host 0.0.0.0
+      --port 8080
+      --model /models/model.gguf
+
+    # Map port 8080 so you can also test the llama.cpp server directly.
+    # Optional — remove this if you only want the API to access it.
+    ports:
+      - "8080:8080"
+
+    # Mount your GGUF model file into the container.
+    #
+    # IMPORTANT: Replace the left side of the colon with the actual path to
+    # your GGUF file on your machine.  Examples:
+    #   Windows:  C:/Models/Meta-Llama-3-8B-Instruct.Q4_K_M.gguf:/models/model.gguf:ro
+    #   Linux:    ~/models/Meta-Llama-3-8B-Instruct.Q4_K_M.gguf:/models/model.gguf:ro
+    #
+    # The ":ro" suffix means "read-only" — the container can read the file
+    # but cannot modify it.
+    volumes:
+      - ${GGUF_MODEL_PATH:-./models/model.gguf}:/models/model.gguf:ro
+
+    restart: unless-stopped
+
+
+# =============================================================================
+# Named volumes — Docker manages these automatically.  Data persists even if
+# you destroy and recreate the containers.
+#
+#   To see where Docker stores them:  docker volume inspect text_to_image_huggingface-cache
+#   To delete them:                   docker compose down --volumes
+# =============================================================================
+volumes:
+  huggingface-cache:
