@@ -626,7 +626,7 @@ text_to_image/
 ├── docker-compose.yml                             # Runs API + llama.cpp together
 ├── .dockerignore                                  # Files excluded from the Docker build context
 ├── README.md                                      # This file
-├── text-to-image-spec-v4_0_0.md                   # Project specification
+├── text-to-image-spec-v5_0_0.md                   # Project specification
 ├── .github/
 │   └── workflows/
 │       └── ci.yml                                 # CI pipeline (lint + test)
@@ -758,7 +758,7 @@ All configuration is loaded from environment variables prefixed with `TEXT_TO_IM
 **Problem:** Each image takes 5+ minutes to generate
 
 **Solution:**
-- You're likely running on CPU. This is expected behavior for CPU-only mode
+- You're likely running on CPU. This is expected behaviour for CPU-only mode
 - For faster generation:
   - Install CUDA-enabled PyTorch if you have an NVIDIA GPU: see [https://pytorch.org/get-started/locally/](https://pytorch.org/get-started/locally/)
   - Verify GPU is being used by checking the startup logs: should show `Device: cuda` not `Device: cpu`
