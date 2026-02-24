@@ -4,11 +4,17 @@ Route definitions for the prompt enhancement endpoint.
 This module defines the POST /v1/prompts/enhance endpoint, which accepts
 a raw text prompt and returns an enhanced version optimised for
 high-quality image generation.
+
+The response includes a ``Cache-Control: no-store`` header to prevent
+intermediate proxies and CDNs from caching dynamically generated content
+(§12 of the v5.0.0 specification, SHOULD-level advisory).
 """
 
+import time
 import typing
 
 import fastapi
+import fastapi.responses
 
 import application.dependencies
 import application.models
@@ -32,6 +38,51 @@ prompt_enhancement_router = fastapi.APIRouter(
         "OpenAI-compatible mode."
     ),
     status_code=200,
+    responses={
+        400: {
+            "description": (
+                "Bad Request — the request body contains invalid JSON "
+                "(``invalid_request_json``) or fails schema validation "
+                "(``request_validation_failed``)."
+            ),
+            "model": application.models.ErrorResponse,
+        },
+        413: {
+            "description": (
+                "Payload Too Large — the request body exceeds the "
+                "configured maximum payload size "
+                "(``payload_too_large``)."
+            ),
+            "model": application.models.ErrorResponse,
+        },
+        415: {
+            "description": ("Unsupported Media Type — the ``Content-Type`` header is not ``application/json``."),
+            "model": application.models.ErrorResponse,
+        },
+        429: {
+            "description": (
+                "Too Many Requests — the per-IP rate limit has been "
+                "exceeded (``rate_limit_exceeded``). The ``Retry-After`` "
+                "header indicates how long to wait before retrying."
+            ),
+            "model": application.models.ErrorResponse,
+        },
+        502: {
+            "description": (
+                "Bad Gateway — the llama.cpp language model server is "
+                "unreachable or returned an error "
+                "(``upstream_service_unavailable``)."
+            ),
+            "model": application.models.ErrorResponse,
+        },
+        504: {
+            "description": (
+                "Gateway Timeout — the request exceeded the configured "
+                "end-to-end timeout ceiling (``request_timeout``)."
+            ),
+            "model": application.models.ErrorResponse,
+        },
+    },
 )
 @application.rate_limiting.inference_rate_limit
 async def handle_prompt_enhancement_request(
@@ -43,18 +94,32 @@ async def handle_prompt_enhancement_request(
             application.dependencies.get_language_model_service,
         ),
     ],
-) -> application.models.PromptEnhancementResponse:
+) -> fastapi.responses.JSONResponse:
     """
     Enhance the provided prompt by forwarding it to the language model.
 
     The language model receives the original prompt together with a system
     instruction that guides it to add descriptive details about lighting,
     composition, style, and colour palette.
+
+    The response echoes the original prompt for client-side correlation
+    and includes a Unix timestamp indicating when enhancement completed.
+
+    The response includes a ``Cache-Control: no-store`` header to prevent
+    intermediate proxies and CDNs from caching dynamically generated
+    content (§12 of the v5.0.0 specification, SHOULD-level advisory).
     """
     enhanced_prompt_text = await language_model_service.enhance_prompt(
         original_prompt=prompt_enhancement_request.prompt,
     )
 
-    return application.models.PromptEnhancementResponse(
+    response_model = application.models.PromptEnhancementResponse(
+        original_prompt=prompt_enhancement_request.prompt,
         enhanced_prompt=enhanced_prompt_text,
+        created=int(time.time()),
+    )
+
+    return fastapi.responses.JSONResponse(
+        content=response_model.model_dump(),
+        headers={"Cache-Control": "no-store"},
     )

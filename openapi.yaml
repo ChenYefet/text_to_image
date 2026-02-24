@@ -1,0 +1,675 @@
+openapi: 3.1.0
+info:
+  title: Text-to-Image with Prompt Assist
+  description: A production-grade REST API service that generates images from text
+    prompts using Stable Diffusion, with optional prompt enhancement powered by a
+    llama.cpp language model.
+  version: 1.0.0
+paths:
+  /v1/prompts/enhance:
+    post:
+      tags:
+      - Prompt Enhancement
+      summary: Enhance a text prompt using the language model
+      description: Accepts a raw text prompt and returns an enhanced version optimised
+        for high-quality image generation. The enhancement is performed by the llama.cpp
+        language model running in OpenAI-compatible mode.
+      operationId: handle_prompt_enhancement_request_v1_prompts_enhance_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PromptEnhancementRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PromptEnhancementResponse'
+        '400':
+          description: Bad Request — the request body contains invalid JSON (``invalid_request_json``)
+            or fails schema validation (``request_validation_failed``).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          description: Payload Too Large — the request body exceeds the configured
+            maximum payload size (``payload_too_large``).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '415':
+          description: Unsupported Media Type — the ``Content-Type`` header is not
+            ``application/json``.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Too Many Requests — the per-IP rate limit has been exceeded
+            (``rate_limit_exceeded``). The ``Retry-After`` header indicates how long
+            to wait before retrying.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Bad Gateway — the llama.cpp language model server is unreachable
+            or returned an error (``upstream_service_unavailable``).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '504':
+          description: Gateway Timeout — the request exceeded the configured end-to-end
+            timeout ceiling (``request_timeout``).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Not Found — the requested endpoint does not exist (``not_found``).
+        '405':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Method Not Allowed — the HTTP method is not supported for this
+            endpoint (``method_not_allowed``). The ``Allow`` header lists permitted
+            methods.
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Internal Server Error — an unexpected error occurred during
+            request processing (``internal_server_error``).
+  /v1/images/generations:
+    post:
+      tags:
+      - Image Generation
+      summary: Generate images from a text prompt
+      description: Generates one or more images from a text prompt using Stable Diffusion.
+        When use_enhancer is true, the prompt is first enhanced by the llama.cpp language
+        model to improve image quality.
+      operationId: handle_image_generation_request_v1_images_generations_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImageGenerationRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageGenerationResponse'
+        '400':
+          description: Bad Request — the request body contains invalid JSON (``invalid_request_json``)
+            or fails schema validation (``request_validation_failed``).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          description: Payload Too Large — the request body exceeds the configured
+            maximum payload size (``payload_too_large``).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '415':
+          description: Unsupported Media Type — the ``Content-Type`` header is not
+            ``application/json``.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Too Many Requests — either the per-IP rate limit has been exceeded
+            (``rate_limit_exceeded``) or the image generation concurrency limit is
+            fully occupied (``service_busy``). The ``Retry-After`` header indicates
+            how long to wait before retrying.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Bad Gateway — the upstream language model server or the Stable
+            Diffusion pipeline encountered a failure (``upstream_service_unavailable``
+            or ``model_unavailable``).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '504':
+          description: Gateway Timeout — the request exceeded the configured end-to-end
+            timeout ceiling (``request_timeout``).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Not Found — the requested endpoint does not exist (``not_found``).
+        '405':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Method Not Allowed — the HTTP method is not supported for this
+            endpoint (``method_not_allowed``). The ``Allow`` header lists permitted
+            methods.
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Internal Server Error — an unexpected error occurred during
+            request processing (``internal_server_error``).
+  /health:
+    get:
+      tags:
+      - Health
+      summary: Liveness check
+      description: Returns a simple healthy status when the service is running.
+      operationId: health_check_health_get
+      responses:
+        '200':
+          description: The service process is running and accepting requests.
+          content:
+            application/json:
+              schema:
+                properties:
+                  status:
+                    type: string
+                    enum:
+                    - healthy
+                    description: Always ``healthy`` when the process is alive.
+                type: object
+                required:
+                - status
+              example:
+                status: healthy
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Not Found — the requested endpoint does not exist (``not_found``).
+        '405':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Method Not Allowed — the HTTP method is not supported for this
+            endpoint (``method_not_allowed``). The ``Allow`` header lists permitted
+            methods.
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Internal Server Error — an unexpected error occurred during
+            request processing (``internal_server_error``).
+  /health/ready:
+    get:
+      tags:
+      - Health
+      summary: Readiness check
+      description: Checks that backend services (language model server and image generation
+        pipeline) are initialised and reachable. Returns HTTP 503 with a Retry-After
+        header when any backend is unavailable.
+      operationId: readiness_check_health_ready_get
+      responses:
+        '200':
+          description: All backend services are healthy and ready to accept requests.
+          content:
+            application/json:
+              schema:
+                properties:
+                  status:
+                    type: string
+                    enum:
+                    - ready
+                  checks:
+                    properties:
+                      language_model:
+                        type: string
+                        enum:
+                        - ok
+                      image_generation:
+                        type: string
+                        enum:
+                        - ok
+                    type: object
+                    required:
+                    - language_model
+                    - image_generation
+                type: object
+                required:
+                - status
+                - checks
+              example:
+                status: ready
+                checks:
+                  language_model: ok
+                  image_generation: ok
+        '503':
+          description: Service Unavailable — one or more backend services are unhealthy.
+            The ``Retry-After`` header indicates how long to wait before retrying.
+          headers:
+            Retry-After:
+              description: Number of seconds the client should wait before retrying
+                the readiness check.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                properties:
+                  status:
+                    type: string
+                    enum:
+                    - not_ready
+                  checks:
+                    properties:
+                      language_model:
+                        type: string
+                        enum:
+                        - ok
+                        - unavailable
+                      image_generation:
+                        type: string
+                        enum:
+                        - ok
+                        - unavailable
+                    type: object
+                    required:
+                    - language_model
+                    - image_generation
+                type: object
+                required:
+                - status
+                - checks
+              example:
+                status: not_ready
+                checks:
+                  language_model: ok
+                  image_generation: unavailable
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Not Found — the requested endpoint does not exist (``not_found``).
+        '405':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Method Not Allowed — the HTTP method is not supported for this
+            endpoint (``method_not_allowed``). The ``Allow`` header lists permitted
+            methods.
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Internal Server Error — an unexpected error occurred during
+            request processing (``internal_server_error``).
+  /metrics:
+    get:
+      tags:
+      - Health
+      summary: Request metrics
+      description: Returns request count and latency metrics in JSON format for operational
+        monitoring (NFR11).
+      operationId: get_metrics_metrics_get
+      responses:
+        '200':
+          description: A point-in-time snapshot of request count and latency metrics.
+          content:
+            application/json:
+              schema:
+                properties:
+                  request_counts:
+                    additionalProperties:
+                      type: integer
+                    type: object
+                    description: Map of 'METHOD /path STATUS_CODE' keys to the number
+                      of times that combination was observed.
+                  request_latencies:
+                    additionalProperties:
+                      type: object
+                    type: object
+                    description: Map of 'METHOD /path' keys to latency statistics
+                      (count, minimum_milliseconds, maximum_milliseconds, average_milliseconds,
+                      ninety_fifth_percentile_milliseconds).
+                  collected_at:
+                    type: string
+                    format: date-time
+                    description: ISO 8601 UTC timestamp of when the snapshot was generated.
+                  service_started_at:
+                    type: string
+                    format: date-time
+                    description: ISO 8601 UTC timestamp of when the service process
+                      started.
+                type: object
+                required:
+                - request_counts
+                - request_latencies
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Not Found — the requested endpoint does not exist (``not_found``).
+        '405':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Method Not Allowed — the HTTP method is not supported for this
+            endpoint (``method_not_allowed``). The ``Allow`` header lists permitted
+            methods.
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Internal Server Error — an unexpected error occurred during
+            request processing (``internal_server_error``).
+components:
+  schemas:
+    ErrorDetail:
+      properties:
+        code:
+          type: string
+          title: Code
+          description: A machine-readable error code in snake_case format.
+        message:
+          type: string
+          title: Message
+          description: A human-readable error description safe for display to end
+            users.
+        details:
+          anyOf:
+          - type: string
+          - items: {}
+            type: array
+          - type: 'null'
+          title: Details
+          description: Additional context about the error, when available. May be
+            a descriptive string, an array of validation error objects, or null.
+        correlation_id:
+          type: string
+          title: Correlation Id
+          description: UUID v4 correlation identifier matching the X-Correlation-ID
+            response header.
+      type: object
+      required:
+      - code
+      - message
+      - correlation_id
+      title: ErrorDetail
+      description: 'Detailed error information nested inside the error response.
+
+
+        The ``details`` field can be:
+
+        - A descriptive string (for single-cause errors such as payload_too_large)
+
+        - An array of validation error objects (for request_validation_failed)
+
+        - Null or omitted when no additional context is available'
+    ErrorResponse:
+      properties:
+        error:
+          $ref: '#/components/schemas/ErrorDetail'
+          description: An object containing error details.
+      type: object
+      required:
+      - error
+      title: ErrorResponse
+      description: 'Standardised error response returned for all error conditions.
+
+
+        Every error response from this service follows this nested structure
+
+        to ensure clients can rely on a consistent error format.'
+    GeneratedImageData:
+      properties:
+        base64_json:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Base64 Json
+          description: The generated image encoded as a base64 PNG string using the
+            standard base64 alphabet (RFC 4648 §4). Null if the image was filtered
+            by the content safety checker.
+      type: object
+      required:
+      - base64_json
+      title: GeneratedImageData
+      description: 'A single generated image represented as a base64-encoded string.
+
+
+        The ``base64_json`` field is null when the image was filtered by the
+
+        content safety checker (not-safe-for-work filtering).'
+    ImageGenerationRequest:
+      properties:
+        prompt:
+          type: string
+          maxLength: 2000
+          minLength: 1
+          pattern: .*\S.*
+          title: Prompt
+          description: The text prompt describing the desired image. Must be between
+            1 and 2000 characters and contain at least one non-whitespace character.
+          examples:
+          - A sunset over a mountain range with vivid colours
+        use_enhancer:
+          type: boolean
+          title: Use Enhancer
+          description: When set to true, the prompt will first be enhanced by the
+            language model before being sent to the image generation service.
+          default: false
+        n:
+          type: integer
+          maximum: 4.0
+          minimum: 1.0
+          title: N
+          description: The number of images to generate in a single request. Accepts
+            values from 1 to 4 inclusive.
+          default: 1
+        size:
+          type: string
+          title: Size
+          description: 'The dimensions of the generated image in WIDTHxHEIGHT format.
+            Supported sizes: 1024x1024, 512x512, 768x768.'
+          default: 512x512
+          examples:
+          - 1024x1024
+          - 512x512
+          - 768x768
+        seed:
+          anyOf:
+          - type: integer
+            maximum: 4294967295.0
+            minimum: 0.0
+          - type: 'null'
+          title: Seed
+          description: Random seed for reproducible generation. When null or omitted,
+            a random seed is used. The seed used is always returned in the response.
+            Seed 0 is a valid deterministic seed with no special semantics.
+        response_format:
+          type: string
+          title: Response Format
+          description: Format of the image data in the response. Currently only 'base64_json'
+            (base64-encoded inline) is supported. Reserved for future extension to
+            'url' (object-storage reference).
+          default: base64_json
+      additionalProperties: false
+      type: object
+      required:
+      - prompt
+      title: ImageGenerationRequest
+      description: 'Request body for the POST /v1/images/generations endpoint.
+
+
+        The client supplies a text prompt together with generation parameters.
+
+        When ``use_enhancer`` is true, the prompt is first enhanced by the
+
+        language model before being forwarded to Stable Diffusion.'
+    ImageGenerationResponse:
+      properties:
+        created:
+          type: integer
+          title: Created
+          description: Unix timestamp (seconds since epoch) indicating when image
+            generation completed.
+        seed:
+          type: integer
+          title: Seed
+          description: The seed used for image generation. Echoes the request seed
+            if provided; otherwise, the randomly generated seed.
+        data:
+          items:
+            $ref: '#/components/schemas/GeneratedImageData'
+          type: array
+          maxItems: 4
+          minItems: 1
+          title: Data
+          description: Array of generated images. Array length equals the request
+            'n' parameter.
+        enhanced_prompt:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Enhanced Prompt
+          description: 'The enhanced prompt used for image generation, present only
+            when the request specified use_enhancer: true. Omitted entirely when use_enhancer
+            was false or omitted.'
+        warnings:
+          anyOf:
+          - items:
+              $ref: '#/components/schemas/ImageGenerationWarning'
+            type: array
+          - type: 'null'
+          title: Warnings
+          description: Present only when the content safety checker has flagged one
+            or more images. Lists the indices of filtered images.
+      type: object
+      required:
+      - created
+      - seed
+      - data
+      title: ImageGenerationResponse
+      description: 'Response body for the POST /v1/images/generations endpoint.
+
+
+        Contains a Unix timestamp, the seed used for generation, a list of
+
+        generated images, and optional fields for the enhanced prompt and
+
+        content safety warnings.
+
+
+        Conditional field presence (managed via ``exclude_unset=True``):
+
+        - ``enhanced_prompt``: present only when ``use_enhancer`` was ``true``.
+
+        - ``warnings``: present only when the content safety checker flagged images.'
+    ImageGenerationWarning:
+      properties:
+        index:
+          type: integer
+          minimum: 0.0
+          title: Index
+          description: Zero-based index into the data array of the affected image.
+        reason:
+          type: string
+          title: Reason
+          description: Machine-readable reason for the warning (for example, 'content_policy_violation').
+      type: object
+      required:
+      - index
+      - reason
+      title: ImageGenerationWarning
+      description: 'A warning about a specific generated image that was flagged by
+        the
+
+        content safety checker (not-safe-for-work filtering).'
+    PromptEnhancementRequest:
+      properties:
+        prompt:
+          type: string
+          maxLength: 2000
+          minLength: 1
+          pattern: .*\S.*
+          title: Prompt
+          description: The original user-supplied prompt to be enhanced by the language
+            model. Must be between 1 and 2000 characters and contain at least one
+            non-whitespace character.
+          examples:
+          - A cat sitting on a windowsill
+      additionalProperties: false
+      type: object
+      required:
+      - prompt
+      title: PromptEnhancementRequest
+      description: 'Request body for the POST /v1/prompts/enhance endpoint.
+
+
+        The client supplies a raw text prompt which will be sent to the
+
+        language model for enhancement.'
+    PromptEnhancementResponse:
+      properties:
+        original_prompt:
+          type: string
+          title: Original Prompt
+          description: The user-provided prompt exactly as received by the service,
+            echoed for client-side correlation without requiring the client to maintain
+            its own request bookkeeping.
+        enhanced_prompt:
+          type: string
+          title: Enhanced Prompt
+          description: Enhanced version of the input prompt, optimised for text-to-image
+            generation. This value is the llama.cpp response content after leading
+            and trailing whitespace has been stripped.
+        created:
+          type: integer
+          title: Created
+          description: Unix timestamp (seconds since epoch) indicating when the prompt
+            enhancement completed.
+      type: object
+      required:
+      - original_prompt
+      - enhanced_prompt
+      - created
+      title: PromptEnhancementResponse
+      description: 'Response body for the POST /v1/prompts/enhance endpoint.
+
+
+        Contains the original prompt echoed back for client-side correlation,
+
+        the enhanced version produced by the language model, and a Unix
+
+        timestamp indicating when the enhancement completed.'

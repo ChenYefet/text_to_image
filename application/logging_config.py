@@ -1,9 +1,14 @@
 """
 Structured logging configuration for the application.
 
-Configures structlog to emit JSON-formatted log records with the mandatory
-fields required by the specification (NFR9): timestamp (ISO 8601 UTC),
-level, event, correlation_id, and service_name.
+Configures structlog to emit JSON-formatted log records to **stdout** with
+the mandatory fields required by the specification (NFR9): timestamp
+(ISO 8601 UTC), level, event, correlation_id, and service_name.
+
+The log output destination is stdout (not stderr), consistent with the
+twelve-factor app methodology (factor XI — Logs) and container logging
+best practices as mandated by the v5.0.0 specification (Section 18,
+Log Output Destination).
 
 Both structlog-native loggers and standard library loggers (used by
 third-party packages such as Uvicorn and httpx) are routed through the
@@ -41,12 +46,16 @@ def _uppercase_level(
 
 def configure_logging(log_level: str = "INFO") -> None:
     """
-    Configure structlog for structured JSON logging to stderr.
+    Configure structlog for structured JSON logging to stdout.
 
     Both structlog-native loggers and standard library loggers are
     processed through the same pipeline, producing JSON output with
     the mandatory fields: timestamp, level, event, service_name.
     The correlation_id field is injected per-request via contextvars.
+
+    The output stream is stdout (not stderr), consistent with the
+    twelve-factor app methodology (factor XI — Logs) as required by
+    the v5.0.0 specification (Section 18).
 
     Should be called once during application startup, before any log
     messages are emitted.
@@ -80,7 +89,7 @@ def configure_logging(log_level: str = "INFO") -> None:
         foreign_pre_chain=shared_processors,
     )
 
-    handler = logging.StreamHandler(sys.stderr)
+    handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(formatter)
 
     root_logger = logging.getLogger()

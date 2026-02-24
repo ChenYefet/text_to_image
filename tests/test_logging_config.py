@@ -39,7 +39,7 @@ class TestConfigureLogging:
         test_logger.info("test_event", key="value")
 
         captured = capsys.readouterr()
-        parsed = json.loads(captured.err.strip())
+        parsed = json.loads(captured.out.strip())
 
         assert parsed["event"] == "test_event"
         assert parsed["key"] == "value"
@@ -50,7 +50,7 @@ class TestConfigureLogging:
         test_logger.info("test_event")
 
         captured = capsys.readouterr()
-        parsed = json.loads(captured.err.strip())
+        parsed = json.loads(captured.out.strip())
 
         assert "timestamp" in parsed
         assert "level" in parsed
@@ -63,7 +63,7 @@ class TestConfigureLogging:
         test_logger.info("test_event")
 
         captured = capsys.readouterr()
-        parsed = json.loads(captured.err.strip())
+        parsed = json.loads(captured.out.strip())
 
         assert parsed["level"] == "INFO"
 
@@ -73,7 +73,7 @@ class TestConfigureLogging:
         test_logger.info("test_event")
 
         captured = capsys.readouterr()
-        parsed = json.loads(captured.err.strip())
+        parsed = json.loads(captured.out.strip())
 
         assert parsed["service_name"] == "text-to-image-api"
 
@@ -83,7 +83,7 @@ class TestConfigureLogging:
         test_logger.info("test_event")
 
         captured = capsys.readouterr()
-        parsed = json.loads(captured.err.strip())
+        parsed = json.loads(captured.out.strip())
 
         timestamp = parsed["timestamp"]
         assert "T" in timestamp
@@ -98,7 +98,7 @@ class TestConfigureLogging:
         test_logger.info("test_event")
 
         captured = capsys.readouterr()
-        parsed = json.loads(captured.err.strip())
+        parsed = json.loads(captured.out.strip())
 
         assert parsed["correlation_id"] == "test-correlation-id"
 
@@ -110,7 +110,7 @@ class TestConfigureLogging:
         stdlib_logger.info("stdlib message")
 
         captured = capsys.readouterr()
-        parsed = json.loads(captured.err.strip())
+        parsed = json.loads(captured.out.strip())
 
         assert parsed["event"] == "stdlib message"
         assert "service_name" in parsed

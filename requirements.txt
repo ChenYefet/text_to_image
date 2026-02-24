@@ -1,13 +1,23 @@
 fastapi==0.129.0
 uvicorn==0.34.0
+# starlette is floor-constrained rather than exactly pinned because this minimum
+# was introduced to address a known security vulnerability; the exact compatible
+# version is resolved by pip against the fastapi==0.129.0 constraint above.
 starlette>=0.49.1
 pydantic==2.10.4
 pydantic-settings==2.7.1
 httpx==0.28.1
-diffusers>=0.31.0
-transformers>=4.46.0
-accelerate>=1.2.0
+diffusers==0.36.0
+transformers==5.2.0
+accelerate==1.12.0
+# torch is floor-constrained rather than exactly pinned because GPU (CUDA) builds
+# are distributed via a separate package index and carry a local version suffix
+# (e.g. 2.10.0+cu121) that does not match the plain PyPI version string. Pinning
+# to a PyPI version would silently replace any pre-installed CUDA build with the
+# CPU-only wheel. See README.md Step 4 for GPU installation instructions.
 torch>=2.5.0
-safetensors>=0.4.0
-structlog>=23.1.0
-slowapi>=0.1.9
+safetensors==0.7.0
+structlog==25.5.0
+slowapi==0.1.9
+psutil==7.2.2
+Pillow==12.1.1

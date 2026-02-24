@@ -7,6 +7,15 @@ on:
     branches: [main]
 
 jobs:
+  # ──────────────────────────────────────────────────────────────────────
+  #  Job 1: Lint, type-check, audit, and test
+  # ──────────────────────────────────────────────────────────────────────
+  #
+  #  This job runs on every push to main and every pull request targeting
+  #  main.  It performs the full quality gate: static analysis (ruff),
+  #  formatting verification, type checking (mypy), dependency
+  #  vulnerability scanning (pip-audit), test execution with coverage
+  #  enforcement, and API schema validation.
   ci:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -52,7 +61,92 @@ jobs:
           source .venv/bin/activate
           pytest --cov=application --cov-report=term-missing --cov-report=xml --cov-fail-under=80
 
-      - name: Validate API schemas
+      # ── OpenAPI contract validation (FR46) ─────────────────────────
+      #
+      # This step validates that the committed openapi.yaml file at
+      # the repository root is an exact structural match for the
+      # OpenAPI schema that the application generates at runtime.
+      # This prevents undetectable schema drift between the documented
+      # API contract (consumed by client-code generators and contract-
+      # testing frameworks) and the actual implementation.
+      #
+      # If this step fails, regenerate the openapi.yaml file using:
+      #
+      #   python -c "
+      #   import yaml, application.server_factory
+      #   app = application.server_factory.create_application()
+      #   with open('openapi.yaml', 'w', encoding='utf-8') as f:
+      #       yaml.dump(app.openapi(), f, default_flow_style=False,
+      #                 sort_keys=False, allow_unicode=True)
+      #   "
+      - name: Validate OpenAPI contract alignment
         run: |
           source .venv/bin/activate
-          pytest tests/ -k "model" --no-header -q
+          pytest tests/test_openapi_contract.py -v --no-header
+
+  # ──────────────────────────────────────────────────────────────────────
+  #  Job 2: Build and tag the Docker container image
+  # ──────────────────────────────────────────────────────────────────────
+  #
+  #  This job addresses FR43 of the v5.0.0 specification: the CI pipeline
+  #  must build a container image and tag it with the Git commit SHA for
+  #  deployment traceability.
+  #
+  #  The job runs only when:
+  #    1. The lint/test/audit job (above) has completed successfully, AND
+  #    2. The trigger is a push to the main branch (not a pull request).
+  #
+  #  This ensures that container images are only built from code that has
+  #  passed the full quality gate and has been merged into the main line.
+  #
+  #  The image is tagged with two identifiers:
+  #    - The full Git commit SHA (immutable, for deployment pinning)
+  #    - "latest" (mutable, for convenience in development environments)
+  #
+  #  The image is built but not pushed to a registry.  To enable pushing,
+  #  configure registry credentials as GitHub Actions secrets and add the
+  #  "Log in to container registry" and "push: true" steps documented in
+  #  the inline comments below.
+  docker-build:
+    runs-on: ubuntu-latest
+    needs: ci
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ── Optional: Log in to a container registry ──────────────────────
+      #
+      # Uncomment the step below and configure the corresponding GitHub
+      # Actions secrets to enable pushing the built image to a container
+      # registry.  The example below uses GitHub Container Registry
+      # (ghcr.io); substitute the appropriate action and credentials for
+      # Docker Hub, AWS ECR, or other registries.
+      #
+      # - name: Log in to GitHub Container Registry
+      #   uses: docker/login-action@v3
+      #   with:
+      #     registry: ghcr.io
+      #     username: ${{ github.actor }}
+      #     password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and tag container image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          # Set "push" to true once a container registry is configured
+          # (see the optional login step above).
+          push: false
+          tags: |
+            text-to-image-api:${{ github.sha }}
+            text-to-image-api:latest
+          # GitHub Actions cache for Docker layers.  This avoids
+          # re-downloading and re-installing Python dependencies on
+          # every build when only application source code has changed.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

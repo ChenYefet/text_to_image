@@ -24,7 +24,7 @@ llama.cpp language model.
 
 - **Asynchronous throughout** — every I/O operation uses `async`/`await`, and Stable Diffusion inference is dispatched to a thread pool to avoid blocking the event loop.
 - **Connection pooling** — persistent `httpx.AsyncClient` instances reuse TCP connections across requests, reducing handshake overhead.
-- **Inference serialisation** — an `asyncio.Lock` serialises concurrent image generation requests to prevent GPU memory contention.
+- **Admission control** — an `ImageGenerationAdmissionController` limits the number of concurrent image generation operations to a configurable maximum (default 1). When the limit is reached, additional requests are rejected immediately with HTTP 429 (`service_busy`) and a `Retry-After` header, preventing GPU/CPU memory contention without queuing or head-of-line blocking.
 - **Rate limiting** — inference endpoints are throttled per client IP using `slowapi`, preventing any single client from monopolising GPU/CPU resources.
 - **Environment-based configuration** — all settings are loaded from environment variables (12-factor app compliant), enabling deployment across development, staging, and production environments without code changes.
 - **Factory pattern** — the application is constructed via a factory function, making it straightforward to create isolated instances for testing or multi-worker deployments.
@@ -315,7 +315,7 @@ You should receive a JSON response containing a base64-encoded image:
     "created": 1700000000,
     "data": [
         {
-            "b64_json": "iVBORw0KGgoAAAANSUhEUgAA..."
+            "base64_json": "iVBORw0KGgoAAAANSUhEUgAA..."
         }
     ]
 }
@@ -330,14 +330,14 @@ curl -s -X POST http://localhost:8000/v1/images/generations \
     -d '{"prompt": "a cat", "use_enhancer": false, "n": 1, "size": "512x512"}' \
     -o response.json
 
-python -c "import json, base64; data=json.load(open('response.json')); open('output.png','wb').write(base64.b64decode(data['data'][0]['b64_json']))"
+python -c "import json, base64; data=json.load(open('response.json')); open('output.png','wb').write(base64.b64decode(data['data'][0]['base64_json']))"
 ```
 
 **Windows (PowerShell):**
 ```powershell
 curl.exe --% -X POST http://localhost:8000/v1/images/generations -H "Content-Type: application/json" -d "{\"prompt\": \"a cat\", \"use_enhancer\": false, \"n\": 1, \"size\": \"512x512\"}" -o response.json
 
-python -c "import json, base64; data=json.load(open('response.json')); open('output.png','wb').write(base64.b64decode(data['data'][0]['b64_json']))"
+python -c "import json, base64; data=json.load(open('response.json')); open('output.png','wb').write(base64.b64decode(data['data'][0]['base64_json']))"
 ```
 
 Open `output.png` to view the generated image.
@@ -490,7 +490,7 @@ Generates one or more images from a text prompt.
     "created": 1700000000,
     "data": [
         {
-            "b64_json": "iVBORw0KGgoAAAANSUhEUgAA..."
+            "base64_json": "iVBORw0KGgoAAAANSUhEUgAA..."
         }
     ]
 }
@@ -548,10 +548,10 @@ Returns in-memory performance metrics including request counts and latency stati
     "request_latencies": {
         "GET /health": {
             "count": 5,
-            "min_ms": 0.1,
-            "max_ms": 1.2,
-            "avg_ms": 0.5,
-            "p95_ms": 1.1
+            "minimum_milliseconds": 0.1,
+            "maximum_milliseconds": 1.2,
+            "average_milliseconds": 0.5,
+            "ninety_fifth_percentile_milliseconds": 1.1
         }
     }
 }
@@ -693,23 +693,50 @@ Once the service is running, FastAPI automatically generates interactive documen
 
 All configuration is loaded from environment variables prefixed with `TEXT_TO_IMAGE_`. A `.env` file is also supported for local development.
 
+**Application settings**
+
 | Variable | Description | Default |
 |---|---|---|
-| `TEXT_TO_IMAGE_LANGUAGE_MODEL_SERVER_BASE_URL` | Base URL of the llama.cpp server | `http://localhost:8080` |
-| `TEXT_TO_IMAGE_LANGUAGE_MODEL_REQUEST_TIMEOUT_SECONDS` | Max seconds to wait for a language model response | `120.0` |
-| `TEXT_TO_IMAGE_LANGUAGE_MODEL_TEMPERATURE` | Sampling temperature for prompt enhancement | `0.7` |
-| `TEXT_TO_IMAGE_LANGUAGE_MODEL_MAX_TOKENS` | Max tokens the language model may generate | `512` |
-| `TEXT_TO_IMAGE_STABLE_DIFFUSION_MODEL_ID` | HuggingFace model ID or local path | `stable-diffusion-v1-5/stable-diffusion-v1-5` |
-| `TEXT_TO_IMAGE_STABLE_DIFFUSION_DEVICE` | Inference device: `auto`, `cpu`, or `cuda` | `auto` |
-| `TEXT_TO_IMAGE_STABLE_DIFFUSION_INFERENCE_STEPS` | Number of denoising steps per image | `20` |
-| `TEXT_TO_IMAGE_STABLE_DIFFUSION_GUIDANCE_SCALE` | Classifier-free guidance scale | `7.0` |
-| `TEXT_TO_IMAGE_STABLE_DIFFUSION_SAFETY_CHECKER` | Enable NSFW safety checker (`true`/`false`) | `true` |
-| `TEXT_TO_IMAGE_STABLE_DIFFUSION_INFERENCE_TIMEOUT_PER_UNIT_SECONDS` | Base timeout (seconds) for one 512×512 image; auto-scaled by request size and ×30 on CPU | `60.0` |
 | `TEXT_TO_IMAGE_APPLICATION_HOST` | HTTP bind address | `127.0.0.1` |
-| `TEXT_TO_IMAGE_APPLICATION_PORT` | HTTP bind port | `8000` |
-| `TEXT_TO_IMAGE_CORS_ALLOWED_ORIGINS` | Allowed CORS origins (JSON list) | `[]` *(disabled)* |
-| `TEXT_TO_IMAGE_LOG_LEVEL` | Log level: `DEBUG`, `INFO`, `WARNING`, `ERROR` | `INFO` |
+| `TEXT_TO_IMAGE_APPLICATION_PORT` | HTTP bind port (1–65535) | `8000` |
+| `TEXT_TO_IMAGE_CORS_ALLOWED_ORIGINS` | Allowed CORS origins (JSON list). Empty list disables CORS entirely. | `[]` *(disabled)* |
+| `TEXT_TO_IMAGE_LOG_LEVEL` | Minimum log level: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` | `INFO` |
 | `TEXT_TO_IMAGE_RATE_LIMIT` | Rate limit for inference endpoints in `count/period` format (e.g., `10/minute`, `100/hour`). Set to `0/second` to disable. | `10/minute` |
+
+**Language model (llama.cpp) settings**
+
+| Variable | Description | Default |
+|---|---|---|
+| `TEXT_TO_IMAGE_LANGUAGE_MODEL_SERVER_BASE_URL` | Base URL of the llama.cpp server. The service appends `/v1/chat/completions` to this URL. | `http://localhost:8080` |
+| `TEXT_TO_IMAGE_TIMEOUT_FOR_LANGUAGE_MODEL_REQUESTS_IN_SECONDS` | Maximum seconds to wait for a language model response | `120.0` |
+| `TEXT_TO_IMAGE_LANGUAGE_MODEL_TEMPERATURE` | Sampling temperature for prompt enhancement (0.0 = deterministic, higher = more creative) | `0.7` |
+| `TEXT_TO_IMAGE_LANGUAGE_MODEL_MAXIMUM_TOKENS` | Maximum tokens the language model may generate for an enhanced prompt. | `512` |
+| `TEXT_TO_IMAGE_LANGUAGE_MODEL_SYSTEM_PROMPT` | System prompt sent to the llama.cpp server on every enhancement request. Controls the enhancement style and output format. | *(built-in default)* |
+| `TEXT_TO_IMAGE_LANGUAGE_MODEL_CONNECTION_POOL_SIZE` | Maximum connections in the httpx connection pool for the llama.cpp HTTP client | `10` |
+| `TEXT_TO_IMAGE_LANGUAGE_MODEL_MAXIMUM_RESPONSE_BYTES` | Maximum response body size (bytes) the service will read from the llama.cpp server. Responses exceeding this limit are treated as upstream failures (HTTP 502). | `1048576` *(1 MB)* |
+
+**Stable Diffusion settings**
+
+| Variable | Description | Default |
+|---|---|---|
+| `TEXT_TO_IMAGE_STABLE_DIFFUSION_MODEL_ID` | HuggingFace model ID or local filesystem path | `stable-diffusion-v1-5/stable-diffusion-v1-5` |
+| `TEXT_TO_IMAGE_STABLE_DIFFUSION_MODEL_REVISION` | HuggingFace model revision (commit hash or branch name). Pin to a commit hash for reproducible weights. | `main` |
+| `TEXT_TO_IMAGE_STABLE_DIFFUSION_DEVICE` | Inference device: `auto` (CUDA if available, else CPU), `cpu`, or `cuda` | `auto` |
+| `TEXT_TO_IMAGE_STABLE_DIFFUSION_INFERENCE_STEPS` | Number of denoising steps per image. Higher values produce better quality but take longer. | `20` |
+| `TEXT_TO_IMAGE_STABLE_DIFFUSION_GUIDANCE_SCALE` | Classifier-free guidance scale. Higher values follow the prompt more closely. | `7.0` |
+| `TEXT_TO_IMAGE_STABLE_DIFFUSION_SAFETY_CHECKER` | Enable the NSFW content safety checker (`true`/`false`). Disabling removes content filtering from generated images. | `true` |
+| `TEXT_TO_IMAGE_STABLE_DIFFUSION_INFERENCE_TIMEOUT_PER_UNIT_SECONDS` | Base timeout (seconds) for one 512×512 image. Auto-scaled: `base × n_images × (w × h) / (512 × 512)`, with a ×30 multiplier on CPU. | `60.0` |
+
+**Admission control and resilience settings**
+
+| Variable | Description | Default |
+|---|---|---|
+| `TEXT_TO_IMAGE_IMAGE_GENERATION_MAXIMUM_CONCURRENCY` | Maximum concurrent image generation operations per service instance. Additional requests are rejected with HTTP 429 (`service_busy`). | `1` |
+| `TEXT_TO_IMAGE_RETRY_AFTER_BUSY_SECONDS` | `Retry-After` header value (seconds) on HTTP 429 responses caused by admission control (error code: `service_busy`). Indicates global GPU/CPU capacity saturation. | `30` |
+| `TEXT_TO_IMAGE_RETRY_AFTER_RATE_LIMIT_SECONDS` | `Retry-After` header value (seconds) on HTTP 429 responses caused by per-IP rate limiting (error code: `rate_limit_exceeded`). | `60` |
+| `TEXT_TO_IMAGE_RETRY_AFTER_NOT_READY_SECONDS` | `Retry-After` header value (seconds) on HTTP 503 responses from the readiness probe. | `10` |
+| `TEXT_TO_IMAGE_MAXIMUM_REQUEST_PAYLOAD_BYTES` | Maximum request payload size in bytes. Requests exceeding this limit are rejected with HTTP 413 before the body is fully read. | `1048576` *(1 MB)* |
+| `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS` | Maximum end-to-end duration (seconds) for any single HTTP request. Requests exceeding this ceiling are aborted with HTTP 504 (`request_timeout`). | `300.0` |
 
 ---
 
