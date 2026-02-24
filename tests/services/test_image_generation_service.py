@@ -183,7 +183,6 @@ class TestGenerateImages:
                 number_of_images=1,
             )
 
-
     @pytest.mark.asyncio
     async def test_success_on_cuda_device_invokes_gpu_memory_cleanup(self):
         """
@@ -238,7 +237,6 @@ class TestGenerateImages:
         mock_result.nsfw_content_detected = None
         service._pipeline.return_value = mock_result
 
-        captured_log_events = []
         with structlog.testing.capture_logs() as captured_log_events:
             await service.generate_images(
                 prompt="A cat",
@@ -248,8 +246,7 @@ class TestGenerateImages:
             )
 
         completion_events = [
-            event for event in captured_log_events
-            if event.get("event") == "image_generation_completed"
+            event for event in captured_log_events if event.get("event") == "image_generation_completed"
         ]
         assert len(completion_events) == 1
         assert "number_of_bytes_of_resident_set_size_of_process" in completion_events[0]

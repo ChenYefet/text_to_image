@@ -259,7 +259,9 @@ async def readiness_check(request: fastapi.Request) -> fastapi.responses.JSONRes
                             "request_latencies": {
                                 "type": "object",
                                 "description": (
-                                    "Map of 'METHOD /path' keys to latency statistics (count, minimum_milliseconds, maximum_milliseconds, average_milliseconds, ninety_fifth_percentile_milliseconds)."
+                                    "Map of 'METHOD /path' keys to latency statistics"
+                                    " (count, minimum_milliseconds, maximum_milliseconds,"
+                                    " average_milliseconds, ninety_fifth_percentile_milliseconds)."
                                 ),
                                 "additionalProperties": {"type": "object"},
                             },

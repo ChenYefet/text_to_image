@@ -326,11 +326,7 @@ class TestCorrelationIdMiddleware:
         # The request should have been processed successfully (inner app
         # returned 200), confirming the malformed Content-Length did not
         # cause the middleware to crash.
-        response_start_messages = [
-            message
-            for message in sent_messages
-            if message.get("type") == "http.response.start"
-        ]
+        response_start_messages = [message for message in sent_messages if message.get("type") == "http.response.start"]
         assert len(response_start_messages) == 1
         assert response_start_messages[0]["status"] == 200
 
@@ -457,12 +453,12 @@ class TestRequestTimeoutMiddleware:
         # response should be present.
         response_start_messages = [message for message in sent_messages if message.get("type") == "http.response.start"]
 
-        assert len(response_start_messages) == 1, (
-            "The middleware must not send a second http.response.start when headers have already been committed."
-        )
-        assert response_start_messages[0]["status"] == 200, (
-            "The already-committed 200 status code must not be replaced with 504."
-        )
+        assert (
+            len(response_start_messages) == 1
+        ), "The middleware must not send a second http.response.start when headers have already been committed."
+        assert (
+            response_start_messages[0]["status"] == 200
+        ), "The already-committed 200 status code must not be replaced with 504."
 
     @pytest.mark.asyncio
     async def test_non_http_scope_passed_through(self):
@@ -729,11 +725,7 @@ class TestContentTypeValidationMiddleware:
         await middleware(scope, receive, send)
 
         # The middleware must have rejected the request with HTTP 415.
-        response_start_messages = [
-            message
-            for message in sent_messages
-            if message.get("type") == "http.response.start"
-        ]
+        response_start_messages = [message for message in sent_messages if message.get("type") == "http.response.start"]
         assert len(response_start_messages) == 1
         assert response_start_messages[0]["status"] == 415
 
@@ -741,9 +733,7 @@ class TestContentTypeValidationMiddleware:
         import json
 
         response_body_message = next(
-            message
-            for message in sent_messages
-            if message.get("type") == "http.response.body"
+            message for message in sent_messages if message.get("type") == "http.response.body"
         )
         response_body = json.loads(response_body_message["body"])
         assert response_body["error"]["code"] == "unsupported_media_type"

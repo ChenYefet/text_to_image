@@ -126,7 +126,7 @@ def _discover_allowed_methods_for_path(
         # attribute and a ``methods`` set.  We match on the path and
         # collect all declared methods.
         if (
-            isinstance(route, (fastapi.routing.APIRoute, starlette.routing.Route))
+            isinstance(route, fastapi.routing.APIRoute | starlette.routing.Route)
             and route.path == request_path
             and route.methods
         ):

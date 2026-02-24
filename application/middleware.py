@@ -279,7 +279,6 @@ class CorrelationIdMiddleware:
                 )
 
 
-
 class RequestTimeoutMiddleware:
     """
     Enforce an end-to-end request timeout on every HTTP request.

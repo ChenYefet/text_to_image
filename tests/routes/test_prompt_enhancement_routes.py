@@ -25,9 +25,7 @@ class TestPromptEnhancementRoutes:
         )
 
     @pytest.mark.asyncio
-    async def test_success_includes_cache_control_no_store_header(
-        self, client, mock_language_model_service
-    ) -> None:
+    async def test_success_includes_cache_control_no_store_header(self, client, mock_language_model_service) -> None:
         """
         Successful prompt enhancement responses must include a
         ``Cache-Control: no-store`` header to prevent intermediate proxies

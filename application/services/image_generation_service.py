@@ -310,9 +310,7 @@ class ImageGenerationService:
             # event (specification Section 18, event B-4).
             logger.info(
                 "stable_diffusion_startup_warmup_completed",
-                warmup_latency_milliseconds=round(
-                    warmup_duration_seconds * 1000, 1
-                ),
+                warmup_latency_milliseconds=round(warmup_duration_seconds * 1000, 1),
             )
         except Exception as warmup_error:
             # The warmup is a best-effort optimisation.  If it fails, the
