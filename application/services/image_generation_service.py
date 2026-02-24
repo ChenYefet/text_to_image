@@ -281,8 +281,8 @@ class ImageGenerationService:
         try:
             random_number_generator = torch.Generator(device="cpu").manual_seed(0)
 
-            warmup_result = await asyncio.to_thread(
-                self._pipeline,  # type: ignore[operator]
+            warmup_result: object = await asyncio.to_thread(
+                self._pipeline,  # type: ignore[arg-type]
                 prompt="warmup",
                 width=64,
                 height=64,
