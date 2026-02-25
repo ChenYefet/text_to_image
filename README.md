@@ -629,7 +629,7 @@ text_to_image/
 ├── text-to-image-spec-v5_0_0.md                   # Project specification
 ├── .github/
 │   └── workflows/
-│       └── ci.yml                                 # CI pipeline (lint + test)
+│       └── continuous-integration.yml              # Continuous integration pipeline (lint, format, type check, audit, test, contract validation)
 ├── llama.cpp/                                     # llama.cpp binaries (not in git)
 │   ├── llama-server.exe (Windows) or llama-server (Linux/macOS)
 │   └── ggml*.dll / *.so files

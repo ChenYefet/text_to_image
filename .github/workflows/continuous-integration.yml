@@ -1,4 +1,4 @@
-name: CI
+name: Continuous Integration
 
 on:
   push:
@@ -16,7 +16,7 @@ jobs:
   #  formatting verification, type checking (mypy), dependency
   #  vulnerability scanning (pip-audit), test execution with coverage
   #  enforcement, and API schema validation.
-  ci:
+  continuous-integration:
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -88,9 +88,9 @@ jobs:
   #  Job 2: Build and tag the Docker container image
   # ──────────────────────────────────────────────────────────────────────
   #
-  #  This job addresses FR43 of the v5.0.0 specification: the CI pipeline
-  #  must build a container image and tag it with the Git commit SHA for
-  #  deployment traceability.
+  #  This job addresses FR43 of the v5.0.0 specification: the continuous
+  #  integration pipeline must build a container image and tag it with the
+  #  Git commit SHA for deployment traceability.
   #
   #  The job runs only when:
   #    1. The lint/test/audit job (above) has completed successfully, AND
@@ -109,7 +109,7 @@ jobs:
   #  the inline comments below.
   docker-build:
     runs-on: ubuntu-latest
-    needs: ci
+    needs: continuous-integration
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     timeout-minutes: 20
 
