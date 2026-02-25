@@ -25,11 +25,25 @@ against misconfigured or misbehaving upstream servers:
   logs a WARNING indicating the enhanced prompt was truncated by the
   token limit.  The truncated prompt is still forwarded to the caller
   because it may still produce a reasonable image.
+
+Circuit breaker integration
+---------------------------
+An optional ``CircuitBreaker`` instance (from ``circuit_breaker.py``)
+can be provided at construction time to prevent the service from
+repeatedly waiting for the full timeout duration when the llama.cpp
+server is consistently failing.  When the circuit is open, requests
+are rejected immediately with ``LanguageModelServiceUnavailableError``
+(HTTP 502) without attempting to contact the upstream server.
+
+When no circuit breaker is provided, the service behaves exactly as
+before — every request is sent to the upstream regardless of prior
+failure history.
 """
 
 import httpx
 import structlog
 
+import application.circuit_breaker
 import application.exceptions
 
 logger = structlog.get_logger()
@@ -67,6 +81,7 @@ class LanguageModelService:
         system_prompt: str = DEFAULT_SYSTEM_PROMPT,
         connection_pool_size: int = 10,
         maximum_response_bytes: int = 1_048_576,
+        circuit_breaker: application.circuit_breaker.CircuitBreaker | None = None,
     ) -> None:
         """
         Initialise the language model service.
@@ -95,12 +110,18 @@ class LanguageModelService:
                 that the service will accept from the llama.cpp server.
                 Responses exceeding this limit are treated as upstream
                 failures (HTTP 502).
+            circuit_breaker: An optional ``CircuitBreaker`` instance that
+                prevents the service from repeatedly waiting for the full
+                timeout duration when the llama.cpp server is consistently
+                failing.  When ``None``, every request is sent to the
+                upstream regardless of prior failure history.
         """
         self.language_model_server_base_url = language_model_server_base_url
         self._temperature = temperature
         self._maximum_tokens = maximum_tokens
         self._system_prompt = system_prompt
         self._maximum_response_bytes = maximum_response_bytes
+        self._circuit_breaker = circuit_breaker
         self.http_client = httpx.AsyncClient(
             base_url=language_model_server_base_url,
             timeout=httpx.Timeout(request_timeout_seconds),
@@ -121,6 +142,15 @@ class LanguageModelService:
         The request explicitly includes ``"stream": false`` to prevent
         accidental streaming response handling from the llama.cpp server.
 
+        When a circuit breaker is configured, this method checks the
+        circuit state before attempting the upstream call.  If the
+        circuit is open (the upstream has been consistently failing),
+        the method raises ``LanguageModelServiceUnavailableError``
+        immediately without waiting for the full timeout duration.
+        On success, the circuit breaker records a success (potentially
+        closing a half-open circuit).  On failure, the circuit breaker
+        records a failure (potentially opening the circuit).
+
         Args:
             original_prompt: The user-provided text prompt to be enhanced.
 
@@ -132,8 +162,9 @@ class LanguageModelService:
             LanguageModelServiceUnavailableError:
                 When the llama.cpp server cannot be reached, returns a
                 non-success HTTP status code, the request times out, the
-                response is a streaming response, or the response body
-                exceeds the configured maximum size.
+                response is a streaming response, the response body
+                exceeds the configured maximum size, or the circuit
+                breaker is open.
             PromptEnhancementError:
                 When the server responds but the response body is
                 malformed or contains an empty completion.
@@ -142,6 +173,34 @@ class LanguageModelService:
             "prompt_enhancement_initiated",
             prompt_length=len(original_prompt),
         )
+
+        # ── Circuit breaker check ─────────────────────────────────────
+        #
+        # When a circuit breaker is configured, check whether the circuit
+        # is open before attempting the upstream call.  This prevents the
+        # service from repeatedly waiting for the full timeout duration
+        # (potentially 120 seconds) when the llama.cpp server is known
+        # to be consistently failing.
+        if self._circuit_breaker is not None:
+            try:
+                await self._circuit_breaker.ensure_circuit_is_not_open()
+            except application.circuit_breaker.CircuitOpenError as circuit_open_error:
+                logger.warning(
+                    "llama_cpp_circuit_breaker_rejected",
+                    circuit_name=circuit_open_error.circuit_name,
+                    remaining_seconds=round(
+                        circuit_open_error.remaining_seconds_until_recovery,
+                        1,
+                    ),
+                )
+                raise application.exceptions.LanguageModelServiceUnavailableError(
+                    detail=(
+                        "The language model server has been consistently "
+                        "failing. The circuit breaker is preventing further "
+                        "requests to avoid prolonged timeouts. The service "
+                        "will automatically retry after a recovery period."
+                    ),
+                ) from circuit_open_error
 
         chat_completion_request_body = {
             "messages": [
@@ -166,6 +225,7 @@ class LanguageModelService:
             )
             http_response.raise_for_status()
         except httpx.ConnectError as connection_error:
+            await self._record_circuit_breaker_failure()
             logger.error(
                 "llama_cpp_connection_failed",
                 error=str(connection_error),
@@ -177,6 +237,7 @@ class LanguageModelService:
                 ),
             ) from connection_error
         except httpx.HTTPStatusError as http_status_error:
+            await self._record_circuit_breaker_failure()
             logger.error(
                 "llama_cpp_http_error",
                 status_code=http_status_error.response.status_code,
@@ -185,6 +246,7 @@ class LanguageModelService:
                 detail=(f"The language model server returned HTTP status {http_status_error.response.status_code}."),
             ) from http_status_error
         except httpx.TimeoutException as timeout_error:
+            await self._record_circuit_breaker_failure()
             logger.error(
                 "llama_cpp_timeout",
                 error=str(timeout_error),
@@ -200,6 +262,7 @@ class LanguageModelService:
             # no redirects) but mapping them to HTTP 502 is semantically
             # correct rather than letting them propagate to the 500
             # catch-all handler (audit finding P-2).
+            await self._record_circuit_breaker_failure()
             logger.error(
                 "llama_cpp_request_failed",
                 error_type=type(request_error).__name__,
@@ -308,12 +371,39 @@ class LanguageModelService:
                 configured_maximum_tokens=self._maximum_tokens,
             )
 
+        # Record success with the circuit breaker (if configured) so
+        # that a half-open circuit transitions back to closed and the
+        # consecutive failure counter is reset.
+        await self._record_circuit_breaker_success()
+
         logger.info(
             "prompt_enhancement_completed",
             enhanced_prompt_length=len(result),
         )
 
         return result
+
+    async def _record_circuit_breaker_failure(self) -> None:
+        """
+        Notify the circuit breaker (if configured) of an upstream failure.
+
+        This method is called from every exception handler in
+        ``enhance_prompt`` to track consecutive failures and potentially
+        open the circuit.
+        """
+        if self._circuit_breaker is not None:
+            await self._circuit_breaker.record_failure()
+
+    async def _record_circuit_breaker_success(self) -> None:
+        """
+        Notify the circuit breaker (if configured) of an upstream success.
+
+        This method is called after a successful prompt enhancement to
+        reset the consecutive failure counter and potentially close a
+        half-open circuit.
+        """
+        if self._circuit_breaker is not None:
+            await self._circuit_breaker.record_success()
 
     async def check_health(self) -> bool:
         """

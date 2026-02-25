@@ -214,6 +214,32 @@ class ApplicationConfiguration(pydantic_settings.BaseSettings):
         ),
     )
 
+    # ── Circuit breaker settings ──────────────────────────────────────────
+
+    circuit_breaker_failure_threshold_for_language_model: int = pydantic.Field(
+        default=5,
+        ge=1,
+        description=(
+            "Number of consecutive failures to the llama.cpp language "
+            "model server required to open the circuit breaker and begin "
+            "rejecting requests immediately. A value of 1 opens the "
+            "circuit on the very first failure. Higher values tolerate "
+            "transient errors before triggering fail-fast behaviour."
+        ),
+    )
+
+    circuit_breaker_recovery_timeout_for_language_model_in_seconds: float = pydantic.Field(
+        default=30.0,
+        gt=0,
+        description=(
+            "Duration in seconds that the circuit breaker remains in the "
+            "open state (rejecting all requests immediately) before "
+            "transitioning to half-open state and allowing a single probe "
+            "request through to test whether the llama.cpp server has "
+            "recovered."
+        ),
+    )
+
     # ── Admission control and resilience settings ─────────────────────────
 
     image_generation_maximum_concurrency: int = pydantic.Field(

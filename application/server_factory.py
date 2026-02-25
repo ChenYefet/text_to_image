@@ -18,6 +18,7 @@ import slowapi.errors
 import structlog
 
 import application.admission_control
+import application.circuit_breaker
 import application.error_handling
 import application.logging_config
 import application.metrics
@@ -64,6 +65,14 @@ def create_application() -> fastapi.FastAPI:
         Stable Diffusion pipeline in-process. On shutdown, close them
         to release resources.
         """
+        language_model_circuit_breaker = application.circuit_breaker.CircuitBreaker(
+            failure_threshold=(application_configuration.circuit_breaker_failure_threshold_for_language_model),
+            recovery_timeout_seconds=(
+                application_configuration.circuit_breaker_recovery_timeout_for_language_model_in_seconds
+            ),
+            name="language_model",
+        )
+
         language_model_service_instance = application.services.language_model_service.LanguageModelService(
             language_model_server_base_url=(application_configuration.language_model_server_base_url),
             request_timeout_seconds=(application_configuration.timeout_for_language_model_requests_in_seconds),
@@ -72,6 +81,7 @@ def create_application() -> fastapi.FastAPI:
             system_prompt=(application_configuration.language_model_system_prompt),
             connection_pool_size=(application_configuration.language_model_connection_pool_size),
             maximum_response_bytes=(application_configuration.language_model_maximum_response_bytes),
+            circuit_breaker=language_model_circuit_breaker,
         )
 
         # FR49 — Startup Model File Validation

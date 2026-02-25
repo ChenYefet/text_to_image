@@ -18,6 +18,7 @@ from unittest.mock import AsyncMock, MagicMock
 import httpx
 import pytest
 
+import application.circuit_breaker
 import application.exceptions
 import application.services.language_model_service
 
@@ -26,17 +27,23 @@ def _make_service(
     base_url: str = "http://localhost:8080",
     timeout: float = 30.0,
     maximum_response_bytes: int = 1_048_576,
+    circuit_breaker: application.circuit_breaker.CircuitBreaker | None = None,
 ) -> application.services.language_model_service.LanguageModelService:
     """
     Create a LanguageModelService instance with configurable parameters.
 
     The ``maximum_response_bytes`` parameter controls the response body size
     limit for testing the oversized-response rejection path.
+
+    The ``circuit_breaker`` parameter allows tests to inject a circuit
+    breaker instance for verifying the integration between the service
+    and the circuit breaker pattern.
     """
     return application.services.language_model_service.LanguageModelService(
         language_model_server_base_url=base_url,
         request_timeout_seconds=timeout,
         maximum_response_bytes=maximum_response_bytes,
+        circuit_breaker=circuit_breaker,
     )
 
 
@@ -535,6 +542,206 @@ class TestCheckHealth:
         service.http_client.get = AsyncMock(side_effect=httpx.ConnectError("Connection refused"))
 
         assert await service.check_health() is False
+
+
+class TestCircuitBreakerIntegration:
+    """
+    Verify the integration between LanguageModelService and the circuit
+    breaker pattern.
+
+    The circuit breaker prevents the service from repeatedly waiting for
+    the full timeout duration when the llama.cpp server is consistently
+    failing.  These tests verify that:
+
+    - An open circuit causes immediate rejection without contacting upstream.
+    - Failures are recorded with the circuit breaker.
+    - Successes are recorded with the circuit breaker.
+    - When no circuit breaker is configured, the service operates normally.
+    """
+
+    @pytest.mark.asyncio
+    async def test_open_circuit_rejects_without_calling_upstream(self) -> None:
+        """
+        When the circuit breaker is open, the service raises
+        LanguageModelServiceUnavailableError without sending any HTTP
+        request to the upstream server.
+        """
+        breaker = application.circuit_breaker.CircuitBreaker(
+            failure_threshold=1,
+            recovery_timeout_seconds=60.0,
+            name="test",
+        )
+        await breaker.record_failure()
+
+        service = _make_service(circuit_breaker=breaker)
+        service.http_client = AsyncMock()
+
+        with pytest.raises(
+            application.exceptions.LanguageModelServiceUnavailableError,
+            match="circuit breaker",
+        ):
+            await service.enhance_prompt("A cat")
+
+        # The HTTP client should never have been called.
+        service.http_client.post.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_success_records_with_circuit_breaker(self) -> None:
+        """A successful prompt enhancement resets the circuit breaker failure counter."""
+        breaker = application.circuit_breaker.CircuitBreaker(
+            failure_threshold=5,
+            name="test",
+        )
+        # Simulate some prior failures.
+        await breaker.record_failure()
+        await breaker.record_failure()
+
+        assert breaker.consecutive_failure_count == 2
+
+        service = _make_service(circuit_breaker=breaker)
+        mock_response = _mock_json_response("Enhanced prompt text")
+        service.http_client = AsyncMock()
+        service.http_client.post = AsyncMock(return_value=mock_response)
+
+        await service.enhance_prompt("A cat")
+
+        assert breaker.consecutive_failure_count == 0
+
+    @pytest.mark.asyncio
+    async def test_connection_failure_records_with_circuit_breaker(self) -> None:
+        """A connection error increments the circuit breaker failure counter."""
+        breaker = application.circuit_breaker.CircuitBreaker(
+            failure_threshold=5,
+            name="test",
+        )
+
+        service = _make_service(circuit_breaker=breaker)
+        service.http_client = AsyncMock()
+        service.http_client.post = AsyncMock(
+            side_effect=httpx.ConnectError("Connection refused"),
+        )
+
+        with pytest.raises(application.exceptions.LanguageModelServiceUnavailableError):
+            await service.enhance_prompt("A cat")
+
+        assert breaker.consecutive_failure_count == 1
+
+    @pytest.mark.asyncio
+    async def test_timeout_failure_records_with_circuit_breaker(self) -> None:
+        """A timeout error increments the circuit breaker failure counter."""
+        breaker = application.circuit_breaker.CircuitBreaker(
+            failure_threshold=5,
+            name="test",
+        )
+
+        service = _make_service(circuit_breaker=breaker)
+        service.http_client = AsyncMock()
+        service.http_client.post = AsyncMock(
+            side_effect=httpx.TimeoutException("Timed out"),
+        )
+
+        with pytest.raises(application.exceptions.LanguageModelServiceUnavailableError):
+            await service.enhance_prompt("A cat")
+
+        assert breaker.consecutive_failure_count == 1
+
+    @pytest.mark.asyncio
+    async def test_http_error_records_with_circuit_breaker(self) -> None:
+        """An HTTP status error increments the circuit breaker failure counter."""
+        breaker = application.circuit_breaker.CircuitBreaker(
+            failure_threshold=5,
+            name="test",
+        )
+
+        service = _make_service(circuit_breaker=breaker)
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = 500
+        service.http_client = AsyncMock()
+        service.http_client.post = AsyncMock(
+            side_effect=httpx.HTTPStatusError(
+                "Server error",
+                request=MagicMock(),
+                response=mock_response,
+            ),
+        )
+
+        with pytest.raises(application.exceptions.LanguageModelServiceUnavailableError):
+            await service.enhance_prompt("A cat")
+
+        assert breaker.consecutive_failure_count == 1
+
+    @pytest.mark.asyncio
+    async def test_request_error_records_with_circuit_breaker(self) -> None:
+        """An uncommon httpx RequestError increments the circuit breaker failure counter."""
+        breaker = application.circuit_breaker.CircuitBreaker(
+            failure_threshold=5,
+            name="test",
+        )
+
+        service = _make_service(circuit_breaker=breaker)
+        service.http_client = AsyncMock()
+        service.http_client.post = AsyncMock(
+            side_effect=httpx.TooManyRedirects(
+                "Too many redirects",
+                request=MagicMock(),
+            ),
+        )
+
+        with pytest.raises(application.exceptions.LanguageModelServiceUnavailableError):
+            await service.enhance_prompt("A cat")
+
+        assert breaker.consecutive_failure_count == 1
+
+    @pytest.mark.asyncio
+    async def test_no_circuit_breaker_operates_normally(self) -> None:
+        """When no circuit breaker is configured, the service operates normally."""
+        service = _make_service(circuit_breaker=None)
+        mock_response = _mock_json_response("Enhanced prompt text")
+        service.http_client = AsyncMock()
+        service.http_client.post = AsyncMock(return_value=mock_response)
+
+        result = await service.enhance_prompt("A cat")
+
+        assert result == "Enhanced prompt text"
+
+    @pytest.mark.asyncio
+    async def test_consecutive_failures_open_circuit_then_reject(self) -> None:
+        """
+        End-to-end test: consecutive failures through the service open the
+        circuit, then the next request is rejected immediately.
+        """
+        breaker = application.circuit_breaker.CircuitBreaker(
+            failure_threshold=2,
+            recovery_timeout_seconds=60.0,
+            name="test",
+        )
+
+        service = _make_service(circuit_breaker=breaker)
+        service.http_client = AsyncMock()
+        service.http_client.post = AsyncMock(
+            side_effect=httpx.ConnectError("Connection refused"),
+        )
+
+        # First two failures should still attempt the upstream call.
+        with pytest.raises(application.exceptions.LanguageModelServiceUnavailableError):
+            await service.enhance_prompt("A cat")
+
+        with pytest.raises(application.exceptions.LanguageModelServiceUnavailableError):
+            await service.enhance_prompt("A dog")
+
+        assert breaker.state == application.circuit_breaker.CircuitState.OPEN
+
+        # Third request should be rejected by the circuit breaker
+        # without calling the upstream.
+        service.http_client.post.reset_mock()
+
+        with pytest.raises(
+            application.exceptions.LanguageModelServiceUnavailableError,
+            match="circuit breaker",
+        ):
+            await service.enhance_prompt("A bird")
+
+        service.http_client.post.assert_not_awaited()
 
 
 class TestClose:
