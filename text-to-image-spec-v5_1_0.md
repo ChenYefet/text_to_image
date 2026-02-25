@@ -1,10 +1,10 @@
 # Technical Specification: Text-to-Image Generation Service with Prompt Enhancement
 
-**Document Version:** 5.0.0
+**Document Version:** 5.1.0
 **Status:** Final — Panel Review Ready
 **Target Audience:** Senior Engineering Panel, Implementation Teams
 **Specification Authority:** Principal Technical Specification Authority
-**Date:** 22 February 2026
+**Date:** 25 February 2026
 
 ---
 
@@ -1118,6 +1118,49 @@ The non-functional requirements are specified before functional requirements bec
     - **Across all phases:**
         - The service process does not crash, restart, or become unresponsive at any point during the 10-minute test
         - The service health endpoint (`GET /health`) returns HTTP 200 at any point during the test when polled
+
+##### Circuit breaker for communication with the language model service
+
+50. The service shall implement a circuit breaker for communication with the llama.cpp language model server that transitions through three states — CLOSED, OPEN, and HALF_OPEN — to prevent the service from repeatedly waiting for the full upstream timeout duration when the llama.cpp server is consistently failing. The circuit breaker shall operate as follows:
+
+    - **CLOSED** (normal operation): requests pass through to the llama.cpp server. Each upstream failure (connection refused, timeout, HTTP error, or any other failure mode listed in the [Error Handling](#error-handling) table under [llama.cpp Integration](#llamacpp-integration)) increments a consecutive failure counter. When the counter reaches the configured failure threshold (`TEXT_TO_IMAGE_CIRCUIT_BREAKER_FAILURE_THRESHOLD_FOR_LANGUAGE_MODEL`), the circuit transitions to OPEN. Any upstream success resets the counter to zero.
+    - **OPEN** (fail-fast): all prompt enhancement requests are rejected immediately with HTTP 502 (`upstream_service_unavailable`) without contacting the llama.cpp server. After the configured recovery timeout (`TEXT_TO_IMAGE_CIRCUIT_BREAKER_RECOVERY_TIMEOUT_FOR_LANGUAGE_MODEL_IN_SECONDS`) elapses, the circuit transitions to HALF_OPEN.
+    - **HALF_OPEN** (probing): the circuit allows a request through to test whether the llama.cpp server has recovered. If the request succeeds, the circuit transitions back to CLOSED and the failure counter is reset. If the request fails, the circuit transitions back to OPEN and the recovery timer restarts.
+
+**Intent:** When the llama.cpp server is consistently failing, every prompt enhancement request blocks for the full configured timeout (default 120 seconds) before returning HTTP 502. Under concurrent load, this exhausts connection pool resources and degrades response times for all clients, including those making requests that do not depend on llama.cpp (image generation with `use_enhancer: false`). The circuit breaker detects sustained upstream failure and transitions to fail-fast mode, rejecting enhancement requests immediately with HTTP 502 rather than waiting for a timeout that will inevitably fail. This preserves server resources for requests that can succeed and provides clients with faster failure signals.
+
+**Preconditions:**
+
+- The Text-to-Image API Service is running and accessible
+- The llama.cpp server is initially running and accessible
+- The circuit breaker failure threshold and recovery timeout are configured (defaults: 5 consecutive failures, 30 seconds recovery timeout)
+
+**Verification:**
+
+- Test procedure:
+
+    1. Configure the circuit breaker with a failure threshold of 3 and a recovery timeout of 5 seconds (reduced from defaults for test observability)
+    2. Stop the llama.cpp server
+    3. Send 3 consecutive prompt enhancement requests (`POST /v1/prompts/enhance`) and record the response time and HTTP status code for each
+    4. Verify that each of the 3 requests waits for the upstream timeout before returning HTTP 502 (these are the failures that increment the consecutive failure counter and open the circuit)
+    5. Send a 4th prompt enhancement request and record its response time
+    6. Verify that the 4th request returns HTTP 502 immediately (within 1 second), confirming the circuit is in the OPEN state
+    7. Wait for the recovery timeout (5 seconds) to elapse
+    8. Send a 5th prompt enhancement request (this is the HALF_OPEN probe)
+    9. Verify that the 5th request waits for the upstream timeout before returning HTTP 502 (the circuit transitioned to HALF_OPEN and allowed the probe through, which failed because the llama.cpp server is still stopped, causing the circuit to reopen)
+    10. Restart the llama.cpp server and wait for it to become healthy
+    11. Wait for the recovery timeout to elapse again
+    12. Send a 6th prompt enhancement request
+    13. Verify that the 6th request returns HTTP 200 with a valid enhanced prompt (the HALF_OPEN probe succeeded and the circuit transitioned back to CLOSED)
+
+- Success criteria:
+
+    - Requests 1–3 each take approximately the configured upstream timeout duration (120 seconds with default configuration) before returning HTTP 502
+    - Request 4 returns HTTP 502 in under 1 second (fail-fast while circuit is in the OPEN state)
+    - Request 5 (HALF_OPEN probe after recovery timeout) takes approximately the configured upstream timeout duration before returning HTTP 502 (the probe was allowed through but failed)
+    - Request 6 (HALF_OPEN probe after llama.cpp restart) returns HTTP 200 with a valid enhanced prompt
+    - Throughout the test, image generation requests with `use_enhancer` set to `false` continue to return HTTP 200 successfully, demonstrating that the circuit breaker does not affect requests that do not depend on llama.cpp
+    - The service process does not crash, restart, or become unresponsive at any point during the test
 
 ##### Concurrency control for image generation
 
@@ -2286,7 +2329,7 @@ This creates a tension with [NFR7](#partial-availability-under-component-failure
 
 **Preconditions:**
 
-- A continuous integration pipeline configuration file (for example, `.github/workflows/ci.yml` for GitHub Actions) is present in the repository
+- A continuous integration pipeline configuration file (for example, `.github/workflows/continuous-integration.yml` for GitHub Actions) is present in the repository
 - The repository is hosted on a platform that supports automated continuous integration triggers (for example, GitHub)
 
 **Verification:**
@@ -2394,7 +2437,7 @@ This matrix links functional requirements, reference operations, and non-functio
 
 The **Reference Operations Used for Verification** column lists only those reference operations that are explicitly cited in the functional requirement's own test procedure. Reference operations used to verify non-functional requirements (for example, RO7 for [NFR1](#latency-of-prompt-enhancement-under-concurrent-load), or RO8 for [NFR9](#fault-tolerance-under-sustained-concurrent-load)) are not listed against functional requirements whose test procedures do not cite them.
 
-**Numbering convention note:** All requirements — both functional (FR) and non-functional (NFR) — share a single continuous numbering sequence. For example, [FR43](#building-and-tagging-of-container-images) is followed by [NFR44](#concurrency-control-for-image-generation), then [FR45](#behaviour-of-the-nsfw-safety-checker), then [FR46](#openapi-specification-document). There is no "missing FR44"; the number 44 is occupied by [NFR44](#concurrency-control-for-image-generation) (Concurrency control for image generation). This convention was established in v4.0.0 and extended in v5.0.0 when [NFR44](#concurrency-control-for-image-generation), [FR45](#behaviour-of-the-nsfw-safety-checker), [FR46](#openapi-specification-document), [NFR47](#retry-after-header-on-backpressure-and-unavailability-responses), [NFR48](#timeout-for-end-to-end-requests), and [FR49](#validation-of-model-files-at-startup) were added.
+**Numbering convention note:** All requirements — both functional (FR) and non-functional (NFR) — share a single continuous numbering sequence. For example, [FR43](#building-and-tagging-of-container-images) is followed by [NFR44](#concurrency-control-for-image-generation), then [FR45](#behaviour-of-the-nsfw-safety-checker), then [FR46](#openapi-specification-document). There is no "missing FR44"; the number 44 is occupied by [NFR44](#concurrency-control-for-image-generation) (Concurrency control for image generation). This convention was established in v4.0.0 and extended in v5.0.0 when [NFR44](#concurrency-control-for-image-generation), [FR45](#behaviour-of-the-nsfw-safety-checker), [FR46](#openapi-specification-document), [NFR47](#retry-after-header-on-backpressure-and-unavailability-responses), [NFR48](#timeout-for-end-to-end-requests), and [FR49](#validation-of-model-files-at-startup) were added. In v5.1.0, [NFR50](#circuit-breaker-for-communication-with-the-language-model-service) (Circuit breaker for communication with the language model service) was added.
 
 Three non-functional requirements — [NFR16](#cors-enforcement) (CORS enforcement), [NFR18](#enforcement-of-the-content-type-header) (Enforcement of the Content-Type header), and [NFR22](#enforcement-of-the-http-method) (Enforcement of the HTTP method) — are cross-cutting HTTP-layer enforcement mechanisms that operate independently of any individual functional requirement's implementation logic. No functional requirement's correctness, operability, or auditability depends on these three NFRs being upheld. They are verified exclusively through their own test procedures and do not appear in the matrix below.
 
@@ -2417,7 +2460,7 @@ Non-functional requirements that are not directly linked to functional requireme
 | 29 (Handling of the image size parameter) | — | 2 (Latency of image generation), 5 (Statelessness), 10 (Structured logging), 12 (Performance metrics), 13 (Input validation), 15 (Enforcement of limits on the size of request payloads), 17 (Sanitisation of prompt content), 19 (API versioning), 20 (Consistency of the response format), 23 (Validity of image output), 24 (Compliance of the response schema), 44 (Concurrency control for image generation), 47 (Retry-After header), 48 (Timeout for end-to-end requests) | Core |
 | 30 (Request validation: schema compliance) | — | 3 (Latency of validation responses), 10 (Structured logging), 13 (Input validation), 14 (Sanitisation of error messages), 15 (Enforcement of limits on the size of request payloads), 19 (API versioning), 20 (Consistency of the response format), 24 (Compliance of the response schema) | Core |
 | 31 (Error handling: invalid JSON syntax) | RO4 | 3 (Latency of validation responses), 10 (Structured logging), 13 (Input validation), 14 (Sanitisation of error messages), 15 (Enforcement of limits on the size of request payloads), 19 (API versioning), 20 (Consistency of the response format), 24 (Compliance of the response schema) | Core |
-| 32 (Error handling: llama.cpp unavailability) | RO5 | 6 (Enforcement of upstream timeouts), 7 (Partial availability), 8 (Stability of the service process), 9 (Fault tolerance under concurrent load), 10 (Structured logging), 11 (Error observability), 14 (Sanitisation of error messages), 20 (Consistency of the response format), 24 (Compliance of the response schema) | Extended |
+| 32 (Error handling: llama.cpp unavailability) | RO5 | 6 (Enforcement of upstream timeouts), 7 (Partial availability), 8 (Stability of the service process), 9 (Fault tolerance under concurrent load), 10 (Structured logging), 11 (Error observability), 14 (Sanitisation of error messages), 20 (Consistency of the response format), 24 (Compliance of the response schema), 50 (Circuit breaker for communication with the language model service) | Extended |
 | 33 (Error handling: Stable Diffusion failures) | — | 7 (Partial availability), 8 (Stability of the service process), 9 (Fault tolerance under concurrent load), 10 (Structured logging), 11 (Error observability), 14 (Sanitisation of error messages), 20 (Consistency of the response format), 24 (Compliance of the response schema) | Extended |
 | 34 (Error handling: unexpected internal errors) | RO1, RO2, RO4, RO5 | 8 (Stability of the service process), 9 (Fault tolerance under concurrent load), 10 (Structured logging), 14 (Sanitisation of error messages), 20 (Consistency of the response format), 24 (Compliance of the response schema) | Core |
 | 35 (Injection of the correlation identifier) | RO1, RO4 | 10 (Structured logging), 11 (Error observability), 20 (Consistency of the response format), 24 (Compliance of the response schema) | Core |
@@ -2466,6 +2509,7 @@ The following table classifies non-functional requirements that are not directly
 | 44 (Concurrency control for image generation) | Extended |
 | 47 (Retry-After header on backpressure and unavailability responses) | Extended |
 | 48 (Timeout for end-to-end requests) | Extended |
+| 50 (Circuit breaker for communication with the language model service) | Extended |
 
 ---
 
@@ -3140,6 +3184,8 @@ The following limits are configurable via environment variables and affect API v
 | Permitted image sizes | `512x512`, `768x768`, `1024x1024` | *(validated in Pydantic schema)* | [FR30](#request-validation-schema-compliance) (Request validation: schema compliance) |
 | Image generation concurrency limit | 1 | `TEXT_TO_IMAGE_IMAGE_GENERATION_MAXIMUM_CONCURRENCY` | [NFR44](#concurrency-control-for-image-generation) (Concurrency control for image generation) |
 | Upstream request timeout (seconds) | 120 | `TEXT_TO_IMAGE_TIMEOUT_FOR_LANGUAGE_MODEL_REQUESTS_IN_SECONDS` | [NFR6](#enforcement-of-upstream-timeouts) (Enforcement of upstream timeouts) |
+| Failure threshold of the circuit breaker for the language model (consecutive failures) | 5 | `TEXT_TO_IMAGE_CIRCUIT_BREAKER_FAILURE_THRESHOLD_FOR_LANGUAGE_MODEL` | [NFR50](#circuit-breaker-for-communication-with-the-language-model-service) (Circuit breaker for communication with the language model service) |
+| Recovery timeout of the circuit breaker for the language model (seconds) | 30 | `TEXT_TO_IMAGE_CIRCUIT_BREAKER_RECOVERY_TIMEOUT_FOR_LANGUAGE_MODEL_IN_SECONDS` | [NFR50](#circuit-breaker-for-communication-with-the-language-model-service) (Circuit breaker for communication with the language model service) |
 | Timeout for end-to-end requests (seconds) | 300 | `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS` | [NFR48](#timeout-for-end-to-end-requests) (Timeout for end-to-end requests) |
 | CORS allowed origins | `[]` (none) | `TEXT_TO_IMAGE_CORS_ALLOWED_ORIGINS` | [NFR16](#cors-enforcement) (CORS enforcement) |
 
@@ -3763,6 +3809,7 @@ The service shall extract `choices[0].message.content` and strip leading and tra
 | Invalid response format | JSON parse failure or missing `choices` field | HTTP 502, `upstream_service_unavailable` |
 | HTTP error from llama.cpp | 4xx or 5xx status code | HTTP 502, `upstream_service_unavailable` |
 | Unexpected streaming response | Response `Content-Type` begins with `text/event-stream` | HTTP 502, `upstream_service_unavailable` |
+| Circuit breaker open | Consecutive failure count has reached the configured threshold ([NFR50](#circuit-breaker-for-communication-with-the-language-model-service)) | HTTP 502, `upstream_service_unavailable` (immediate, without contacting the llama.cpp server) |
 
 **Upstream response size limiting advisory:** The `max_tokens: 512` parameter in the request to llama.cpp is advisory — it instructs the model to generate at most 512 tokens, but a misconfigured or adversarial upstream server could return an arbitrarily large response body. The `TEXT_TO_IMAGE_LANGUAGE_MODEL_MAXIMUM_RESPONSE_BYTES` configuration variable (default: 1 MB) constrains the maximum response body size the httpx client will read from the llama.cpp server. Responses exceeding this limit shall be treated as an upstream failure and mapped to HTTP 502 with `error.code` equal to `"upstream_service_unavailable"`. This prevents a single upstream response from exhausting service memory. The 1 MB default is generous for prompt enhancement responses (a 512-token response typically produces 2–4 KB of JSON) and provides substantial headroom for unexpectedly verbose model output.
 
@@ -3851,7 +3898,7 @@ Stable Diffusion inference with PyTorch allocates intermediate tensors (latent r
 5. JSON syntax errors are detected at the HTTP framework level and mapped to HTTP 400 with `invalid_request_json`.
 6. Schema validation errors are detected by Pydantic and mapped to HTTP 400 with `request_validation_failed`.
 7. Image generation concurrency limit violations are detected by the admission control semaphore and mapped to HTTP 429 with `service_busy`. The rejection is immediate (no queuing).
-8. llama.cpp connection failures (connection refused, timeout, HTTP error) are caught at the integration layer and mapped to HTTP 502 with `upstream_service_unavailable`.
+8. llama.cpp connection failures (connection refused, timeout, HTTP error) and circuit breaker rejections ([NFR50](#circuit-breaker-for-communication-with-the-language-model-service)) are caught at the integration layer and mapped to HTTP 502 with `upstream_service_unavailable`.
 9. Stable Diffusion failures (model loading, inference, out-of-memory) are caught at the integration layer and mapped to HTTP 502 with `model_unavailable`. **Error differentiation advisory:** All Stable Diffusion failure modes — model loading errors (persistent, non-retriable), out-of-memory conditions (transient, potentially retriable), and runtime inference errors (indeterminate) — are mapped to the same error code (`model_unavailable`). This means clients cannot distinguish between "retry in 30 seconds" and "do not retry until an operator intervenes." This conflation is a deliberate simplification for the current specification scope. A future version may split `model_unavailable` into differentiated error codes (for example, `model_loading_failed` for persistent failures, `inference_failed` for transient failures) or add a `retriable` boolean field to the error response schema to provide explicit retry guidance.
 10. The readiness endpoint returns HTTP 503 with `not_ready` when one or more backend services have not completed initialisation.
 11. Timeout for end-to-end requests violations (total processing time exceeding `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS`) are detected by timeout middleware and mapped to HTTP 504 with `request_timeout`.
@@ -3910,6 +3957,8 @@ All configuration shall be expressed exclusively as environment variables with f
 | `TEXT_TO_IMAGE_LANGUAGE_MODEL_MAXIMUM_TOKENS` | Maximum number of tokens the language model may generate for an enhanced prompt | `512` | No |
 | `TEXT_TO_IMAGE_LANGUAGE_MODEL_MAXIMUM_RESPONSE_BYTES` | Maximum response body size in bytes the service will read from the llama.cpp server. Responses exceeding this limit are treated as upstream failures (HTTP 502). Protects against memory exhaustion from unexpectedly large upstream responses. | `1048576` (1 MB) | No |
 | `TEXT_TO_IMAGE_LANGUAGE_MODEL_CONNECTION_POOL_SIZE` | Maximum number of connections maintained in the httpx connection pool for the llama.cpp HTTP client. With default concurrency (`TEXT_TO_IMAGE_IMAGE_GENERATION_MAXIMUM_CONCURRENCY` = 1) and sequential prompt enhancement, a pool size of 10 is sufficient. Increase if deploying multiple service instances against a single llama.cpp server or if concurrency is increased. | `10` | No |
+| `TEXT_TO_IMAGE_CIRCUIT_BREAKER_FAILURE_THRESHOLD_FOR_LANGUAGE_MODEL` | Number of consecutive failures to the llama.cpp language model server required to open the circuit breaker and begin rejecting requests immediately without waiting for the full timeout duration. A value of 1 opens the circuit on the very first failure. Higher values tolerate transient errors before triggering fail-fast behaviour. See [NFR50](#circuit-breaker-for-communication-with-the-language-model-service) (Circuit breaker for communication with the language model service). | `5` | No |
+| `TEXT_TO_IMAGE_CIRCUIT_BREAKER_RECOVERY_TIMEOUT_FOR_LANGUAGE_MODEL_IN_SECONDS` | Duration in seconds that the circuit breaker remains in the OPEN state (rejecting all requests immediately) before transitioning to the HALF_OPEN state and allowing a single probe request through to test whether the llama.cpp server has recovered. See [NFR50](#circuit-breaker-for-communication-with-the-language-model-service) (Circuit breaker for communication with the language model service). | `30.0` | No |
 | `TEXT_TO_IMAGE_STABLE_DIFFUSION_MODEL_ID` | Hugging Face model identifier or local filesystem path for the Stable Diffusion pipeline | `stable-diffusion-v1-5/stable-diffusion-v1-5` | No |
 | `TEXT_TO_IMAGE_STABLE_DIFFUSION_MODEL_REVISION` | Hugging Face model revision identifier (a specific commit hash or branch name) for the Stable Diffusion model. Pinning to a specific commit hash ensures that model weights are identical across all deployments, regardless of future repository updates or migrations. Use `"main"` to track the latest revision (not recommended for production, as the repository may be updated or migrated). To obtain the current commit hash for a given model, inspect the repository's commit history on Hugging Face Hub and copy the full SHA-1 hash. **Recommended pinned revision:** For evaluation environments using `stable-diffusion-v1-5/stable-diffusion-v1-5`, the recommended revision is `"39593d5650112b4cc580433f6b0435385882d819"` (the most recent commit as of February 2026). Pinning prevents silent behavioural changes between evaluations if the upstream repository is updated or migrated. | `"main"` | No |
 | `TEXT_TO_IMAGE_STABLE_DIFFUSION_DEVICE` | Inference device selection; `auto` selects CUDA when a compatible GPU is available, otherwise falls back to CPU; explicit values `cpu` and `cuda` are also supported | `auto` | No |
@@ -4626,19 +4675,19 @@ text-to-image-service/
 │           └── kustomization.yaml
 ├── .github/
 │   └── workflows/
-│       ├── continuous-integration.yml
-│       └── continuous-deployment.yml
+│       └── continuous-integration.yml
 ├── Dockerfile
 ├── docker-compose.yml
 ├── nginx.conf
 ├── requirements.in                          # Direct (top-level) dependencies with minimum version bounds
 ├── requirements.txt                         # Fully pinned, pip-compile-generated lock file (committed to VCS)
+├── requirements-dev.txt                     # Pinned development dependencies (pytest, ruff, mypy, pip-audit)
 ├── pyproject.toml
 ├── openapi.yaml                             # OpenAPI specification document (FR46)
 └── README.md
 ```
 
-**Dependency pinning requirement:** The repository shall maintain two dependency files: `requirements.in`, which lists only direct (top-level) dependencies with minimum version bounds (for example, `fastapi>=0.100.0`), and `requirements.txt`, which is generated from `requirements.in` using `pip-compile` (part of the `pip-tools` package) and contains fully pinned versions for every transitive dependency (for example, `fastapi==0.115.0`). The generated `requirements.txt` shall be committed to version control. This ensures that every build — whether on a developer's workstation, in continuous integration, or inside a container — installs an identical dependency tree, closing the reproducibility asymmetry with `TEXT_TO_IMAGE_STABLE_DIFFUSION_MODEL_REVISION`, which pins model weights to an exact commit hash. To regenerate the lock file after updating dependencies, run `pip-compile requirements.in --output-file requirements.txt`. The `Dockerfile` shall use `pip install --no-cache-dir -r requirements.txt` to install the pinned set rather than the unpinned bounds.
+**Dependency pinning requirement:** The repository shall maintain three dependency files: `requirements.in`, which lists only direct (top-level) application dependencies with minimum version bounds (for example, `fastapi>=0.100.0`); `requirements.txt`, which is generated from `requirements.in` using `pip-compile` (part of the `pip-tools` package) and contains fully pinned versions for every transitive dependency (for example, `fastapi==0.115.0`); and `requirements-dev.txt`, which lists pinned versions of all development dependencies used in the continuous integration pipeline (pytest, pytest-cov, pytest-asyncio, ruff, mypy, pip-audit). Both `requirements.txt` and `requirements-dev.txt` shall be committed to version control. This ensures that every build — whether on a developer's workstation, in continuous integration, or inside a container — installs an identical dependency tree, closing the reproducibility asymmetry with `TEXT_TO_IMAGE_STABLE_DIFFUSION_MODEL_REVISION`, which pins model weights to an exact commit hash. To regenerate the lock file after updating dependencies, run `pip-compile requirements.in --output-file requirements.txt`. The `Dockerfile` shall use `pip install --no-cache-dir -r requirements.txt` to install the pinned set rather than the unpinned bounds. The continuous integration pipeline shall install both files: `pip install -r requirements.txt -r requirements-dev.txt`.
 
 **Rationale:** This structure enforces the three-layer architecture (API → Services → Integrations) at the filesystem level, making service boundary violations visible during code review. Test directories mirror the source structure for navigability. Kubernetes manifests use Kustomize for environment-specific overlays, enabling a single base configuration with per-environment patches. This layout supports horizontal scaling by ensuring clear separation between stateless application code, infrastructure definitions, and test artefacts — enabling independent modification and deployment of each concern.
 
@@ -4765,98 +4814,134 @@ on:
 #### Stage 1: Dependency Installation
 
 ```yaml
-- name: Set up Python 3.11
+- name: Set up Python 3.12
   uses: actions/setup-python@v5
   with:
-    python-version: "3.11"
+    python-version: "3.12"
+    cache: pip
 
 - name: Install dependencies
   run: |
-    python -m pip install --upgrade pip
-    pip install --no-cache-dir -r requirements.txt
-    pip install --no-cache-dir pytest pytest-cov pytest-asyncio ruff
+    python -m venv .venv
+    source .venv/bin/activate
+    pip install -r requirements.txt -r requirements-dev.txt
 ```
 
-**Rationale:** Explicit Python version ensures consistent behaviour across all continuous integration executions. Development dependencies (pytest, ruff) are installed separately from application dependencies to maintain a clean separation.
+**Rationale:** Explicit Python version ensures consistent behaviour across all continuous integration executions. All development dependencies (pytest, pytest-cov, pytest-asyncio, ruff, mypy, pip-audit) are declared in `requirements-dev.txt` with pinned versions rather than installed inline, ensuring that the set of development tools used in continuous integration is version-pinned and reproducible across developer workstations and continuous integration runners. A virtual environment is created within the runner to isolate the dependency tree from the system Python installation.
 
-#### Stage 2: Linting and Static Analysis
+#### Stage 2: Linting
 
 ```yaml
-- name: Run linting and static analysis
-  run: ruff check application/ tests/
+- name: Lint with ruff
+  run: |
+    source .venv/bin/activate
+    ruff check application/ tests/
 ```
 
 **Rationale:** Linting enforces code style consistency and detects common errors (unused imports, undefined variables, unreachable code) before test execution.
 
-#### Stage 3: Unit and Integration Tests with Coverage
+#### Stage 3: Formatting Verification
 
 ```yaml
-- name: Run test suite with coverage measurement
+- name: Check formatting with ruff
   run: |
-    pytest tests/ \
-      --cov=application \
-      --cov-report=term-missing \
-      --cov-report=xml:coverage.xml \
-      --cov-fail-under=80 \
-      --verbose
+    source .venv/bin/activate
+    ruff format --check application/ tests/
+```
+
+**Rationale:** Formatting verification ensures that all committed code conforms to the project's canonical formatting rules. The `--check` flag causes the step to fail without modifying any files, providing a non-destructive gate that detects formatting drift introduced by developers who have not run the formatter locally.
+
+#### Stage 4: Type Checking
+
+```yaml
+- name: Type check with mypy
+  run: |
+    source .venv/bin/activate
+    mypy application/ --ignore-missing-imports
+```
+
+**Rationale:** Static type checking detects type-level errors — incorrect argument types, missing return values, attribute access on incompatible types — that linting and tests may not catch. The `--ignore-missing-imports` flag suppresses errors for third-party libraries that do not ship type stubs, preventing false positives from blocking the pipeline.
+
+#### Stage 5: Dependency Vulnerability Auditing
+
+```yaml
+- name: Audit dependencies for vulnerabilities
+  run: |
+    source .venv/bin/activate
+    pip-audit -r requirements.txt
+```
+
+**Rationale:** Dependency vulnerability auditing scans all pinned dependencies against known vulnerability databases (the Python Packaging Advisory Database and the Open Source Vulnerabilities database) and fails the pipeline if any installed package has a published security advisory. This provides an automated supply-chain security gate that runs on every commit, ensuring that known-vulnerable dependencies are detected before code reaches production.
+
+#### Stage 6: Unit and Integration Tests with Coverage
+
+```yaml
+- name: Run tests with coverage
+  run: |
+    source .venv/bin/activate
+    pytest --cov=application --cov-report=term-missing --cov-report=xml --cov-fail-under=80
 ```
 
 **Rationale:** Coverage enforcement at 80% (requirement 42) ensures that test coverage is maintained as the codebase evolves. The `--cov-fail-under` flag causes the pipeline to fail if coverage drops below the threshold.
 
-#### Stage 4: Schema and Contract Validation
+#### Stage 7: OpenAPI Contract Alignment Validation
 
 ```yaml
-- name: Validate OpenAPI specification
+- name: Validate OpenAPI contract alignment
   run: |
-    pip install --no-cache-dir openapi-spec-validator pyyaml
-    python -c "
-    import yaml
-    from openapi_spec_validator import validate
-    with open('openapi.yaml') as openapi_specification_file:
-        openapi_specification = yaml.safe_load(openapi_specification_file)
-    validate(openapi_specification)
-    print('OpenAPI specification is valid.')
-    "
+    source .venv/bin/activate
+    pytest tests/test_openapi_contract.py -v --no-header
 ```
 
-**Rationale:** Validates that the OpenAPI specification document (requirement 46) is syntactically correct and structurally valid, ensuring that machine-readable API contracts remain consistent with the implementation.
+**Rationale:** Validates that the committed `openapi.yaml` file at the repository root is an exact structural match for the OpenAPI schema that the application generates at runtime (requirement 46). This is a stronger guarantee than syntactic validation alone: it detects schema drift between the documented API contract (consumed by generators of client software development kits and contract-testing frameworks) and the actual implementation. If this step fails, the `openapi.yaml` file must be regenerated from the running application.
 
 ### Continuous Deployment
 
-**Trigger:** Successful completion of the continuous integration pipeline on the `main` branch.
+The container image build job is co-located within the continuous integration workflow file (`.github/workflows/continuous-integration.yml`) rather than defined in a separate workflow file. This job executes only when the continuous integration quality gate has passed successfully and the trigger is a push to the `main` branch (not a pull request), ensuring that container images are built only from code that has been merged into the main line and has passed all quality checks.
 
-**Workflow file:** `.github/workflows/continuous-deployment.yml`
+**Trigger conditions for the container image build job:**
+
+```yaml
+needs: continuous-integration
+if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+```
 
 **Pipeline stages:**
 
-#### Stage 1: Container Image Build
+#### Stage 1: Container Image Build and Tagging
 
 ```yaml
-- name: Build container image
-  run: docker build --tag ${{ env.IMAGE_NAME }}:${{ github.sha }} .
+- name: Set up Docker Buildx
+  uses: docker/setup-buildx-action@v3
+
+- name: Build and tag container image
+  uses: docker/build-push-action@v6
+  with:
+    context: .
+    push: false
+    tags: |
+      text-to-image-api:${{ github.sha }}
+      text-to-image-api:latest
+    cache-from: type=gha
+    cache-to: type=gha,mode=max
 ```
 
-#### Stage 2: Image Tagging
+**Rationale:** Every build receives a commit-SHA tag for immutable deployment pinning and a `latest` tag for convenience in development environments (requirement 43). Docker Buildx is used for its layer caching capabilities via the GitHub Actions cache backend (`type=gha`), which avoids re-downloading and re-installing Python dependencies on every build when only application source code has changed. Once a container registry is configured, the `push` parameter shall be set to `true` and the registry login step below shall be enabled.
+
+#### Stage 2: Registry Push
+
+Once a container registry has been configured, this stage shall authenticate with the registry and push the tagged image. The `push` parameter in the build step above shall be set to `true`:
 
 ```yaml
-- name: Tag container image
-  run: |
-    docker tag ${{ env.IMAGE_NAME }}:${{ github.sha }} ${{ env.IMAGE_NAME }}:latest
-    if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
-      docker tag ${{ env.IMAGE_NAME }}:${{ github.sha }} ${{ env.IMAGE_NAME }}:${GITHUB_REF#refs/tags/}
-    fi
+- name: Log in to container registry
+  uses: docker/login-action@v3
+  with:
+    registry: ghcr.io
+    username: ${{ github.actor }}
+    password: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-**Rationale:** Every build receives a commit-SHA tag for traceability (requirement 43). Tagged releases additionally receive a semantic version tag for stable production references.
-
-#### Stage 3: Registry Push
-
-```yaml
-- name: Push container image to registry
-  run: docker push ${{ env.IMAGE_NAME }} --all-tags
-```
-
-#### Stage 4: Deployment (Kubernetes)
+#### Stage 3: Deployment to Kubernetes
 
 ```yaml
 - name: Deploy to Kubernetes
@@ -4873,7 +4958,7 @@ on:
 
 ### Non-Functional Expectations for the Pipeline
 
-- The continuous integration pipeline (stages 1–4) shall complete within 10 minutes on standard hardware for continuous integration runners
+- The continuous integration pipeline (stages 1–7) shall complete within 10 minutes on standard hardware for continuous integration runners
 - Pipeline failures shall produce clear, human-readable error messages identifying the failing stage and the specific error
 - Pipeline configuration shall be version-controlled alongside the application source code (in `.github/workflows/`)
 - The continuous integration pipeline shall not require access to GPU hardware; all tests shall be executable on CPU-only continuous integration runners (model-dependent integration tests may use mocked inference backends)
@@ -5240,6 +5325,7 @@ This section documents failure modes commonly encountered during initial setup a
 | 3.2.0 | 19 Feb 2026 | Observability alignment: adopted structlog as the structured logging library ([NFR10](#structured-logging)); added normative logging event taxonomy with 20 mandatory events; added `GET /metrics` endpoint for in-memory performance metrics ([NFR12](#collection-of-performance-metrics)); added `GET /health/ready` readiness endpoint ([FR34](#error-handling-unexpected-internal-errors) in v3.2.0 numbering; renumbered to [FR37](#readiness-check-endpoint) in v4.0.0); expanded configuration tables with 6 additional environment variables (`LANGUAGE_MODEL_PATH`, `LANGUAGE_MODEL_TEMPERATURE`, `LANGUAGE_MODEL_MAX_TOKENS`, `STABLE_DIFFUSION_GUIDANCE_SCALE`, `STABLE_DIFFUSION_SAFETY_CHECKER`, `CORS_ALLOWED_ORIGINS`); corrected `APPLICATION_HOST` default from `0.0.0.0` to `127.0.0.1`; added readiness and metrics endpoint definitions to API Contract section; updated requirements traceability matrix with [FR34](#error-handling-unexpected-internal-errors) |
 | 4.0.0 | 20 Feb 2026 | Scalability, rigour, and numbering overhaul. See detailed v4.0.0 changelog below. |
 | 5.0.0 | 22 Feb 2026 | Operational completeness, infrastructure maturity, evaluation framework enhancement, and specification ambiguity resolution. See detailed v5.0.0 changelog below. |
+| 5.1.0 | 25 Feb 2026 | Circuit breaker for communication with the language model service; continuous integration pipeline documentation corrections. See detailed v5.1.0 changelog below. |
 
 #### v4.0.0 Detailed Changelog
 
@@ -5563,6 +5649,31 @@ This section documents failure modes commonly encountered during initial setup a
 **Editorial:**
 
 - Restructured v4.0.0 changelog entry from a monolithic table cell into a categorised detailed subsection matching the v5.0.0 changelog format, with separate headings for renumbering, performance, fault tolerance, scalability, security, API contract, response integrity, data model, error taxonomy, continuous integration and deployment, infrastructure endpoints, validation, reference operations, glossary, cross-reference corrections, configuration, traceability, editorial, and changelog categories.
+---
+
+#### v5.1.0 Detailed Changelog
+
+**Reliability and fault tolerance:**
+
+- Added [NFR50](#circuit-breaker-for-communication-with-the-language-model-service) (Circuit breaker for communication with the language model service) to the Reliability and Fault Tolerance section, specifying a three-state circuit breaker (CLOSED → OPEN → HALF_OPEN → CLOSED) that prevents the service from repeatedly waiting for the full upstream timeout duration when the llama.cpp server is consistently failing; includes configurable failure threshold and recovery timeout, complete state machine definition, intent, preconditions, and a 13-step verification procedure with 6 success criteria.
+- Added `TEXT_TO_IMAGE_CIRCUIT_BREAKER_FAILURE_THRESHOLD_FOR_LANGUAGE_MODEL` and `TEXT_TO_IMAGE_CIRCUIT_BREAKER_RECOVERY_TIMEOUT_FOR_LANGUAGE_MODEL_IN_SECONDS` to the [Configuration Requirements](#configuration-requirements) table.
+- Added circuit breaker failure mode (circuit breaker open) to the [Error Handling](#error-handling) table under [llama.cpp Integration](#llamacpp-integration).
+- Added circuit breaker entries to the [Configurable Limits](#configurable-limits) cross-reference table.
+- Updated [FR32](#error-handling-llamacpp-unavailability) (Error handling: llama.cpp unavailability) in the Requirements Traceability Matrix to reference [NFR50](#circuit-breaker-for-communication-with-the-language-model-service).
+- Added [NFR50](#circuit-breaker-for-communication-with-the-language-model-service) to the [Priority classification of non-functional requirements](#priority-classification-of-non-functional-requirements) table as Extended.
+- Updated numbering convention note in the Requirements Traceability Matrix to reference [NFR50](#circuit-breaker-for-communication-with-the-language-model-service).
+
+**Continuous integration and deployment pipeline:**
+
+- Updated continuous integration pipeline documentation from 4 stages to 7 stages: added formatting verification (stage 3), type checking with mypy (stage 4), and dependency vulnerability auditing with pip-audit (stage 5); renumbered existing stages 3 and 4 to stages 6 and 7 respectively.
+- Updated Python version in continuous integration pipeline from 3.11 to 3.12.
+- Updated dependency installation to use a virtual environment and pinned `requirements-dev.txt` rather than inline `pip install` of development dependencies.
+- Updated dependency pinning requirement from two dependency files (`requirements.in`, `requirements.txt`) to three dependency files (`requirements.in`, `requirements.txt`, `requirements-dev.txt`), adding a pinned development dependency file for continuous integration reproducibility.
+- Renamed continuous integration workflow file reference from `ci.yml` to `continuous-integration.yml` for naming convention compliance.
+- Removed separate `continuous-deployment.yml` workflow file from the repository directory structure; consolidated the container image build job into the continuous integration workflow file.
+- Updated repository directory structure to include `requirements-dev.txt`.
+- Updated pipeline non-functional expectation from stages 1–4 to stages 1–7.
+
 ---
 
 ## END OF SPECIFICATION
