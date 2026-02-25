@@ -64,8 +64,7 @@ class ApplicationConfiguration(pydantic_settings.BaseSettings):
     log_level: str = pydantic.Field(
         default="INFO",
         description=(
-            "Minimum log level for structured JSON logging. "
-            "Accepted values: DEBUG, INFO, WARNING, ERROR, CRITICAL."
+            "Minimum log level for structured JSON logging. Accepted values: DEBUG, INFO, WARNING, ERROR, CRITICAL."
         ),
     )
 
@@ -122,10 +121,7 @@ class ApplicationConfiguration(pydantic_settings.BaseSettings):
     language_model_maximum_tokens: int = pydantic.Field(
         default=512,
         ge=1,
-        description=(
-            "Maximum number of tokens the language model may generate "
-            "for an enhanced prompt."
-        ),
+        description=("Maximum number of tokens the language model may generate for an enhanced prompt."),
     )
 
     language_model_system_prompt: str = pydantic.Field(
@@ -147,8 +143,7 @@ class ApplicationConfiguration(pydantic_settings.BaseSettings):
         default=10,
         ge=1,
         description=(
-            "Maximum number of connections maintained in the httpx connection "
-            "pool for the llama.cpp HTTP client."
+            "Maximum number of connections maintained in the httpx connection pool for the llama.cpp HTTP client."
         ),
     )
 
@@ -166,10 +161,7 @@ class ApplicationConfiguration(pydantic_settings.BaseSettings):
 
     stable_diffusion_model_id: str = pydantic.Field(
         default="stable-diffusion-v1-5/stable-diffusion-v1-5",
-        description=(
-            "Hugging Face model identifier or local filesystem path for the "
-            "Stable Diffusion pipeline."
-        ),
+        description=("Hugging Face model identifier or local filesystem path for the Stable Diffusion pipeline."),
     )
 
     stable_diffusion_model_revision: str = pydantic.Field(
@@ -194,8 +186,7 @@ class ApplicationConfiguration(pydantic_settings.BaseSettings):
         default=20,
         ge=1,
         description=(
-            "Number of diffusion inference steps per image. Lower values "
-            "reduce latency at the cost of output quality."
+            "Number of diffusion inference steps per image. Lower values reduce latency at the cost of output quality."
         ),
     )
 
@@ -210,10 +201,7 @@ class ApplicationConfiguration(pydantic_settings.BaseSettings):
 
     stable_diffusion_safety_checker: bool = pydantic.Field(
         default=True,
-        description=(
-            "Enable the NSFW safety checker. Disabling removes content "
-            "filtering from generated images."
-        ),
+        description=("Enable the NSFW safety checker. Disabling removes content filtering from generated images."),
     )
 
     stable_diffusion_inference_timeout_per_unit_seconds: float = pydantic.Field(
@@ -271,8 +259,7 @@ class ApplicationConfiguration(pydantic_settings.BaseSettings):
         default=10,
         ge=0,
         description=(
-            "Value (in seconds) of the Retry-After response header on "
-            "HTTP 503 (Service Unavailable) responses."
+            "Value (in seconds) of the Retry-After response header on HTTP 503 (Service Unavailable) responses."
         ),
     )
 
