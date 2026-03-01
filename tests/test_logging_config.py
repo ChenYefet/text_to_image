@@ -87,7 +87,7 @@ class TestConfigureLogging:
 
         timestamp = parsed["timestamp"]
         assert "T" in timestamp
-        assert timestamp.endswith("Z") or "+" in timestamp
+        assert timestamp.endswith("Z")
 
     def test_contextvars_are_included(self, capsys):
         application.logging_config.configure_logging(log_level="INFO")

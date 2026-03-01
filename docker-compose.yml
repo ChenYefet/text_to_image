@@ -42,7 +42,7 @@ services:
       # Point the API at the llama-cpp service.  Docker Compose creates a
       # private network where services can reach each other by name, so
       # "http://llama-cpp:8080" resolves to the llama.cpp container.
-      TEXT_TO_IMAGE_LANGUAGE_MODEL_SERVER_BASE_URL: http://llama-cpp:8080
+      TEXT_TO_IMAGE_BASE_URL_OF_LARGE_LANGUAGE_MODEL_SERVER: http://llama-cpp:8080
 
       # Listen on all interfaces (required inside containers).
       TEXT_TO_IMAGE_APPLICATION_HOST: 0.0.0.0

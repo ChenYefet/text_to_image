@@ -1,7 +1,7 @@
 """
 Pydantic models for request validation and response serialisation.
 
-All request models enforce strict validation rules aligned with the v5.0.0
+All request models enforce strict validation rules aligned with the v5.2.0
 specification (Section 11 — Data Model and Schema Definition). All response
 models use field names matching the API contract exactly.
 
@@ -18,15 +18,17 @@ achieved using ``Optional`` defaults combined with
   checker has flagged one or more images.
 """
 
+import typing
+
 import pydantic
 
 # ──────────────────────────────────────────────────────────────────────────────
 #  Request Constants
 # ──────────────────────────────────────────────────────────────────────────────
 
-MAXIMUM_PROMPT_LENGTH = 2000
-MAXIMUM_IMAGES_PER_REQUEST = 4
-DEFAULT_IMAGE_SIZE = "512x512"
+MAXIMUM_NUMBER_OF_CHARACTERS_IN_PROMPT = 2000
+MAXIMUM_NUMBER_OF_IMAGES_PER_REQUEST = 4
+DEFAULT_IMAGE_SIZE: typing.Literal["512x512"] = "512x512"
 SUPPORTED_IMAGE_SIZES = {"512x512", "768x768", "1024x1024"}
 
 MAXIMUM_SEED_VALUE = 4_294_967_295  # Unsigned 32-bit integer maximum (2^32 - 1)
@@ -43,19 +45,18 @@ class PromptEnhancementRequest(pydantic.BaseModel):
     Request body for the POST /v1/prompts/enhance endpoint.
 
     The client supplies a raw text prompt which will be sent to the
-    language model for enhancement.
+    large language model for enhancement.
     """
 
     prompt: str = pydantic.Field(
         ...,
         min_length=1,
-        max_length=MAXIMUM_PROMPT_LENGTH,
+        max_length=MAXIMUM_NUMBER_OF_CHARACTERS_IN_PROMPT,
         pattern=r".*\S.*",
         description=(
-            f"The original user-supplied prompt to be enhanced by the "
-            f"language model. Must be between 1 and "
-            f"{MAXIMUM_PROMPT_LENGTH} characters and contain at least one "
-            f"non-whitespace character."
+            f"The original user-supplied prompt to be enhanced by the large language model."
+            f" Must be between 1 and {MAXIMUM_NUMBER_OF_CHARACTERS_IN_PROMPT} characters and contain at"
+            " least one non-whitespace character."
         ),
         examples=["A cat sitting on a windowsill"],
     )
@@ -69,19 +70,18 @@ class ImageGenerationRequest(pydantic.BaseModel):
 
     The client supplies a text prompt together with generation parameters.
     When ``use_enhancer`` is true, the prompt is first enhanced by the
-    language model before being forwarded to Stable Diffusion.
+    large language model before being forwarded to Stable Diffusion.
     """
 
     prompt: str = pydantic.Field(
         ...,
         min_length=1,
-        max_length=MAXIMUM_PROMPT_LENGTH,
+        max_length=MAXIMUM_NUMBER_OF_CHARACTERS_IN_PROMPT,
         pattern=r".*\S.*",
         description=(
-            f"The text prompt describing the desired image. "
-            f"Must be between 1 and "
-            f"{MAXIMUM_PROMPT_LENGTH} characters and contain at "
-            f"least one non-whitespace character."
+            "The text prompt describing the desired image. Must be between 1"
+            f" and {MAXIMUM_NUMBER_OF_CHARACTERS_IN_PROMPT} characters and contain at least one"
+            " non-whitespace character."
         ),
         examples=["A sunset over a mountain range with vivid colours"],
     )
@@ -89,28 +89,27 @@ class ImageGenerationRequest(pydantic.BaseModel):
     use_enhancer: bool = pydantic.Field(
         default=False,
         description=(
-            "When set to true, the prompt will first be enhanced by the "
-            "language model before being sent to the image generation service."
+            "When set to true, the prompt will first be enhanced by the large"
+            " language model before being sent to the image generation service."
         ),
     )
 
     number_of_images: int = pydantic.Field(
         default=1,
         ge=1,
-        le=MAXIMUM_IMAGES_PER_REQUEST,
+        le=MAXIMUM_NUMBER_OF_IMAGES_PER_REQUEST,
         alias="n",
         description=(
-            f"The number of images to generate in a single request. "
-            f"Accepts values from 1 to "
-            f"{MAXIMUM_IMAGES_PER_REQUEST} inclusive."
+            "The number of images to generate in a single request."
+            f" Accepts values from 1 to {MAXIMUM_NUMBER_OF_IMAGES_PER_REQUEST} inclusive."
         ),
     )
 
-    size: str = pydantic.Field(
+    size: typing.Literal["512x512", "768x768", "1024x1024"] = pydantic.Field(
         default=DEFAULT_IMAGE_SIZE,
         description=(
-            "The dimensions of the generated image in WIDTHxHEIGHT format. "
-            f"Supported sizes: {', '.join(sorted(SUPPORTED_IMAGE_SIZES))}."
+            "The dimensions of the generated image in WIDTHxHEIGHT format."
+            f" Supported sizes: {', '.join(sorted(SUPPORTED_IMAGE_SIZES))}."
         ),
         examples=sorted(SUPPORTED_IMAGE_SIZES),
     )
@@ -120,47 +119,23 @@ class ImageGenerationRequest(pydantic.BaseModel):
         ge=0,
         le=MAXIMUM_SEED_VALUE,
         description=(
-            "Random seed for reproducible generation. When null or omitted, "
-            "a random seed is used. The seed used is always returned in the "
-            "response. Seed 0 is a valid deterministic seed with no special "
-            "semantics."
+            "Random seed for reproducible generation. When null or omitted,"
+            " a random seed is used. The seed used is always returned in the"
+            " response. Seed 0 is a valid deterministic seed with no special"
+            " semantics."
         ),
     )
 
-    response_format: str = pydantic.Field(
+    response_format: typing.Literal["base64_json"] = pydantic.Field(
         default="base64_json",
         description=(
-            "Format of the image data in the response. Currently only "
-            "'base64_json' (base64-encoded inline) is supported. Reserved "
-            "for future extension to 'url' (object-storage reference)."
+            "Format of the image data in the response. Currently only"
+            " 'base64_json' (base64-encoded inline) is supported. Reserved"
+            " for future extension to 'url' (object-storage reference)."
         ),
     )
 
-    @pydantic.field_validator("size")
-    @classmethod
-    def validate_image_size_dimensions(cls, image_size_value: str) -> str:
-        """Validate that the requested image size is among the supported dimensions."""
-        if image_size_value not in SUPPORTED_IMAGE_SIZES:
-            raise ValueError(
-                f"The image size '{image_size_value}' is not supported. "
-                f"Supported sizes are: "
-                f"{', '.join(sorted(SUPPORTED_IMAGE_SIZES))}."
-            )
-        return image_size_value
-
-    @pydantic.field_validator("response_format")
-    @classmethod
-    def validate_response_format(cls, response_format_value: str) -> str:
-        """Validate that the response format is among the supported values."""
-        if response_format_value not in SUPPORTED_RESPONSE_FORMATS:
-            raise ValueError(
-                f"The response format '{response_format_value}' is not supported. "
-                f"Supported formats are: "
-                f"{', '.join(sorted(SUPPORTED_RESPONSE_FORMATS))}."
-            )
-        return response_format_value
-
-    def parse_image_width_and_height(self) -> tuple[int, int]:
+    def parse_width_and_height_of_image(self) -> tuple[int, int]:
         """Parse the size string into separate width and height integer values."""
         width_string, height_string = self.size.split("x")
         return int(width_string), int(height_string)
@@ -178,25 +153,27 @@ class PromptEnhancementResponse(pydantic.BaseModel):
     Response body for the POST /v1/prompts/enhance endpoint.
 
     Contains the original prompt echoed back for client-side correlation,
-    the enhanced version produced by the language model, and a Unix
+    the enhanced version produced by the large language model, and a Unix
     timestamp indicating when the enhancement completed.
     """
 
     original_prompt: str = pydantic.Field(
         ...,
+        min_length=1,
         description=(
-            "The user-provided prompt exactly as received by the service, "
-            "echoed for client-side correlation without requiring the client "
-            "to maintain its own request bookkeeping."
+            "The user-provided prompt exactly as received by the service,"
+            " echoed for client-side correlation without requiring the client"
+            " to maintain its own request bookkeeping."
         ),
     )
 
     enhanced_prompt: str = pydantic.Field(
         ...,
+        min_length=1,
         description=(
-            "Enhanced version of the input prompt, optimised for "
-            "text-to-image generation. This value is the llama.cpp response "
-            "content after leading and trailing whitespace has been stripped."
+            "Enhanced version of the input prompt, optimised for"
+            " text-to-image generation. This value is the llama.cpp response"
+            " content after leading and trailing whitespace has been stripped."
         ),
     )
 
@@ -204,6 +181,8 @@ class PromptEnhancementResponse(pydantic.BaseModel):
         ...,
         description=("Unix timestamp (seconds since epoch) indicating when the prompt enhancement completed."),
     )
+
+    model_config = pydantic.ConfigDict(extra="forbid")
 
 
 class GeneratedImageData(pydantic.BaseModel):
@@ -217,11 +196,13 @@ class GeneratedImageData(pydantic.BaseModel):
     base64_json: str | None = pydantic.Field(
         ...,
         description=(
-            "The generated image encoded as a base64 PNG string using the "
-            "standard base64 alphabet (RFC 4648 §4). Null if the image was "
-            "filtered by the content safety checker."
+            "The generated image encoded as a base64 PNG string using the"
+            " standard base64 alphabet (RFC 4648 \u00a74). Null if the image was"
+            " filtered by the content safety checker."
         ),
     )
+
+    model_config = pydantic.ConfigDict(extra="forbid")
 
 
 class ImageGenerationWarning(pydantic.BaseModel):
@@ -240,6 +221,8 @@ class ImageGenerationWarning(pydantic.BaseModel):
         ...,
         description=("Machine-readable reason for the warning (for example, 'content_policy_violation')."),
     )
+
+    model_config = pydantic.ConfigDict(extra="forbid")
 
 
 class ImageGenerationResponse(pydantic.BaseModel):
@@ -262,35 +245,39 @@ class ImageGenerationResponse(pydantic.BaseModel):
 
     seed: int = pydantic.Field(
         ...,
+        ge=0,
         description=(
-            "The seed used for image generation. Echoes the request seed "
-            "if provided; otherwise, the randomly generated seed."
+            "The seed used for image generation. Echoes the request seed if"
+            " provided; otherwise, the randomly generated seed."
         ),
     )
 
     data: list[GeneratedImageData] = pydantic.Field(
         ...,
         min_length=1,
-        max_length=MAXIMUM_IMAGES_PER_REQUEST,
+        max_length=MAXIMUM_NUMBER_OF_IMAGES_PER_REQUEST,
         description=("Array of generated images. Array length equals the request 'n' parameter."),
     )
 
     enhanced_prompt: str | None = pydantic.Field(
         default=None,
+        min_length=1,
         description=(
-            "The enhanced prompt used for image generation, present only "
-            "when the request specified use_enhancer: true. Omitted entirely "
-            "when use_enhancer was false or omitted."
+            "The enhanced prompt used for image generation, present only when"
+            " the request specified use_enhancer: true. Omitted entirely when"
+            " use_enhancer was false or omitted."
         ),
     )
 
     warnings: list[ImageGenerationWarning] | None = pydantic.Field(
         default=None,
         description=(
-            "Present only when the content safety checker has flagged one or "
-            "more images. Lists the indices of filtered images."
+            "Present only when the content safety checker has flagged one or"
+            " more images. Lists the indices of filtered images."
         ),
     )
+
+    model_config = pydantic.ConfigDict(extra="forbid")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -321,15 +308,19 @@ class ErrorDetail(pydantic.BaseModel):
     details: str | list | None = pydantic.Field(
         default=None,
         description=(
-            "Additional context about the error, when available. May be a "
-            "descriptive string, an array of validation error objects, or null."
+            "Additional context about the error, when available. May be a"
+            " descriptive string, an array of validation error objects, or"
+            " null."
         ),
     )
 
     correlation_id: str = pydantic.Field(
         ...,
+        json_schema_extra={"format": "uuid"},
         description=("UUID v4 correlation identifier matching the X-Correlation-ID response header."),
     )
+
+    model_config = pydantic.ConfigDict(extra="forbid")
 
 
 class ErrorResponse(pydantic.BaseModel):
@@ -344,3 +335,5 @@ class ErrorResponse(pydantic.BaseModel):
         ...,
         description="An object containing error details.",
     )
+
+    model_config = pydantic.ConfigDict(extra="forbid")

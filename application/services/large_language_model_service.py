@@ -1,5 +1,5 @@
 """
-Service for communicating with the llama.cpp language model server.
+Service for communicating with the llama.cpp large language model server.
 
 The llama.cpp server must be running in OpenAI-compatible mode, exposing
 a ``POST /v1/chat/completions`` endpoint.  This service sends the user's
@@ -9,17 +9,17 @@ the model to produce an enhanced, image-generation-optimised prompt.
 Defensive handling
 ------------------
 This service implements several defensive measures prescribed by the
-v5.0.0 specification (Section 15 — Upstream Communication) to protect
+v5.2.0 specification (Section 15 — Upstream Communication) to protect
 against misconfigured or misbehaving upstream servers:
 
 - The request body includes ``"stream": false`` to explicitly request a
   non-streaming response.
 - If the upstream returns a ``text/event-stream`` Content-Type despite
   this setting, the service treats it as a protocol violation and raises
-  ``LanguageModelServiceUnavailableError`` (HTTP 502).
+  ``LargeLanguageModelServiceUnavailableError`` (HTTP 502).
 - If the upstream response body exceeds the configured maximum size
-  (``maximum_response_bytes``), the service raises
-  ``LanguageModelServiceUnavailableError`` (HTTP 502) to prevent memory
+  (``maximum_number_of_bytes_of_response_body``), the service raises
+  ``LargeLanguageModelServiceUnavailableError`` (HTTP 502) to prevent memory
   exhaustion from unexpectedly large responses.
 - If the ``finish_reason`` in the response is ``"length"``, the service
   logs a WARNING indicating the enhanced prompt was truncated by the
@@ -32,7 +32,7 @@ An optional ``CircuitBreaker`` instance (from ``circuit_breaker.py``)
 can be provided at construction time to prevent the service from
 repeatedly waiting for the full timeout duration when the llama.cpp
 server is consistently failing.  When the circuit is open, requests
-are rejected immediately with ``LanguageModelServiceUnavailableError``
+are rejected immediately with ``LargeLanguageModelServiceUnavailableError``
 (HTTP 502) without attempting to contact the upstream server.
 
 When no circuit breaker is provided, the service behaves exactly as
@@ -49,14 +49,14 @@ import application.exceptions
 logger = structlog.get_logger()
 
 DEFAULT_SYSTEM_PROMPT = (
-    "You are an expert at enhancing text-to-image prompts. "
-    "Transform the user's simple prompt into a detailed, visually "
-    "descriptive prompt. Add artistic style, lighting, composition, "
-    "and quality modifiers. Return only the enhanced prompt, nothing else."
+    "You are an expert at enhancing text-to-image prompts."
+    " Transform the user's simple prompt into a detailed, visually descriptive prompt."
+    " Add artistic style, lighting, composition, and quality modifiers."
+    " Return only the enhanced prompt, nothing else."
 )
 
 
-class LanguageModelService:
+class LargeLanguageModelService:
     """
     Asynchronous HTTP client for the llama.cpp OpenAI-compatible server.
 
@@ -74,39 +74,39 @@ class LanguageModelService:
 
     def __init__(
         self,
-        language_model_server_base_url: str,
-        request_timeout_seconds: float,
+        base_url_of_large_language_model_server: str,
+        request_timeout_in_seconds: float,
         temperature: float = 0.7,
         maximum_tokens: int = 512,
         system_prompt: str = DEFAULT_SYSTEM_PROMPT,
-        connection_pool_size: int = 10,
-        maximum_response_bytes: int = 1_048_576,
+        size_of_connection_pool: int = 10,
+        maximum_number_of_bytes_of_response_body: int = 1_048_576,
         circuit_breaker: application.circuit_breaker.CircuitBreaker | None = None,
     ) -> None:
         """
-        Initialise the language model service.
+        Initialise the large language model service.
 
         Args:
-            language_model_server_base_url: The base URL of the llama.cpp
+            base_url_of_large_language_model_server: The base URL of the llama.cpp
                 server (e.g. ``"http://localhost:8080"``).  The service
                 appends ``/v1/chat/completions`` to this URL when sending
                 prompt enhancement requests.
-            request_timeout_seconds: Maximum time in seconds to wait for
+            request_timeout_in_seconds: Maximum time in seconds to wait for
                 a response from the llama.cpp server before treating the
                 request as failed.
             temperature: Sampling temperature for prompt enhancement.
                 Higher values (closer to 2.0) produce more creative and
                 varied output; 0.0 produces deterministic output.
-            maximum_tokens: Maximum number of tokens the language model
+            maximum_tokens: Maximum number of tokens the large language model
                 may generate for an enhanced prompt.  If the model's
                 output exceeds this limit, the response is truncated and
                 the ``finish_reason`` is set to ``"length"``.
             system_prompt: The system instruction sent to the language
                 model on every prompt enhancement request.  Controls the
                 enhancement style and output format.
-            connection_pool_size: Maximum number of concurrent HTTP
+            size_of_connection_pool: Maximum number of concurrent HTTP
                 connections maintained in the ``httpx`` connection pool.
-            maximum_response_bytes: Maximum response body size in bytes
+            maximum_number_of_bytes_of_response_body: Maximum response body size in bytes
                 that the service will accept from the llama.cpp server.
                 Responses exceeding this limit are treated as upstream
                 failures (HTTP 502).
@@ -116,24 +116,24 @@ class LanguageModelService:
                 failing.  When ``None``, every request is sent to the
                 upstream regardless of prior failure history.
         """
-        self.language_model_server_base_url = language_model_server_base_url
+        self.base_url_of_large_language_model_server = base_url_of_large_language_model_server
         self._temperature = temperature
         self._maximum_tokens = maximum_tokens
         self._system_prompt = system_prompt
-        self._maximum_response_bytes = maximum_response_bytes
+        self._maximum_number_of_bytes_of_response_body = maximum_number_of_bytes_of_response_body
         self._circuit_breaker = circuit_breaker
         self.http_client = httpx.AsyncClient(
-            base_url=language_model_server_base_url,
-            timeout=httpx.Timeout(request_timeout_seconds),
+            base_url=base_url_of_large_language_model_server,
+            timeout=httpx.Timeout(request_timeout_in_seconds),
             limits=httpx.Limits(
-                max_connections=connection_pool_size,
-                max_keepalive_connections=connection_pool_size,
+                max_connections=size_of_connection_pool,
+                max_keepalive_connections=size_of_connection_pool,
             ),
         )
 
     async def enhance_prompt(self, original_prompt: str) -> str:
         """
-        Send a prompt to the language model for enhancement.
+        Send a prompt to the large language model for enhancement.
 
         Constructs a chat-completion request with a system instruction
         that guides the model to produce a richer, more descriptive
@@ -145,7 +145,7 @@ class LanguageModelService:
         When a circuit breaker is configured, this method checks the
         circuit state before attempting the upstream call.  If the
         circuit is open (the upstream has been consistently failing),
-        the method raises ``LanguageModelServiceUnavailableError``
+        the method raises ``LargeLanguageModelServiceUnavailableError``
         immediately without waiting for the full timeout duration.
         On success, the circuit breaker records a success (potentially
         closing a half-open circuit).  On failure, the circuit breaker
@@ -159,7 +159,7 @@ class LanguageModelService:
             trailing whitespace stripped.
 
         Raises:
-            LanguageModelServiceUnavailableError:
+            LargeLanguageModelServiceUnavailableError:
                 When the llama.cpp server cannot be reached, returns a
                 non-success HTTP status code, the request times out, the
                 response is a streaming response, the response body
@@ -188,21 +188,21 @@ class LanguageModelService:
                 logger.warning(
                     "llama_cpp_circuit_breaker_rejected",
                     circuit_name=circuit_open_error.circuit_name,
-                    remaining_seconds=round(
-                        circuit_open_error.remaining_seconds_until_recovery,
+                    remaining_number_of_seconds_until_recovery=round(
+                        circuit_open_error.remaining_number_of_seconds_until_recovery,
                         1,
                     ),
                 )
-                raise application.exceptions.LanguageModelServiceUnavailableError(
+                raise application.exceptions.LargeLanguageModelServiceUnavailableError(
                     detail=(
-                        "The language model server has been consistently "
-                        "failing. The circuit breaker is preventing further "
-                        "requests to avoid prolonged timeouts. The service "
-                        "will automatically retry after a recovery period."
+                        "The large language model server has been consistently failing."
+                        " The circuit breaker is preventing further requests to avoid"
+                        " prolonged timeouts. The service will automatically retry"
+                        " after a recovery period."
                     ),
                 ) from circuit_open_error
 
-        chat_completion_request_body = {
+        request_body_for_chat_completion = {
             "messages": [
                 {
                     "role": "system",
@@ -221,7 +221,7 @@ class LanguageModelService:
         try:
             http_response = await self.http_client.post(
                 "/v1/chat/completions",
-                json=chat_completion_request_body,
+                json=request_body_for_chat_completion,
             )
             http_response.raise_for_status()
         except httpx.ConnectError as connection_error:
@@ -230,10 +230,11 @@ class LanguageModelService:
                 "llama_cpp_connection_failed",
                 error=str(connection_error),
             )
-            raise application.exceptions.LanguageModelServiceUnavailableError(
+            raise application.exceptions.LargeLanguageModelServiceUnavailableError(
                 detail=(
-                    "The language model server is not reachable. "
-                    "Ensure that llama.cpp is running in OpenAI-compatible mode."
+                    "The large language model server is not reachable."
+                    " Ensure that llama.cpp is running in"
+                    " OpenAI-compatible mode."
                 ),
             ) from connection_error
         except httpx.HTTPStatusError as http_status_error:
@@ -242,8 +243,8 @@ class LanguageModelService:
                 "llama_cpp_http_error",
                 status_code=http_status_error.response.status_code,
             )
-            raise application.exceptions.LanguageModelServiceUnavailableError(
-                detail=(f"The language model server returned HTTP status {http_status_error.response.status_code}."),
+            raise application.exceptions.LargeLanguageModelServiceUnavailableError(
+                detail="The large language model server returned an error response.",
             ) from http_status_error
         except httpx.TimeoutException as timeout_error:
             await self._record_circuit_breaker_failure()
@@ -251,8 +252,8 @@ class LanguageModelService:
                 "llama_cpp_timeout",
                 error=str(timeout_error),
             )
-            raise application.exceptions.LanguageModelServiceUnavailableError(
-                detail="The request to the language model server timed out.",
+            raise application.exceptions.LargeLanguageModelServiceUnavailableError(
+                detail="The request to the large language model server timed out.",
             ) from timeout_error
         except httpx.RequestError as request_error:
             # Catch-all for uncommon httpx failure modes such as
@@ -268,10 +269,11 @@ class LanguageModelService:
                 error_type=type(request_error).__name__,
                 error=str(request_error),
             )
-            raise application.exceptions.LanguageModelServiceUnavailableError(
+            raise application.exceptions.LargeLanguageModelServiceUnavailableError(
                 detail=(
-                    f"An unexpected communication error occurred with the "
-                    f"language model server: {type(request_error).__name__}."
+                    "An unexpected communication error occurred with"
+                    " the large language model server:"
+                    f" {type(request_error).__name__}."
                 ),
             ) from request_error
 
@@ -286,14 +288,15 @@ class LanguageModelService:
         # error that identifies the root cause.
         upstream_content_type = http_response.headers.get("content-type", "")
         if upstream_content_type.startswith("text/event-stream"):
+            await self._record_circuit_breaker_failure()
             logger.error(
                 "llama_cpp_unexpected_streaming_response",
                 content_type=upstream_content_type,
             )
-            raise application.exceptions.LanguageModelServiceUnavailableError(
+            raise application.exceptions.LargeLanguageModelServiceUnavailableError(
                 detail=(
-                    "The language model server returned a streaming response "
-                    "despite stream: false being set in the request."
+                    "The large language model server returned a streaming"
+                    " response despite stream: false being set in the request."
                 ),
             )
 
@@ -304,21 +307,34 @@ class LanguageModelService:
         # should produce responses of a few kilobytes at most, but a
         # misconfigured server or proxy could return arbitrarily large
         # bodies.  The default limit is 1 MB.
-        response_body_bytes = len(http_response.content)
-        if response_body_bytes > self._maximum_response_bytes:
+        number_of_bytes_of_response_body = len(http_response.content)
+        if number_of_bytes_of_response_body > self._maximum_number_of_bytes_of_response_body:
+            await self._record_circuit_breaker_failure()
             logger.error(
                 "llama_cpp_response_too_large",
-                response_bytes=response_body_bytes,
-                maximum_bytes=self._maximum_response_bytes,
+                number_of_bytes_of_response_body=number_of_bytes_of_response_body,
+                maximum_number_of_bytes_of_response_body=self._maximum_number_of_bytes_of_response_body,
             )
-            raise application.exceptions.LanguageModelServiceUnavailableError(
+            raise application.exceptions.LargeLanguageModelServiceUnavailableError(
                 detail=(
-                    f"The language model response body ({response_body_bytes} bytes) "
-                    f"exceeds the configured maximum ({self._maximum_response_bytes} bytes)."
+                    f"The large language model response body"
+                    f" ({number_of_bytes_of_response_body} bytes) exceeds the configured"
+                    f" maximum ({self._maximum_number_of_bytes_of_response_body} bytes)."
                 ),
             )
 
-        response_body = http_response.json()
+        try:
+            response_body = http_response.json()
+        except ValueError as json_decode_error:
+            await self._record_circuit_breaker_failure()
+            logger.error(
+                "llama_cpp_response_parsing_failed",
+                error="Response body is not valid JSON",
+                content_type=http_response.headers.get("content-type", ""),
+            )
+            raise application.exceptions.LargeLanguageModelServiceUnavailableError(
+                detail="The large language model server returned a non-JSON response.",
+            ) from json_decode_error
 
         # ── Extract the enhanced prompt text ──────────────────────────────
         #
@@ -328,25 +344,27 @@ class LanguageModelService:
         #
         # If the response structure does not match this expected layout
         # (e.g. missing keys or empty choices list), we raise a
-        # PromptEnhancementError rather than a generic KeyError so the
-        # client receives a meaningful 502 error response.
+        # LargeLanguageModelServiceUnavailableError rather than a generic
+        # KeyError so the client receives a meaningful 502 error response.
         try:
             enhanced_prompt_text = response_body["choices"][0]["message"]["content"]
         except (KeyError, IndexError) as parsing_error:
+            await self._record_circuit_breaker_failure()
             logger.error(
                 "llama_cpp_response_parsing_failed",
-                error="Unexpected response structure from language model server",
+                error="Unexpected response structure from large language model server",
             )
             raise application.exceptions.PromptEnhancementError(
-                detail="The language model returned an unexpected response structure.",
+                detail="The large language model returned an unexpected response structure.",
             ) from parsing_error
 
         if not enhanced_prompt_text or not enhanced_prompt_text.strip():
+            await self._record_circuit_breaker_failure()
             raise application.exceptions.PromptEnhancementError(
-                detail="The language model returned an empty enhanced prompt.",
+                detail="The large language model returned an empty enhanced prompt.",
             )
 
-        result: str = enhanced_prompt_text.strip()
+        cleaned_text_of_enhanced_prompt: str = enhanced_prompt_text.strip()
 
         # ── Token-limit truncation detection ──────────────────────────────
         #
@@ -367,21 +385,21 @@ class LanguageModelService:
         if finish_reason == "length":
             logger.warning(
                 "prompt_enhancement_truncated",
-                truncated_prompt_length=len(result),
+                truncated_prompt_length=len(cleaned_text_of_enhanced_prompt),
                 configured_maximum_tokens=self._maximum_tokens,
             )
 
         # Record success with the circuit breaker (if configured) so
         # that a half-open circuit transitions back to closed and the
-        # consecutive failure counter is reset.
+        # counter of consecutive failures is reset.
         await self._record_circuit_breaker_success()
 
         logger.info(
             "prompt_enhancement_completed",
-            enhanced_prompt_length=len(result),
+            enhanced_prompt_length=len(cleaned_text_of_enhanced_prompt),
         )
 
-        return result
+        return cleaned_text_of_enhanced_prompt
 
     async def _record_circuit_breaker_failure(self) -> None:
         """
@@ -399,7 +417,7 @@ class LanguageModelService:
         Notify the circuit breaker (if configured) of an upstream success.
 
         This method is called after a successful prompt enhancement to
-        reset the consecutive failure counter and potentially close a
+        reset the counter of consecutive failures and potentially close a
         half-open circuit.
         """
         if self._circuit_breaker is not None:
@@ -411,15 +429,15 @@ class LanguageModelService:
 
         Sends a ``GET /health`` request with a short timeout (5 seconds)
         to the llama.cpp server.  Returns ``True`` if the server responds
-        with HTTP 200, ``False`` otherwise.  Any HTTP error or connection
-        failure is caught and treated as unhealthy.
+        with a 2xx status code, ``False`` otherwise.  Any HTTP error or
+        connection failure is caught and treated as unhealthy.
 
         This method is called by the readiness probe (``GET /health/ready``)
-        to determine whether the language model backend is available.
+        to determine whether the large language model backend is available.
         """
         try:
             response = await self.http_client.get("/health", timeout=5.0)
-            return response.status_code == 200
+            return response.is_success
         except httpx.HTTPError:
             return False
 

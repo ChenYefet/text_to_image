@@ -2,7 +2,7 @@
 
 A production-grade REST API service that generates images from text prompts
 using Stable Diffusion, with optional AI-powered prompt enhancement via a
-llama.cpp language model.
+llama.cpp large language model.
 
 ---
 
@@ -15,17 +15,15 @@ llama.cpp language model.
 | **ASGI Server** | Uvicorn | Production-ready ASGI server with hot-reload capability during development and support for multiple worker processes in production deployments. |
 | **JSON Validation** | Pydantic v2 | Declarative, self-documenting validation models with built-in serialisation support. Validation rules are expressed as class definitions rather than imperative logic. |
 | **HTTP Client** | httpx | Async-native HTTP client with comprehensive timeout configuration, connection pooling, and structured error handling for service-to-service communication. |
-| **Language Model** | llama.cpp (OpenAI-compatible mode) | Lightweight, CPU-only inference server that exposes an OpenAI-compatible `/v1/chat/completions` endpoint. No GPU required. |
+| **Large Language Model** | llama.cpp (OpenAI-compatible mode) | Lightweight inference server that exposes an OpenAI-compatible `/v1/chat/completions` endpoint. Supports GPU-accelerated execution via the `--gpu-layers` flag when a CUDA-compatible device is available; falls back to CPU-only execution when no GPU is present. |
 | **Image Generation** | HuggingFace diffusers | In-process Stable Diffusion pipeline loaded via the `diffusers` library. Auto-detects GPU/CPU, downloads the model from HuggingFace Hub on first run, and requires no external server process. |
-| **Rate Limiting** | slowapi | IP-based rate limiting for inference-heavy endpoints. Configurable via environment variable using a `count/period` format (e.g., `10/minute`). |
 | **Structured Logging** | structlog | JSON-formatted structured logging with mandatory fields (`timestamp`, `level`, `event`, `correlation_id`, `service_name`). Handles both native structlog loggers and stdlib loggers through the same JSON pipeline. |
 
 ### Scalability Considerations
 
 - **Asynchronous throughout** — every I/O operation uses `async`/`await`, and Stable Diffusion inference is dispatched to a thread pool to avoid blocking the event loop.
 - **Connection pooling** — persistent `httpx.AsyncClient` instances reuse TCP connections across requests, reducing handshake overhead.
-- **Admission control** — an `ImageGenerationAdmissionController` limits the number of concurrent image generation operations to a configurable maximum (default 1). When the limit is reached, additional requests are rejected immediately with HTTP 429 (`service_busy`) and a `Retry-After` header, preventing GPU/CPU memory contention without queuing or head-of-line blocking.
-- **Rate limiting** — inference endpoints are throttled per client IP using `slowapi`, preventing any single client from monopolising GPU/CPU resources.
+- **Admission control** — an `AdmissionControllerForImageGeneration` limits the number of concurrent image generation operations to a configurable maximum (default 1). When the limit is reached, additional requests are rejected immediately with HTTP 429 (`service_busy`) and a `Retry-After` header, preventing GPU/CPU memory contention without queuing or head-of-line blocking.
 - **Environment-based configuration** — all settings are loaded from environment variables (12-factor app compliant), enabling deployment across development, staging, and production environments without code changes.
 - **Factory pattern** — the application is constructed via a factory function, making it straightforward to create isolated instances for testing or multi-worker deployments.
 
@@ -60,7 +58,7 @@ llama.cpp language model.
 
 The service acts as a unified gateway between the client and two backends:
 
-1. **llama.cpp** — provides prompt enhancement via the OpenAI-compatible `/v1/chat/completions` endpoint (CPU-only, external process).
+1. **llama.cpp** — provides prompt enhancement via the OpenAI-compatible `/v1/chat/completions` endpoint (GPU-accelerated when available, CPU fallback, external process).
 2. **Stable Diffusion** — generates images in-process using the HuggingFace `diffusers` library. The model is loaded into memory at startup and runs on GPU (CUDA) or CPU automatically.
 
 ---
@@ -78,7 +76,7 @@ Before setting up this project, ensure you have the following installed:
 - *(Recommended)* A Python virtual environment manager (`venv`, `virtualenv`, or `conda`).
 - *(Recommended)* An NVIDIA GPU with CUDA support for faster image generation. CPU-only mode is supported but significantly slower.
 - Approximately **14 GB of free disk space**:
-  - ~4.6 GB for the GGUF language model
+  - ~4.6 GB for the GGUF large language model
   - ~4 GB for Stable Diffusion model weights (downloaded automatically on first run)
   - ~2.5 GB for PyTorch
   - ~3 GB for other Python dependencies (`diffusers`, `transformers`, `accelerate`, etc.)
@@ -91,7 +89,7 @@ Complete these preparation steps before proceeding to the main setup.
 
 ### A. Create a standard model folder
 
-Create a folder on your system for storing language model files. This folder should live outside the project so models can be shared across projects.
+Create a folder on your system for storing large language model files. This folder should live outside the project so models can be shared across projects.
 
 **Windows (Command Prompt):**
 ```cmd
@@ -112,15 +110,17 @@ mkdir -p ~/Models
 
 1. Visit the [llama.cpp releases page](https://github.com/ggml-org/llama.cpp/releases)
 2. Download the appropriate pre-built binary for your platform:
-   - **Windows**: `llama-*-bin-win-*.zip` (choose the version matching your CPU architecture)
+   - **Windows (GPU)**: `llama-*-bin-win-cuda-*` (for NVIDIA GPU acceleration)
+   - **Windows (CPU)**: `llama-*-bin-win-*.zip` (choose the version matching your CPU architecture)
    - **macOS**: `llama-*-bin-macos-*.zip`
-   - **Linux**: `llama-*-bin-ubuntu-*.zip`
+   - **Linux (GPU)**: `llama-*-bin-ubuntu-*cuda*` (for NVIDIA GPU acceleration)
+   - **Linux (CPU)**: `llama-*-bin-ubuntu-*.zip`
 3. Extract the archive — you'll get a folder containing `llama-server` (or `llama-server.exe` on Windows) and supporting `.dll`/`.so` files
 4. Keep this extracted folder accessible — you'll copy it into the project in Step 2 below
 
 ### C. Download a GGUF model file
 
-You need a GGUF-format language model for prompt enhancement. Recommended options:
+You need a GGUF-format large language model for prompt enhancement. Recommended options:
 
 | Model | Size (Q4_K_M) | Download Link |
 |---|---|---|
@@ -222,7 +222,34 @@ The file also contains a comment where you can note the path to your GGUF model 
 
 ### Step 7: Start the llama.cpp Server
 
+**With GPU acceleration (recommended if you have an NVIDIA GPU):**
+
 **Linux / macOS:**
+```bash
+./llama.cpp/llama-server \
+    --model ~/Models/Meta-Llama-3-8B-Instruct.Q4_K_M.gguf \
+    --host 0.0.0.0 \
+    --port 8080 \
+    --ctx-size 2048 \
+    --gpu-layers 35
+```
+
+**Windows (Command Prompt):**
+```cmd
+llama.cpp\llama-server.exe --model %USERPROFILE%\Models\Meta-Llama-3-8B-Instruct.Q4_K_M.gguf --host 0.0.0.0 --port 8080 --ctx-size 2048 --gpu-layers 35
+```
+
+**Windows (PowerShell):**
+```powershell
+.\llama.cpp\llama-server.exe --model "$HOME\Models\Meta-Llama-3-8B-Instruct.Q4_K_M.gguf" --host 0.0.0.0 --port 8080 --ctx-size 2048 --gpu-layers 35
+```
+
+The `--gpu-layers 35` flag offloads all model layers to the GPU for significantly faster prompt enhancement. This requires the CUDA-enabled llama.cpp binary (see [Pre-Setup B](#b-download-llamacpp-binaries)).
+
+**Without GPU (CPU-only):**
+
+If you do not have an NVIDIA GPU, omit the `--gpu-layers` flag:
+
 ```bash
 ./llama.cpp/llama-server \
     --model ~/Models/Meta-Llama-3-8B-Instruct.Q4_K_M.gguf \
@@ -231,19 +258,9 @@ The file also contains a comment where you can note the path to your GGUF model 
     --ctx-size 2048
 ```
 
-**Windows (Command Prompt):**
-```cmd
-llama.cpp\llama-server.exe --model %USERPROFILE%\Models\Meta-Llama-3-8B-Instruct.Q4_K_M.gguf --host 0.0.0.0 --port 8080 --ctx-size 2048
-```
+These commands use the standard model folder created during Pre-Setup. If you chose a different model, substitute its filename. The server will start on port 8080.
 
-**Windows (PowerShell):**
-```powershell
-.\llama.cpp\llama-server.exe --model "$HOME\Models\Meta-Llama-3-8B-Instruct.Q4_K_M.gguf" --host 0.0.0.0 --port 8080 --ctx-size 2048
-```
-
-These commands use the standard model folder created during Pre-Setup. If you chose a different model, substitute its filename. The server will start on port 8080 and run on CPU by default.
-
-⏱️ **First-time startup:** The model will take 10-30 seconds to load depending on your CPU.
+⏱️ **First-time startup:** The model will take a few seconds to load on GPU, or 10-30 seconds on CPU.
 
 ### Step 8: Start the Text-to-Image API Service
 
@@ -261,9 +278,9 @@ The service starts on `http://localhost:8000` by default. You will see log outpu
 ```
 INFO:     Started server process
 INFO:     Waiting for application startup.
-{"event": "stable_diffusion_pipeline_loading", "level": "INFO", "timestamp": "...", "service_name": "text-to-image-api", "model_id": "stable-diffusion-v1-5/stable-diffusion-v1-5", "device": "cuda", "dtype": "torch.float16"}
-{"event": "stable_diffusion_pipeline_loaded", "level": "INFO", "timestamp": "...", "service_name": "text-to-image-api"}
-{"event": "services_initialised", "level": "INFO", "timestamp": "...", "service_name": "text-to-image-api", "language_model_server": "http://localhost:8080", "stable_diffusion_model": "stable-diffusion-v1-5/stable-diffusion-v1-5"}
+{"event": "stable_diffusion_pipeline_loading", "level": "INFO", "timestamp": "...", "service_name": "text-to-image-api", "model_id": "stable-diffusion-v1-5/stable-diffusion-v1-5", "model_revision": "main", "device": "cuda", "torch_data_type": "torch.float16"}
+{"event": "stable_diffusion_pipeline_loaded", "level": "INFO", "timestamp": "...", "service_name": "text-to-image-api", "device": "cuda", "duration_in_milliseconds": 12345.6}
+{"event": "services_initialised", "level": "INFO", "timestamp": "...", "service_name": "text-to-image-api", "large_language_model_server": "http://localhost:8080", "stable_diffusion_model": "stable-diffusion-v1-5/stable-diffusion-v1-5", "maximum_number_of_concurrent_operations_of_image_generation": 1}
 INFO:     Application startup complete.
 INFO:     Uvicorn running on http://127.0.0.1:8000
 ```
@@ -288,7 +305,9 @@ You should receive a JSON response containing an `enhanced_prompt` field. The ex
 
 ```json
 {
-    "enhanced_prompt": "A fluffy ginger tabby cat sitting gracefully on a sunlit Victorian windowsill, soft golden-hour lighting streaming through lace curtains, warm colour palette with amber and cream tones, photorealistic style with shallow depth of field"
+    "original_prompt": "a cat",
+    "enhanced_prompt": "A fluffy ginger tabby cat sitting gracefully on a sunlit Victorian windowsill, soft golden-hour lighting streaming through lace curtains, warm colour palette with amber and cream tones, photorealistic style with shallow depth of field",
+    "created": 1700000000
 }
 ```
 
@@ -306,13 +325,14 @@ curl -X POST http://localhost:8000/v1/images/generations \
 curl.exe --% -X POST http://localhost:8000/v1/images/generations -H "Content-Type: application/json" -d "{\"prompt\": \"a cat\", \"use_enhancer\": false, \"n\": 1, \"size\": \"512x512\"}"
 ```
 
-⏱️ **Note:** Image generation on CPU can take several minutes. On GPU (CUDA) it completes in seconds.
+⏱️ **Note:** Image generation on GPU (CUDA) completes in seconds. On CPU it can take several minutes.
 
 You should receive a JSON response containing a base64-encoded image:
 
 ```json
 {
     "created": 1700000000,
+    "seed": 2987451623,
     "data": [
         {
             "base64_json": "iVBORw0KGgoAAAANSUhEUgAA..."
@@ -351,8 +371,8 @@ Once you've completed the Pre-Setup and Setup steps above, here's the quick work
 **Linux / macOS:**
 
 ```bash
-# Terminal 1: Start llama.cpp server
-./llama.cpp/llama-server --model ~/Models/Meta-Llama-3-8B-Instruct.Q4_K_M.gguf --host 0.0.0.0 --port 8080 --ctx-size 2048
+# Terminal 1: Start llama.cpp server (remove --gpu-layers 35 if you do not have an NVIDIA GPU)
+./llama.cpp/llama-server --model ~/Models/Meta-Llama-3-8B-Instruct.Q4_K_M.gguf --host 0.0.0.0 --port 8080 --ctx-size 2048 --gpu-layers 35
 
 # Terminal 2: Activate venv and start API service
 source virtual_environment/bin/activate
@@ -367,8 +387,8 @@ curl -X POST http://localhost:8000/v1/prompts/enhance \
 **Windows (PowerShell):**
 
 ```powershell
-# Terminal 1: Start llama.cpp server
-.\llama.cpp\llama-server.exe --model "$HOME\Models\Meta-Llama-3-8B-Instruct.Q4_K_M.gguf" --host 0.0.0.0 --port 8080 --ctx-size 2048
+# Terminal 1: Start llama.cpp server (remove --gpu-layers 35 if you do not have an NVIDIA GPU)
+.\llama.cpp\llama-server.exe --model "$HOME\Models\Meta-Llama-3-8B-Instruct.Q4_K_M.gguf" --host 0.0.0.0 --port 8080 --ctx-size 2048 --gpu-layers 35
 
 # Terminal 2: Activate venv and start API service
 virtual_environment\Scripts\Activate.ps1
@@ -450,7 +470,7 @@ docker compose down --volumes
 
 ### POST /v1/prompts/enhance
 
-Enhances a raw text prompt using the language model.
+Enhances a raw text prompt using the large language model.
 
 **Request body:**
 
@@ -464,7 +484,9 @@ Enhances a raw text prompt using the language model.
 
 ```json
 {
-    "enhanced_prompt": "A fluffy ginger tabby cat sitting gracefully on a sunlit Victorian windowsill, soft golden-hour lighting streaming through lace curtains, warm colour palette with amber and cream tones, photorealistic style with shallow depth of field"
+    "original_prompt": "A cat sitting on a windowsill",
+    "enhanced_prompt": "A fluffy ginger tabby cat sitting gracefully on a sunlit Victorian windowsill, soft golden-hour lighting streaming through lace curtains, warm colour palette with amber and cream tones, photorealistic style with shallow depth of field",
+    "created": 1700000000
 }
 ```
 
@@ -488,6 +510,7 @@ Generates one or more images from a text prompt.
 ```json
 {
     "created": 1700000000,
+    "seed": 2987451623,
     "data": [
         {
             "base64_json": "iVBORw0KGgoAAAANSUhEUgAA..."
@@ -496,14 +519,21 @@ Generates one or more images from a text prompt.
 }
 ```
 
+Two additional fields appear conditionally:
+
+- `enhanced_prompt` (string) — Present only when `use_enhancer` is `true`. The enhanced prompt used for image generation, as returned by the large language model.
+- `warnings` (array) — Present only when the content safety checker has flagged one or more images. Each element contains `index` (zero-based position in the `data` array) and `reason` (for example, `"content_policy_violation"`).
+
 **Request body fields:**
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `prompt` | string | Yes | — | The text prompt describing the desired image (1–2000 characters). |
-| `use_enhancer` | boolean | No | `false` | When `true`, the prompt is enhanced by the language model before generation. |
+| `use_enhancer` | boolean | No | `false` | When `true`, the prompt is enhanced by the large language model before generation. |
 | `n` | integer | No | `1` | Number of images to generate (1–4). |
 | `size` | string | No | `"512x512"` | Image dimensions. Supported: `512x512`, `768x768`, `1024x1024`. |
+| `seed` | integer or null | No | `null` | Random seed for reproducible generation. When null or omitted, a random seed is chosen. The seed used is always returned in the response. |
+| `response_format` | string | No | `"base64_json"` | Format of the image data in the response. Currently only `"base64_json"` is supported. |
 
 ### GET /health
 
@@ -528,7 +558,7 @@ Returns readiness status including backend service checks. Returns HTTP 503 if a
     "status": "ready",
     "checks": {
         "image_generation": "ok",
-        "language_model": "ok"
+        "large_language_model": "ok"
     }
 }
 ```
@@ -541,17 +571,19 @@ Returns in-memory performance metrics including request counts and latency stati
 
 ```json
 {
+    "collected_at": "2024-01-01T12:00:00.000000Z",
+    "service_started_at": "2024-01-01T11:55:00.000000Z",
     "request_counts": {
         "GET /health 200": 5,
         "POST /v1/images/generations 200": 2
     },
     "request_latencies": {
         "GET /health": {
-            "count": 5,
-            "minimum_milliseconds": 0.1,
-            "maximum_milliseconds": 1.2,
-            "average_milliseconds": 0.5,
-            "ninety_fifth_percentile_milliseconds": 1.1
+            "number_of_observations": 5,
+            "minimum_latency_in_milliseconds": 0.1,
+            "maximum_latency_in_milliseconds": 1.2,
+            "average_latency_in_milliseconds": 0.5,
+            "ninety_fifth_percentile_latency_in_milliseconds": 1.1
         }
     }
 }
@@ -578,7 +610,7 @@ All error responses follow a consistent JSON structure:
 |---|---|---|
 | Invalid JSON or validation failure | **400 Bad Request** | The request body contains malformed JSON, missing required fields, or values that fail validation. |
 | Backend service unavailable | **502 Bad Gateway** | The llama.cpp server cannot be reached, or the Stable Diffusion pipeline encountered a runtime error. |
-| Rate limit exceeded | **429 Too Many Requests** | The client has exceeded the configured request rate for inference endpoints. |
+| Service busy | **429 Too Many Requests** | The image generation concurrency limit has been reached. The ``Retry-After`` header indicates how long to wait before retrying. |
 | Unexpected internal error | **500 Internal Server Error** | An unhandled exception occurred within the service. |
 
 ---
@@ -626,7 +658,7 @@ text_to_image/
 ├── docker-compose.yml                             # Runs API + llama.cpp together
 ├── .dockerignore                                  # Files excluded from the Docker build context
 ├── README.md                                      # This file
-├── text-to-image-spec-v5_0_0.md                   # Project specification
+├── text-to-image-spec-v5_2_0.md                   # Project specification
 ├── .github/
 │   └── workflows/
 │       └── continuous-integration.yml              # Continuous integration pipeline (lint, format, type check, audit, test, contract validation)
@@ -643,10 +675,11 @@ text_to_image/
 │   ├── middleware.py                              # ASGI middleware (correlation ID, request logging)
 │   ├── logging_config.py                          # Structured JSON logging configuration (structlog)
 │   ├── metrics.py                                 # In-memory performance metrics collector
-│   ├── rate_limiting.py                           # IP-based rate limiting (slowapi)
+│   ├── admission_control.py                       # Admission control for image generation (limiting of concurrent operations)
+│   ├── circuit_breaker.py                         # Circuit breaker for communication with the llama.cpp server
 │   ├── services/
 │   │   ├── __init__.py
-│   │   ├── language_model_service.py              # llama.cpp integration
+│   │   ├── large_language_model_service.py              # llama.cpp integration
 │   │   └── image_generation_service.py            # Stable Diffusion pipeline (diffusers)
 │   └── routes/
 │       ├── __init__.py
@@ -664,6 +697,9 @@ text_to_image/
     ├── test_metrics.py
     ├── test_middleware.py
     ├── test_models.py
+    ├── test_admission_control.py
+    ├── test_circuit_breaker.py
+    ├── test_openapi_contract.py
     ├── routes/
     │   ├── __init__.py
     │   ├── conftest.py
@@ -672,7 +708,7 @@ text_to_image/
     │   └── test_image_generation_routes.py
     └── services/
         ├── __init__.py
-        ├── test_language_model_service.py
+        ├── test_large_language_model_service.py
         └── test_image_generation_service.py
 ```
 
@@ -701,41 +737,47 @@ All configuration is loaded from environment variables prefixed with `TEXT_TO_IM
 | `TEXT_TO_IMAGE_APPLICATION_PORT` | HTTP bind port (1–65535) | `8000` |
 | `TEXT_TO_IMAGE_CORS_ALLOWED_ORIGINS` | Allowed CORS origins (JSON list). Empty list disables CORS entirely. | `[]` *(disabled)* |
 | `TEXT_TO_IMAGE_LOG_LEVEL` | Minimum log level: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` | `INFO` |
-| `TEXT_TO_IMAGE_RATE_LIMIT` | Rate limit for inference endpoints in `count/period` format (e.g., `10/minute`, `100/hour`). Set to `0/second` to disable. | `10/minute` |
 
-**Language model (llama.cpp) settings**
+**Large language model (llama.cpp) settings**
 
 | Variable | Description | Default |
 |---|---|---|
-| `TEXT_TO_IMAGE_LANGUAGE_MODEL_SERVER_BASE_URL` | Base URL of the llama.cpp server. The service appends `/v1/chat/completions` to this URL. | `http://localhost:8080` |
-| `TEXT_TO_IMAGE_TIMEOUT_FOR_LANGUAGE_MODEL_REQUESTS_IN_SECONDS` | Maximum seconds to wait for a language model response | `120.0` |
-| `TEXT_TO_IMAGE_LANGUAGE_MODEL_TEMPERATURE` | Sampling temperature for prompt enhancement (0.0 = deterministic, higher = more creative) | `0.7` |
-| `TEXT_TO_IMAGE_LANGUAGE_MODEL_MAXIMUM_TOKENS` | Maximum tokens the language model may generate for an enhanced prompt. | `512` |
-| `TEXT_TO_IMAGE_LANGUAGE_MODEL_SYSTEM_PROMPT` | System prompt sent to the llama.cpp server on every enhancement request. Controls the enhancement style and output format. | *(built-in default)* |
-| `TEXT_TO_IMAGE_LANGUAGE_MODEL_CONNECTION_POOL_SIZE` | Maximum connections in the httpx connection pool for the llama.cpp HTTP client | `10` |
-| `TEXT_TO_IMAGE_LANGUAGE_MODEL_MAXIMUM_RESPONSE_BYTES` | Maximum response body size (bytes) the service will read from the llama.cpp server. Responses exceeding this limit are treated as upstream failures (HTTP 502). | `1048576` *(1 MB)* |
+| `TEXT_TO_IMAGE_LARGE_LANGUAGE_MODEL_PATH` | File path of the GGUF model file used by the llama.cpp server. Reference only — the API service does not read this value at runtime (it communicates with llama.cpp via HTTP). Declared for tooling visibility and deployment automation. | `""` |
+| `TEXT_TO_IMAGE_BASE_URL_OF_LARGE_LANGUAGE_MODEL_SERVER` | Base URL of the llama.cpp server. The service appends `/v1/chat/completions` to this URL. | `http://localhost:8080` |
+| `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_TO_LARGE_LANGUAGE_MODEL_IN_SECONDS` | Maximum seconds to wait for a large language model response | `120.0` |
+| `TEXT_TO_IMAGE_LARGE_LANGUAGE_MODEL_TEMPERATURE` | Sampling temperature for prompt enhancement (0.0 = deterministic, higher = more creative) | `0.7` |
+| `TEXT_TO_IMAGE_MAXIMUM_TOKENS_GENERATED_BY_LARGE_LANGUAGE_MODEL` | Maximum tokens the large language model may generate for an enhanced prompt. | `512` |
+| `TEXT_TO_IMAGE_SYSTEM_PROMPT_FOR_LARGE_LANGUAGE_MODEL` | System prompt sent to the llama.cpp server on every enhancement request. Controls the enhancement style and output format. | *(built-in default)* |
+| `TEXT_TO_IMAGE_SIZE_OF_CONNECTION_POOL_FOR_LARGE_LANGUAGE_MODEL` | Maximum connections in the httpx connection pool for the llama.cpp HTTP client | `10` |
+| `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_BYTES_OF_RESPONSE_BODY_FROM_LARGE_LANGUAGE_MODEL` | Maximum response body size (bytes) the service will read from the llama.cpp server. Responses exceeding this limit are treated as upstream failures (HTTP 502). | `1048576` *(1 MB)* |
 
 **Stable Diffusion settings**
 
 | Variable | Description | Default |
 |---|---|---|
-| `TEXT_TO_IMAGE_STABLE_DIFFUSION_MODEL_ID` | HuggingFace model ID or local filesystem path | `stable-diffusion-v1-5/stable-diffusion-v1-5` |
-| `TEXT_TO_IMAGE_STABLE_DIFFUSION_MODEL_REVISION` | HuggingFace model revision (commit hash or branch name). Pin to a commit hash for reproducible weights. | `main` |
-| `TEXT_TO_IMAGE_STABLE_DIFFUSION_DEVICE` | Inference device: `auto` (CUDA if available, else CPU), `cpu`, or `cuda` | `auto` |
-| `TEXT_TO_IMAGE_STABLE_DIFFUSION_INFERENCE_STEPS` | Number of denoising steps per image. Higher values produce better quality but take longer. | `20` |
-| `TEXT_TO_IMAGE_STABLE_DIFFUSION_GUIDANCE_SCALE` | Classifier-free guidance scale. Higher values follow the prompt more closely. | `7.0` |
-| `TEXT_TO_IMAGE_STABLE_DIFFUSION_SAFETY_CHECKER` | Enable the NSFW content safety checker (`true`/`false`). Disabling removes content filtering from generated images. | `true` |
-| `TEXT_TO_IMAGE_STABLE_DIFFUSION_INFERENCE_TIMEOUT_PER_UNIT_SECONDS` | Base timeout (seconds) for one 512×512 image. Auto-scaled: `base × n_images × (w × h) / (512 × 512)`, with a ×30 multiplier on CPU. | `60.0` |
+| `TEXT_TO_IMAGE_ID_OF_STABLE_DIFFUSION_MODEL` | HuggingFace model ID or local filesystem path | `stable-diffusion-v1-5/stable-diffusion-v1-5` |
+| `TEXT_TO_IMAGE_REVISION_OF_STABLE_DIFFUSION_MODEL` | HuggingFace model revision (commit hash or branch name). Pin to a commit hash for reproducible weights. | `main` |
+| `TEXT_TO_IMAGE_STABLE_DIFFUSION_DEVICE` | Inference device: `auto` (CUDA if available, else CPU), `cuda`, or `cpu` | `auto` |
+| `TEXT_TO_IMAGE_NUMBER_OF_INFERENCE_STEPS_OF_STABLE_DIFFUSION` | Number of denoising steps per image. Higher values produce better quality but take longer. | `20` |
+| `TEXT_TO_IMAGE_GUIDANCE_SCALE_OF_STABLE_DIFFUSION` | Classifier-free guidance scale. Higher values follow the prompt more closely. | `7.0` |
+| `TEXT_TO_IMAGE_SAFETY_CHECKER_FOR_STABLE_DIFFUSION` | Enable the NSFW content safety checker (`true`/`false`). Disabling removes content filtering from generated images. | `true` |
+| `TEXT_TO_IMAGE_INFERENCE_TIMEOUT_BY_STABLE_DIFFUSION_PER_BASELINE_UNIT_IN_SECONDS` | Base timeout (seconds) for one 512×512 baseline unit image. Auto-scaled: `base × n_images × (w × h) / (512 × 512)`, with a ×30 multiplier on CPU. | `60.0` |
+
+**Circuit breaker settings**
+
+| Variable | Description | Default |
+|---|---|---|
+| `TEXT_TO_IMAGE_FAILURE_THRESHOLD_OF_CIRCUIT_BREAKER_FOR_LARGE_LANGUAGE_MODEL` | Number of consecutive failures to the llama.cpp server required to open the circuit breaker and begin rejecting requests immediately. A value of 1 opens the circuit on the very first failure. Higher values tolerate transient errors. | `5` |
+| `TEXT_TO_IMAGE_RECOVERY_TIMEOUT_OF_CIRCUIT_BREAKER_FOR_LARGE_LANGUAGE_MODEL_IN_SECONDS` | Duration in seconds that the circuit breaker remains open (rejecting all requests immediately) before transitioning to half-open state and allowing a single probe request through. | `30.0` |
 
 **Admission control and resilience settings**
 
 | Variable | Description | Default |
 |---|---|---|
-| `TEXT_TO_IMAGE_IMAGE_GENERATION_MAXIMUM_CONCURRENCY` | Maximum concurrent image generation operations per service instance. Additional requests are rejected with HTTP 429 (`service_busy`). | `1` |
-| `TEXT_TO_IMAGE_RETRY_AFTER_BUSY_SECONDS` | `Retry-After` header value (seconds) on HTTP 429 responses caused by admission control (error code: `service_busy`). Indicates global GPU/CPU capacity saturation. | `30` |
-| `TEXT_TO_IMAGE_RETRY_AFTER_RATE_LIMIT_SECONDS` | `Retry-After` header value (seconds) on HTTP 429 responses caused by per-IP rate limiting (error code: `rate_limit_exceeded`). | `60` |
-| `TEXT_TO_IMAGE_RETRY_AFTER_NOT_READY_SECONDS` | `Retry-After` header value (seconds) on HTTP 503 responses from the readiness probe. | `10` |
-| `TEXT_TO_IMAGE_MAXIMUM_REQUEST_PAYLOAD_BYTES` | Maximum request payload size in bytes. Requests exceeding this limit are rejected with HTTP 413 before the body is fully read. | `1048576` *(1 MB)* |
+| `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION` | Maximum concurrent image generation operations per service instance. Additional requests are rejected with HTTP 429 (`service_busy`). | `1` |
+| `TEXT_TO_IMAGE_RETRY_AFTER_BUSY_IN_SECONDS` | `Retry-After` header value (seconds) on HTTP 429 responses caused by admission control (error code: `service_busy`). Indicates global GPU/CPU capacity saturation. | `30` |
+| `TEXT_TO_IMAGE_RETRY_AFTER_NOT_READY_IN_SECONDS` | `Retry-After` header value (seconds) on HTTP 503 responses from the readiness probe. | `10` |
+| `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_BYTES_OF_REQUEST_PAYLOAD` | Maximum request payload size in bytes. Requests exceeding this limit are rejected with HTTP 413 before the body is fully read. | `1048576` *(1 MB)* |
 | `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS` | Maximum end-to-end duration (seconds) for any single HTTP request. Requests exceeding this ceiling are aborted with HTTP 504 (`request_timeout`). | `300.0` |
 
 ---
@@ -769,7 +811,7 @@ All configuration is loaded from environment variables prefixed with `TEXT_TO_IM
 **Solution:**
 - Verify llama.cpp server is running: `curl http://localhost:8080/health`
 - Check the llama.cpp server is listening on port 8080 (not another port)
-- Verify `.env` has the correct `TEXT_TO_IMAGE_LANGUAGE_MODEL_SERVER_BASE_URL=http://localhost:8080`
+- Verify `.env` has the correct `TEXT_TO_IMAGE_BASE_URL_OF_LARGE_LANGUAGE_MODEL_SERVER=http://localhost:8080`
 
 ### Stable Diffusion model download is stuck
 

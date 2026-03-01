@@ -5,7 +5,7 @@ Provides a thread-safe collector for request counts and latency
 observations, exposed via the ``GET /metrics`` endpoint in JSON format.
 
 The collector tracks two temporal metadata fields required by the
-v5.0.0 specification (FR38 and NFR12):
+v5.2.0 specification (FR38 and NFR12):
 
 - ``service_started_at``: an ISO 8601 UTC timestamp recording when the
   collector was created (which coincides with application startup).
@@ -31,15 +31,16 @@ recent request window.
 
 import collections
 import datetime
+import math
 import threading
 
 # The default upper bound on the number of latency observations retained
-# per endpoint.  The v5.0.0 specification notes that fewer than 10,000
+# per endpoint.  The v5.2.0 specification notes that fewer than 10,000
 # requests per endpoint is the expected evaluation scope.  This default
 # matches that expectation exactly, providing a safety net if the
 # assumption is violated in production without artificially constraining
 # the evaluation scenario.
-DEFAULT_MAXIMUM_OBSERVATIONS_PER_ENDPOINT = 10_000
+DEFAULT_MAXIMUM_NUMBER_OF_OBSERVATIONS_PER_ENDPOINT = 10_000
 
 
 class MetricsCollector:
@@ -69,16 +70,16 @@ class MetricsCollector:
 
     def __init__(
         self,
-        maximum_observations_per_endpoint: int = DEFAULT_MAXIMUM_OBSERVATIONS_PER_ENDPOINT,
+        maximum_number_of_observations_per_endpoint: int = DEFAULT_MAXIMUM_NUMBER_OF_OBSERVATIONS_PER_ENDPOINT,
     ) -> None:
         """
         Initialise the metrics collector.
 
         Args:
-            maximum_observations_per_endpoint: The maximum number of
+            maximum_number_of_observations_per_endpoint: The maximum number of
                 latency observations retained per endpoint before the
                 oldest observations are evicted.  Defaults to 10,000,
-                matching the v5.0.0 specification's expected evaluation
+                matching the v5.2.0 specification's expected evaluation
                 scope.  Setting this to a lower value reduces memory
                 consumption at the cost of statistical window size.
         """
@@ -91,7 +92,7 @@ class MetricsCollector:
         # side, implementing a sliding window without explicit eviction
         # logic.  This is more memory-efficient than a plain list because
         # the deque never exceeds the configured capacity.
-        self._maximum_observations_per_endpoint = maximum_observations_per_endpoint
+        self._maximum_number_of_observations_per_endpoint = maximum_number_of_observations_per_endpoint
         self._request_latencies: dict[str, collections.deque[float]] = {}
 
         # Record the service start time as an ISO 8601 UTC string at
@@ -105,7 +106,7 @@ class MetricsCollector:
         method: str,
         path: str,
         status: int,
-        duration_milliseconds: float,
+        duration_in_milliseconds: float,
     ) -> None:
         """
         Record a completed HTTP request for metrics aggregation.
@@ -123,34 +124,34 @@ class MetricsCollector:
                 "/v1/images/generations").
             status: The HTTP status code returned to the client (e.g.
                 200, 400, 502).
-            duration_milliseconds: The total duration of the request in
+            duration_in_milliseconds: The total duration of the request in
                 milliseconds, measured from receipt to response completion.
         """
         with self._lock:
             # Increment the request count for this specific method + path
             # + status code combination.  The count key format matches the
             # specification's prescribed format: "METHOD /path STATUS_CODE".
-            count_key = f"{method} {path} {status}"
-            self._request_counts[count_key] = self._request_counts.get(count_key, 0) + 1
+            key_for_request_count = f"{method} {path} {status}"
+            self._request_counts[key_for_request_count] = self._request_counts.get(key_for_request_count, 0) + 1
 
             # Append the latency observation to the bounded deque for this
             # endpoint.  The latency key aggregates across all status codes
             # for the same method + path combination, as prescribed by the
             # specification: "Statistics are cumulative... Aggregates across
             # all status codes for that endpoint."
-            latency_key = f"{method} {path}"
-            if latency_key not in self._request_latencies:
-                self._request_latencies[latency_key] = collections.deque(
-                    maxlen=self._maximum_observations_per_endpoint,
+            key_for_request_latency = f"{method} {path}"
+            if key_for_request_latency not in self._request_latencies:
+                self._request_latencies[key_for_request_latency] = collections.deque(
+                    maxlen=self._maximum_number_of_observations_per_endpoint,
                 )
-            self._request_latencies[latency_key].append(duration_milliseconds)
+            self._request_latencies[key_for_request_latency].append(duration_in_milliseconds)
 
     def snapshot(self) -> dict:
         """
         Return a point-in-time snapshot of all collected metrics.
 
         The snapshot includes two temporal metadata fields required by
-        the v5.0.0 specification (FR38, Section 11):
+        the v5.2.0 specification (FR38, Section 11):
 
         - ``collected_at``: ISO 8601 UTC timestamp of when this snapshot
           was generated (e.g. ``"2026-02-23T14:32:10.123456Z"``).
@@ -176,7 +177,7 @@ class MetricsCollector:
             }
 
             for endpoint_key, latency_observations in self._request_latencies.items():
-                observation_count = len(latency_observations)
+                number_of_observations = len(latency_observations)
 
                 # Sort a copy of the observations to compute order
                 # statistics (minimum, maximum, 95th percentile) without
@@ -184,20 +185,20 @@ class MetricsCollector:
                 sorted_observations = sorted(latency_observations)
 
                 # Compute the 95th percentile index using the nearest-rank
-                # method: the index is the ceiling of 0.95 × count, clamped
-                # to the valid index range.  For small observation counts,
-                # the 95th percentile converges towards the maximum value.
-                percentile_95_index = min(
-                    int(observation_count * 0.95),
-                    observation_count - 1,
-                )
+                # method prescribed by the specification:
+                #     ninety_fifth_percentile_index = ceil(0.95 × number_of_observations) - 1
+                # For small observation counts, the 95th percentile converges
+                # towards the maximum value.
+                index_of_ninety_fifth_percentile = math.ceil(0.95 * number_of_observations) - 1
 
                 result["request_latencies"][endpoint_key] = {
-                    "count": observation_count,
-                    "minimum_milliseconds": round(sorted_observations[0], 1),
-                    "maximum_milliseconds": round(sorted_observations[-1], 1),
-                    "average_milliseconds": round(sum(sorted_observations) / observation_count, 1),
-                    "ninety_fifth_percentile_milliseconds": round(sorted_observations[percentile_95_index], 1),
+                    "number_of_observations": number_of_observations,
+                    "minimum_latency_in_milliseconds": round(sorted_observations[0], 1),
+                    "maximum_latency_in_milliseconds": round(sorted_observations[-1], 1),
+                    "average_latency_in_milliseconds": round(sum(sorted_observations) / number_of_observations, 1),
+                    "ninety_fifth_percentile_latency_in_milliseconds": round(
+                        sorted_observations[index_of_ninety_fifth_percentile], 1
+                    ),
                 }
 
             return result
@@ -207,7 +208,7 @@ def _format_current_utc_timestamp() -> str:
     """
     Generate the current UTC time as an ISO 8601 formatted string.
 
-    The format matches the v5.0.0 specification requirement (FR38,
+    The format matches the v5.2.0 specification requirement (FR38,
     Section 11): a full ISO 8601 UTC timestamp with microsecond
     precision and the ``Z`` suffix indicating Coordinated Universal
     Time.

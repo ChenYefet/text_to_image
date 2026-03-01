@@ -62,9 +62,9 @@ class TestImageGenerationRequest:
         with pytest.raises(pydantic.ValidationError):
             application.models.ImageGenerationRequest.model_validate({"prompt": "x", "n": 5})
 
-    def test_parse_image_width_and_height(self) -> None:
+    def test_parse_width_and_height_of_image(self) -> None:
         request = application.models.ImageGenerationRequest(prompt="x", size="768x768")
-        assert request.parse_image_width_and_height() == (768, 768)
+        assert request.parse_width_and_height_of_image() == (768, 768)
 
     def test_too_long_prompt_rejected(self) -> None:
         with pytest.raises(pydantic.ValidationError):
@@ -265,7 +265,7 @@ class TestImageGenerationResponse:
 
     def test_empty_data_list_rejected(self) -> None:
         """The data array must contain at least one element (minItems: 1
-        per §11 of the v5.0.0 specification)."""
+        per §11 of the v5.2.0 specification)."""
         with pytest.raises(pydantic.ValidationError):
             application.models.ImageGenerationResponse(
                 created=1700000000,
@@ -275,7 +275,7 @@ class TestImageGenerationResponse:
 
     def test_data_list_exceeding_maximum_rejected(self) -> None:
         """The data array must not exceed four elements (maxItems: 4
-        per §11 of the v5.0.0 specification)."""
+        per §11 of the v5.2.0 specification)."""
         five_images = [application.models.GeneratedImageData(base64_json="abc") for _ in range(5)]
         with pytest.raises(pydantic.ValidationError):
             application.models.ImageGenerationResponse(
@@ -326,7 +326,7 @@ class TestErrorDetail:
 
     def test_with_list_details(self) -> None:
         validation_errors = [
-            {"loc": ["body", "prompt"], "msg": "Field required", "type": "missing"},
+            {"location": ["body", "prompt"], "message": "Field required", "type": "missing"},
         ]
         detail = application.models.ErrorDetail(
             code="request_validation_failed",

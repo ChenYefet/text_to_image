@@ -9,7 +9,7 @@ import uvicorn
 
 import application.server_factory
 
-GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS = 60
+TIMEOUT_FOR_GRACEFUL_SHUTDOWN_IN_SECONDS = 60
 
 fastapi_application = application.server_factory.create_application()
 
@@ -23,5 +23,5 @@ if __name__ == "__main__":
         host=application_configuration.application_host,
         port=application_configuration.application_port,
         reload=False,
-        timeout_graceful_shutdown=GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS,
+        timeout_graceful_shutdown=TIMEOUT_FOR_GRACEFUL_SHUTDOWN_IN_SECONDS,
     )

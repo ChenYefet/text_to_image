@@ -5,40 +5,40 @@ import application.exceptions
 
 class TestServiceErrorBase:
     def test_all_exceptions_inherit_from_service_error(self):
-        for exc_cls in (
-            application.exceptions.LanguageModelServiceUnavailableError,
+        for exception_class in (
+            application.exceptions.LargeLanguageModelServiceUnavailableError,
             application.exceptions.ImageGenerationServiceUnavailableError,
             application.exceptions.PromptEnhancementError,
             application.exceptions.ImageGenerationError,
         ):
-            assert issubclass(exc_cls, application.exceptions.ServiceError)
+            assert issubclass(exception_class, application.exceptions.ServiceError)
 
 
-class TestLanguageModelServiceUnavailableError:
+class TestLargeLanguageModelServiceUnavailableError:
     def test_default_message(self):
-        exc = application.exceptions.LanguageModelServiceUnavailableError()
-        assert exc.detail == "The language model server is unavailable."
-        assert str(exc) == "The language model server is unavailable."
+        exception = application.exceptions.LargeLanguageModelServiceUnavailableError()
+        assert exception.detail == "The large language model server is unavailable."
+        assert str(exception) == "The large language model server is unavailable."
 
     def test_custom_message(self):
-        exc = application.exceptions.LanguageModelServiceUnavailableError(detail="Custom detail")
-        assert exc.detail == "Custom detail"
-        assert str(exc) == "Custom detail"
+        exception = application.exceptions.LargeLanguageModelServiceUnavailableError(detail="Custom detail")
+        assert exception.detail == "Custom detail"
+        assert str(exception) == "Custom detail"
 
 
 class TestImageGenerationServiceUnavailableError:
     def test_default_message(self):
-        exc = application.exceptions.ImageGenerationServiceUnavailableError()
-        assert exc.detail == "The image generation server is unavailable."
+        exception = application.exceptions.ImageGenerationServiceUnavailableError()
+        assert exception.detail == "The image generation server is unavailable."
 
 
 class TestPromptEnhancementError:
     def test_default_message(self):
-        exc = application.exceptions.PromptEnhancementError()
-        assert exc.detail == "Prompt enhancement failed."
+        exception = application.exceptions.PromptEnhancementError()
+        assert exception.detail == "Prompt enhancement failed."
 
 
 class TestImageGenerationError:
     def test_default_message(self):
-        exc = application.exceptions.ImageGenerationError()
-        assert exc.detail == "Image generation failed."
+        exception = application.exceptions.ImageGenerationError()
+        assert exception.detail == "Image generation failed."

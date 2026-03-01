@@ -9,9 +9,9 @@ Provides cross-cutting concerns that apply to every request/response cycle:
   unhandled exceptions (HTTP 500).
 
 - **RequestTimeoutMiddleware**: enforces the operator-configured end-to-end
-  request timeout (``request_timeout_seconds``, default 300 s).  Requests
+  request timeout (``request_timeout_in_seconds``, default 300 s).  Requests
   exceeding this ceiling are aborted with HTTP 504 (request_timeout).
-  This middleware implements NFR48 from the v5.0.0 specification.
+  This middleware implements NFR48 from the v5.2.0 specification.
 
 - **ContentTypeValidationMiddleware**: rejects POST requests whose
   ``Content-Type`` header is missing or not ``application/json`` with
@@ -19,7 +19,7 @@ Provides cross-cutting concerns that apply to every request/response cycle:
   pass through unchecked.
 
 - **RequestPayloadSizeLimitMiddleware**: rejects request bodies that exceed
-  the operator-configured maximum (``maximum_request_payload_bytes``,
+  the operator-configured maximum (``maximum_number_of_bytes_of_request_payload``,
   default 1 MB) with HTTP 413 (http_payload_too_large) before the full body
   reaches the application layer.
 
@@ -86,23 +86,23 @@ class InFlightRequestCounter:
 
     def __init__(self) -> None:
         """Initialise the counter to zero with a threading lock for safety."""
-        self._count: int = 0
+        self._number_of_in_flight_requests: int = 0
         self._lock = threading.Lock()
 
     def increment(self) -> None:
-        """Atomically increment the in-flight request count by one."""
+        """Atomically increment the number of in-flight requests by one."""
         with self._lock:
-            self._count += 1
+            self._number_of_in_flight_requests += 1
 
     def decrement(self) -> None:
-        """Atomically decrement the in-flight request count by one."""
+        """Atomically decrement the number of in-flight requests by one."""
         with self._lock:
-            self._count -= 1
+            self._number_of_in_flight_requests -= 1
 
     @property
-    def count(self) -> int:
+    def number_of_in_flight_requests(self) -> int:
         """Return the current number of in-flight requests."""
-        return self._count
+        return self._number_of_in_flight_requests
 
 
 logger = structlog.get_logger()
@@ -154,7 +154,7 @@ class CorrelationIdMiddleware:
         metrics_collector: application.metrics.MetricsCollector | None = None,
         in_flight_request_counter: InFlightRequestCounter | None = None,
     ) -> None:
-        self.app = app
+        self._asgi_application = app
         self._metrics_collector = metrics_collector
         self._in_flight_request_counter = in_flight_request_counter
 
@@ -165,7 +165,7 @@ class CorrelationIdMiddleware:
         send: starlette.types.Send,
     ) -> None:
         if scope["type"] != "http":
-            await self.app(scope, receive, send)
+            await self._asgi_application(scope, receive, send)
             return
 
         correlation_id = str(uuid.uuid4())
@@ -173,7 +173,7 @@ class CorrelationIdMiddleware:
         path = scope.get("path", "")
         start_time = time.monotonic()
         response_status = 0
-        response_payload_bytes = 0
+        number_of_bytes_of_response_payload = 0
 
         if "state" not in scope:
             scope["state"] = {}
@@ -184,9 +184,9 @@ class CorrelationIdMiddleware:
 
         # Extract the declared request payload size from the Content-Length
         # header (if present) for inclusion in the http_request_received
-        # log event, as recommended by the v5.0.0 specification's 31-event
+        # log event, as recommended by the v5.2.0 specification's 45-event
         # logging taxonomy.
-        request_payload_bytes = extract_content_length_from_headers(
+        number_of_bytes_of_request_payload = extract_content_length_from_headers(
             scope.get("headers", []),
         )
 
@@ -194,7 +194,7 @@ class CorrelationIdMiddleware:
             "http_request_received",
             method=method,
             path=path,
-            request_payload_bytes=request_payload_bytes,
+            number_of_bytes_of_request_payload=number_of_bytes_of_request_payload,
         )
 
         # Increment the in-flight request counter so that the graceful
@@ -206,7 +206,7 @@ class CorrelationIdMiddleware:
         async def send_with_correlation_id_and_size_tracking(
             message: starlette.types.Message,
         ) -> None:
-            nonlocal response_status, response_payload_bytes
+            nonlocal response_status, number_of_bytes_of_response_payload
             if message["type"] == "http.response.start":
                 response_status = message.get("status", 0)
                 headers = list(message.get("headers", []))
@@ -217,11 +217,11 @@ class CorrelationIdMiddleware:
                 # http_request_completed log event.  Streaming responses
                 # may send multiple body chunks; we track the total.
                 body_chunk = message.get("body", b"")
-                response_payload_bytes += len(body_chunk)
+                number_of_bytes_of_response_payload += len(body_chunk)
             await send(message)
 
         try:
-            await self.app(
+            await self._asgi_application(
                 scope,
                 receive,
                 send_with_correlation_id_and_size_tracking,
@@ -238,7 +238,7 @@ class CorrelationIdMiddleware:
                     }
                 }
             ).encode()
-            response_payload_bytes = len(error_response_body)
+            number_of_bytes_of_response_payload = len(error_response_body)
             await send(
                 {
                     "type": "http.response.start",
@@ -261,21 +261,21 @@ class CorrelationIdMiddleware:
             if self._in_flight_request_counter is not None:
                 self._in_flight_request_counter.decrement()
 
-            duration_milliseconds = (time.monotonic() - start_time) * 1000
+            duration_in_milliseconds = (time.monotonic() - start_time) * 1000
             logger.info(
                 "http_request_completed",
                 method=method,
                 path=path,
                 status=response_status,
-                duration_milliseconds=round(duration_milliseconds, 1),
-                response_payload_bytes=response_payload_bytes,
+                duration_in_milliseconds=round(duration_in_milliseconds, 1),
+                number_of_bytes_of_response_payload=number_of_bytes_of_response_payload,
             )
             if self._metrics_collector is not None:
                 self._metrics_collector.record_request(
                     method=method,
                     path=path,
                     status=response_status,
-                    duration_milliseconds=round(duration_milliseconds, 1),
+                    duration_in_milliseconds=round(duration_in_milliseconds, 1),
                 )
 
 
@@ -283,7 +283,7 @@ class RequestTimeoutMiddleware:
     """
     Enforce an end-to-end request timeout on every HTTP request.
 
-    This middleware implements NFR48 from the v5.0.0 specification: a
+    This middleware implements NFR48 from the v5.2.0 specification: a
     configurable maximum duration for any single HTTP request.  When the
     timeout is exceeded, the request processing is cancelled and the client
     receives an HTTP 504 (Gateway Timeout) response with the structured
@@ -313,10 +313,10 @@ class RequestTimeoutMiddleware:
     def __init__(
         self,
         app: starlette.types.ASGIApp,
-        request_timeout_seconds: float = 300.0,
+        request_timeout_in_seconds: float = 300.0,
     ) -> None:
-        self.app = app
-        self._request_timeout_seconds = request_timeout_seconds
+        self._asgi_application = app
+        self._request_timeout_in_seconds = request_timeout_in_seconds
 
     async def __call__(
         self,
@@ -325,7 +325,7 @@ class RequestTimeoutMiddleware:
         send: starlette.types.Send,
     ) -> None:
         if scope["type"] != "http":
-            await self.app(scope, receive, send)
+            await self._asgi_application(scope, receive, send)
             return
 
         # Track whether the inner application has already started sending
@@ -341,15 +341,22 @@ class RequestTimeoutMiddleware:
                 response_headers_already_sent = True
             await send(message)
 
+        start_time_of_timeout_measurement = time.monotonic()
+
         try:
             await asyncio.wait_for(
-                self.app(scope, receive, send_with_header_tracking),
-                timeout=self._request_timeout_seconds,
+                self._asgi_application(scope, receive, send_with_header_tracking),
+                timeout=self._request_timeout_in_seconds,
             )
         except TimeoutError:
+            elapsed_number_of_seconds = round(
+                time.monotonic() - start_time_of_timeout_measurement,
+                3,
+            )
             logger.error(
                 "request_timeout_exceeded",
-                timeout_seconds=self._request_timeout_seconds,
+                timeout_in_seconds=self._request_timeout_in_seconds,
+                elapsed_number_of_seconds=elapsed_number_of_seconds,
                 path=scope.get("path", ""),
                 method=scope.get("method", ""),
             )
@@ -368,8 +375,8 @@ class RequestTimeoutMiddleware:
 
             await self._send_request_timeout_response(scope, send)
 
-    @staticmethod
     async def _send_request_timeout_response(
+        self,
         scope: starlette.types.Scope,
         send: starlette.types.Send,
     ) -> None:
@@ -388,6 +395,7 @@ class RequestTimeoutMiddleware:
                 "error": {
                     "code": "request_timeout",
                     "message": ("The request exceeded the maximum allowed processing time and was aborted."),
+                    "details": (f"Timeout duration: {self._request_timeout_in_seconds} seconds."),
                     "correlation_id": correlation_id,
                 }
             }
@@ -417,7 +425,7 @@ class ContentTypeValidationMiddleware:
     Content-Type.
 
     This middleware enforces NFR18 (Content-Type enforcement) from the
-    v5.0.0 specification.  It inspects the ``Content-Type`` header on
+    v5.2.0 specification.  It inspects the ``Content-Type`` header on
     every POST request and returns HTTP 415 (Unsupported Media Type)
     when the header is:
 
@@ -443,7 +451,7 @@ class ContentTypeValidationMiddleware:
     )
 
     def __init__(self, app: starlette.types.ASGIApp) -> None:
-        self.app = app
+        self._asgi_application = app
 
     async def __call__(
         self,
@@ -452,13 +460,13 @@ class ContentTypeValidationMiddleware:
         send: starlette.types.Send,
     ) -> None:
         if scope["type"] != "http":
-            await self.app(scope, receive, send)
+            await self._asgi_application(scope, receive, send)
             return
 
         http_method = scope.get("method", "")
 
         if http_method in self._METHODS_EXEMPT_FROM_CONTENT_TYPE_CHECK:
-            await self.app(scope, receive, send)
+            await self._asgi_application(scope, receive, send)
             return
 
         # ── Extract and validate the Content-Type header ──────────────
@@ -480,7 +488,7 @@ class ContentTypeValidationMiddleware:
             await self._send_unsupported_media_type_response(scope, send)
             return
 
-        await self.app(scope, receive, send)
+        await self._asgi_application(scope, receive, send)
 
     @staticmethod
     def _extract_content_type_from_headers(
@@ -518,6 +526,7 @@ class ContentTypeValidationMiddleware:
                     "message": (
                         "The Content-Type header must be 'application/json'. This API only accepts JSON request bodies."
                     ),
+                    "details": "Accepted content type: application/json.",
                     "correlation_id": correlation_id,
                 }
             }
@@ -546,7 +555,7 @@ class RequestPayloadSizeLimitMiddleware:
     Reject HTTP requests whose body exceeds the configured maximum size.
 
     This middleware enforces NFR15 (request payload size enforcement) from
-    the v5.0.0 specification.  It uses two complementary strategies:
+    the v5.2.0 specification.  It uses two complementary strategies:
 
     1. **Fast-path rejection via Content-Length header**: when the client
        sends a ``Content-Length`` header that exceeds the limit, the
@@ -569,10 +578,10 @@ class RequestPayloadSizeLimitMiddleware:
     def __init__(
         self,
         app: starlette.types.ASGIApp,
-        maximum_request_payload_bytes: int = 1_048_576,
+        maximum_number_of_bytes_of_request_payload: int = 1_048_576,
     ) -> None:
-        self.app = app
-        self._maximum_request_payload_bytes = maximum_request_payload_bytes
+        self._asgi_application = app
+        self._maximum_number_of_bytes_of_request_payload = maximum_number_of_bytes_of_request_payload
 
     async def __call__(
         self,
@@ -581,7 +590,7 @@ class RequestPayloadSizeLimitMiddleware:
         send: starlette.types.Send,
     ) -> None:
         if scope["type"] != "http":
-            await self.app(scope, receive, send)
+            await self._asgi_application(scope, receive, send)
             return
 
         # ── Fast-path: check the Content-Length header ────────────────
@@ -595,11 +604,14 @@ class RequestPayloadSizeLimitMiddleware:
             scope.get("headers", []),
         )
 
-        if declared_content_length is not None and declared_content_length > self._maximum_request_payload_bytes:
+        if (
+            declared_content_length is not None
+            and declared_content_length > self._maximum_number_of_bytes_of_request_payload
+        ):
             logger.warning(
                 "http_payload_too_large",
                 declared_content_length=declared_content_length,
-                maximum_allowed_bytes=self._maximum_request_payload_bytes,
+                maximum_number_of_bytes_allowed=self._maximum_number_of_bytes_of_request_payload,
             )
             await self._send_payload_too_large_response(scope, send)
             return
@@ -611,24 +623,24 @@ class RequestPayloadSizeLimitMiddleware:
         # wrapper tracks the actual number of body bytes received and
         # raises an internal flag when the limit is exceeded.
 
-        accumulated_body_bytes = 0
+        accumulated_number_of_bytes_of_request_body = 0
         payload_limit_exceeded = False
 
         async def receive_with_size_tracking() -> starlette.types.Message:
-            nonlocal accumulated_body_bytes, payload_limit_exceeded
+            nonlocal accumulated_number_of_bytes_of_request_body, payload_limit_exceeded
 
             message = await receive()
 
             if message["type"] == "http.request":
                 body_chunk = message.get("body", b"")
-                accumulated_body_bytes += len(body_chunk)
+                accumulated_number_of_bytes_of_request_body += len(body_chunk)
 
-                if accumulated_body_bytes > self._maximum_request_payload_bytes:
+                if accumulated_number_of_bytes_of_request_body > self._maximum_number_of_bytes_of_request_payload:
                     payload_limit_exceeded = True
                     logger.warning(
                         "http_payload_too_large",
-                        accumulated_bytes=accumulated_body_bytes,
-                        maximum_allowed_bytes=self._maximum_request_payload_bytes,
+                        accumulated_number_of_bytes=accumulated_number_of_bytes_of_request_body,
+                        maximum_number_of_bytes_allowed=self._maximum_number_of_bytes_of_request_payload,
                     )
                     # Return an empty body to prevent further processing.
                     # The response will be sent by the exception path below.
@@ -641,7 +653,7 @@ class RequestPayloadSizeLimitMiddleware:
             return message
 
         try:
-            await self.app(scope, receive_with_size_tracking, send)
+            await self._asgi_application(scope, receive_with_size_tracking, send)
         except Exception:
             if payload_limit_exceeded:
                 # The application likely failed because the body was
@@ -652,9 +664,9 @@ class RequestPayloadSizeLimitMiddleware:
                 raise
 
         if payload_limit_exceeded:
-            # If the app didn't raise but the limit was exceeded (e.g.
-            # FastAPI read partial body), we still need to handle this.
-            # However, the app may have already started sending a
+            # If the application didn't raise but the limit was exceeded
+            # (e.g. FastAPI read partial body), we still need to handle
+            # this.  However, the application may have already started sending a
             # response, so we cannot send another one.  The truncated
             # body should cause a validation error at the application
             # layer, which is an acceptable degraded behaviour.
@@ -680,8 +692,12 @@ class RequestPayloadSizeLimitMiddleware:
                 "error": {
                     "code": "payload_too_large",
                     "message": (
-                        f"The request payload exceeds the maximum allowed "
-                        f"size of {self._maximum_request_payload_bytes} bytes."
+                        "The request payload exceeds the maximum"
+                        " allowed size of"
+                        f" {self._maximum_number_of_bytes_of_request_payload} bytes."
+                    ),
+                    "details": (
+                        f"Maximum allowed payload size: {self._maximum_number_of_bytes_of_request_payload} bytes."
                     ),
                     "correlation_id": correlation_id,
                 }

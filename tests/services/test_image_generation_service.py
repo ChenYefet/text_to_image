@@ -15,7 +15,7 @@ def _create_test_image(width=64, height=64):
     return Image.new("RGB", (width, height), color="red")
 
 
-def _make_service(device_type="cpu"):
+def _build_image_generation_service_with_mock_pipeline(device_type="cpu"):
     """Create an ImageGenerationService with a mocked pipeline."""
     mock_pipeline = MagicMock()
     mock_device = MagicMock()
@@ -65,7 +65,7 @@ class TestResolveDevice:
 class TestGenerateImages:
     @pytest.mark.asyncio
     async def test_success(self):
-        service = _make_service()
+        service = _build_image_generation_service_with_mock_pipeline()
         test_image = _create_test_image()
         mock_result = MagicMock()
         mock_result.images = [test_image]
@@ -81,7 +81,7 @@ class TestGenerateImages:
 
         assert len(generation_result.base64_encoded_images) == 1
         assert isinstance(generation_result.base64_encoded_images[0], str)
-        assert generation_result.content_safety_flagged_indices == []
+        assert generation_result.indices_flagged_by_content_safety_checker == []
         # Verify the output is valid base64 by decoding it
         import base64
 
@@ -90,10 +90,11 @@ class TestGenerateImages:
 
     @pytest.mark.asyncio
     async def test_multiple_images(self):
-        service = _make_service()
-        test_images = [_create_test_image() for _ in range(2)]
+        service = _build_image_generation_service_with_mock_pipeline()
+        # Each pipeline call returns exactly 1 image (num_images_per_prompt=1),
+        # so the mock must return a single-image result per invocation.
         mock_result = MagicMock()
-        mock_result.images = test_images
+        mock_result.images = [_create_test_image()]
         mock_result.nsfw_content_detected = None
         service._pipeline.return_value = mock_result
 
@@ -105,18 +106,25 @@ class TestGenerateImages:
         )
 
         assert len(generation_result.base64_encoded_images) == 2
-        assert generation_result.content_safety_flagged_indices == []
+        assert generation_result.indices_flagged_by_content_safety_checker == []
 
     @pytest.mark.asyncio
     async def test_content_safety_flagged_image_replaced_with_none(self):
         """When the content safety checker flags an image, its base64 data
-        is replaced with None and the index appears in content_safety_flagged_indices."""
-        service = _make_service()
-        test_images = [_create_test_image(), _create_test_image()]
-        mock_result = MagicMock()
-        mock_result.images = test_images
-        mock_result.nsfw_content_detected = [False, True]
-        service._pipeline.return_value = mock_result
+        is replaced with None and the index appears in indices_flagged_by_content_safety_checker."""
+        service = _build_image_generation_service_with_mock_pipeline()
+        # Each pipeline call returns exactly 1 image (num_images_per_prompt=1).
+        # The first invocation returns a safe image; the second returns a
+        # flagged image.
+        safe_result = MagicMock()
+        safe_result.images = [_create_test_image()]
+        safe_result.nsfw_content_detected = [False]
+
+        flagged_result = MagicMock()
+        flagged_result.images = [_create_test_image()]
+        flagged_result.nsfw_content_detected = [True]
+
+        service._pipeline.side_effect = [safe_result, flagged_result]
 
         generation_result = await service.generate_images(
             prompt="A cat",
@@ -128,11 +136,11 @@ class TestGenerateImages:
         assert len(generation_result.base64_encoded_images) == 2
         assert generation_result.base64_encoded_images[0] is not None
         assert generation_result.base64_encoded_images[1] is None
-        assert generation_result.content_safety_flagged_indices == [1]
+        assert generation_result.indices_flagged_by_content_safety_checker == [1]
 
     @pytest.mark.asyncio
     async def test_runtime_error(self):
-        service = _make_service()
+        service = _build_image_generation_service_with_mock_pipeline()
         service._pipeline.side_effect = RuntimeError("GPU out of memory")
 
         with pytest.raises(application.exceptions.ImageGenerationServiceUnavailableError):
@@ -145,9 +153,9 @@ class TestGenerateImages:
 
     @pytest.mark.asyncio
     async def test_inference_timeout(self):
-        service = _make_service()
-        # With per-unit base of 0.01s and 512×512×1 the computed timeout is 0.01s
-        service._inference_timeout_per_unit_seconds = 0.01
+        service = _build_image_generation_service_with_mock_pipeline()
+        # With per-baseline-unit base of 0.01s and 512×512×1 the computed timeout is 0.01s
+        service._inference_timeout_per_baseline_unit_in_seconds = 0.01
 
         def slow_inference(*args, **kwargs):
             import time
@@ -169,7 +177,7 @@ class TestGenerateImages:
 
     @pytest.mark.asyncio
     async def test_no_images(self):
-        service = _make_service()
+        service = _build_image_generation_service_with_mock_pipeline()
         mock_result = MagicMock()
         mock_result.images = []
         mock_result.nsfw_content_detected = None
@@ -198,7 +206,7 @@ class TestGenerateImages:
         code path in the ``close()`` method is tested separately in
         ``TestClose.test_close_cuda``.
         """
-        service = _make_service(device_type="cuda")
+        service = _build_image_generation_service_with_mock_pipeline(device_type="cuda")
         test_image = _create_test_image()
         mock_result = MagicMock()
         mock_result.images = [test_image]
@@ -208,7 +216,7 @@ class TestGenerateImages:
         with patch("application.services.image_generation_service.torch") as mock_torch:
             # Ensure the device type check in _cleanup_after_inference
             # evaluates the real device mock (not the patched torch).
-            # The service's _device attribute was set by _make_service
+            # The service's _device attribute was set by _build_image_generation_service_with_mock_pipeline
             # to a MagicMock with .type = "cuda".
             generation_result = await service.generate_images(
                 prompt="A cat",
@@ -227,10 +235,10 @@ class TestGenerateImages:
         The ``image_generation_completed`` log event must include a
         ``number_of_bytes_of_resident_set_size_of_process`` field reporting
         the process resident set size at the time of completion, as required
-        by the v5.0.0 specification (§15, Operational Observability,
+        by the v5.2.0 specification (§15, Operational Observability,
         Finding A-17).
         """
-        service = _make_service()
+        service = _build_image_generation_service_with_mock_pipeline()
         test_image = _create_test_image()
         mock_result = MagicMock()
         mock_result.images = [test_image]
@@ -276,7 +284,7 @@ class TestRunStartupWarmup:
         the ``first_warmup_of_inference_of_stable_diffusion`` log event on the
         first real user request.
         """
-        service = _make_service()
+        service = _build_image_generation_service_with_mock_pipeline()
         mock_result = MagicMock()
         mock_result.images = [_create_test_image()]
         service._pipeline.return_value = mock_result
@@ -294,20 +302,20 @@ class TestRunStartupWarmup:
         parameters (1 step, 64×64, 1 image, guidance_scale=1.0) to
         complete as quickly as possible.
         """
-        service = _make_service()
+        service = _build_image_generation_service_with_mock_pipeline()
         mock_result = MagicMock()
         service._pipeline.return_value = mock_result
 
         await service.run_startup_warmup()
 
         service._pipeline.assert_called_once()
-        call_kwargs = service._pipeline.call_args
-        assert call_kwargs.kwargs["prompt"] == "warmup"
-        assert call_kwargs.kwargs["width"] == 64
-        assert call_kwargs.kwargs["height"] == 64
-        assert call_kwargs.kwargs["num_images_per_prompt"] == 1
-        assert call_kwargs.kwargs["num_inference_steps"] == 1
-        assert call_kwargs.kwargs["guidance_scale"] == 1.0
+        keyword_arguments_passed_to_pipeline = service._pipeline.call_args
+        assert keyword_arguments_passed_to_pipeline.kwargs["prompt"] == "warmup"
+        assert keyword_arguments_passed_to_pipeline.kwargs["width"] == 64
+        assert keyword_arguments_passed_to_pipeline.kwargs["height"] == 64
+        assert keyword_arguments_passed_to_pipeline.kwargs["num_images_per_prompt"] == 1
+        assert keyword_arguments_passed_to_pipeline.kwargs["num_inference_steps"] == 1
+        assert keyword_arguments_passed_to_pipeline.kwargs["guidance_scale"] == 1.0
 
     @pytest.mark.asyncio
     async def test_warmup_failure_does_not_raise(self):
@@ -317,7 +325,7 @@ class TestRunStartupWarmup:
         return without raising an exception.  The service should continue
         starting up normally.
         """
-        service = _make_service()
+        service = _build_image_generation_service_with_mock_pipeline()
         service._pipeline.side_effect = RuntimeError("Simulated warmup failure")
 
         # Must not raise.
@@ -335,7 +343,7 @@ class TestRunStartupWarmup:
         called to release any intermediate tensors that may have been
         allocated before the failure.
         """
-        service = _make_service(device_type="cuda")
+        service = _build_image_generation_service_with_mock_pipeline(device_type="cuda")
         service._pipeline.side_effect = RuntimeError("Simulated warmup failure")
 
         with patch("application.services.image_generation_service.torch") as mock_torch:
@@ -419,16 +427,16 @@ class TestLoadPipeline:
 
 class TestCheckHealth:
     def test_healthy_when_pipeline_loaded(self):
-        service = _make_service()
+        service = _build_image_generation_service_with_mock_pipeline()
         assert service.check_health() is True
 
     def test_unhealthy_after_close(self):
-        service = _make_service()
+        service = _build_image_generation_service_with_mock_pipeline()
         del service._pipeline
         assert service.check_health() is False
 
     def test_unhealthy_when_pipeline_is_none(self):
-        service = _make_service()
+        service = _build_image_generation_service_with_mock_pipeline()
         service._pipeline = None
         assert service.check_health() is False
 
@@ -436,7 +444,7 @@ class TestCheckHealth:
 class TestClose:
     @pytest.mark.asyncio
     async def test_close_cpu(self):
-        service = _make_service(device_type="cpu")
+        service = _build_image_generation_service_with_mock_pipeline(device_type="cpu")
 
         with patch("application.services.image_generation_service.torch") as mock_torch:
             await service.close()
@@ -444,7 +452,7 @@ class TestClose:
 
     @pytest.mark.asyncio
     async def test_close_cuda(self):
-        service = _make_service(device_type="cuda")
+        service = _build_image_generation_service_with_mock_pipeline(device_type="cuda")
 
         with patch("application.services.image_generation_service.torch") as mock_torch:
             await service.close()
@@ -452,7 +460,7 @@ class TestClose:
 
     @pytest.mark.asyncio
     async def test_close_twice_is_safe(self):
-        service = _make_service(device_type="cpu")
+        service = _build_image_generation_service_with_mock_pipeline(device_type="cpu")
 
         with patch("application.services.image_generation_service.torch"):
             await service.close()
@@ -461,43 +469,43 @@ class TestClose:
 
 class TestComputeTimeout:
     def test_gpu_baseline_image(self):
-        service = _make_service(device_type="cuda")
-        service._inference_timeout_per_unit_seconds = 60.0
+        service = _build_image_generation_service_with_mock_pipeline(device_type="cuda")
+        service._inference_timeout_per_baseline_unit_in_seconds = 60.0
         # 1 image × 512×512 → 60s (no multiplier on GPU)
         assert service._compute_timeout(512, 512, 1) == pytest.approx(60.0)
 
     def test_gpu_four_baseline_images(self):
-        service = _make_service(device_type="cuda")
-        service._inference_timeout_per_unit_seconds = 60.0
+        service = _build_image_generation_service_with_mock_pipeline(device_type="cuda")
+        service._inference_timeout_per_baseline_unit_in_seconds = 60.0
         # 4 images × 512×512 → 240s
         assert service._compute_timeout(512, 512, 4) == pytest.approx(240.0)
 
     def test_gpu_double_resolution(self):
-        service = _make_service(device_type="cuda")
-        service._inference_timeout_per_unit_seconds = 60.0
-        # 1 image × 1024×1024 → pixel_scale=4.0 → 240s
+        service = _build_image_generation_service_with_mock_pipeline(device_type="cuda")
+        service._inference_timeout_per_baseline_unit_in_seconds = 60.0
+        # 1 image × 1024×1024 → ratio_of_pixel_area_to_baseline=4.0 → 240s
         assert service._compute_timeout(1024, 1024, 1) == pytest.approx(240.0)
 
     def test_gpu_worst_case(self):
-        service = _make_service(device_type="cuda")
-        service._inference_timeout_per_unit_seconds = 60.0
+        service = _build_image_generation_service_with_mock_pipeline(device_type="cuda")
+        service._inference_timeout_per_baseline_unit_in_seconds = 60.0
         # 4 images × 1024×1024 → 960s
         assert service._compute_timeout(1024, 1024, 4) == pytest.approx(960.0)
 
     def test_cpu_baseline_image(self):
-        service = _make_service(device_type="cpu")
-        service._inference_timeout_per_unit_seconds = 60.0
+        service = _build_image_generation_service_with_mock_pipeline(device_type="cpu")
+        service._inference_timeout_per_baseline_unit_in_seconds = 60.0
         # 1 image × 512×512 × 30 → 1800s
         assert service._compute_timeout(512, 512, 1) == pytest.approx(1800.0)
 
     def test_cpu_double_resolution(self):
-        service = _make_service(device_type="cpu")
-        service._inference_timeout_per_unit_seconds = 60.0
+        service = _build_image_generation_service_with_mock_pipeline(device_type="cpu")
+        service._inference_timeout_per_baseline_unit_in_seconds = 60.0
         # 1 image × 1024×1024 × 30 → 7200s
         assert service._compute_timeout(1024, 1024, 1) == pytest.approx(7200.0)
 
     def test_cpu_worst_case(self):
-        service = _make_service(device_type="cpu")
-        service._inference_timeout_per_unit_seconds = 60.0
+        service = _build_image_generation_service_with_mock_pipeline(device_type="cpu")
+        service._inference_timeout_per_baseline_unit_in_seconds = 60.0
         # 4 images × 1024×1024 × 30 → 28800s
         assert service._compute_timeout(1024, 1024, 4) == pytest.approx(28800.0)

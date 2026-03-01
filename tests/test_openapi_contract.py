@@ -10,7 +10,7 @@ actual implementation.
 
 Why this test exists
 --------------------
-The v5.0.0 specification (FR46) requires the CI pipeline to validate the
+The v5.2.0 specification (FR46) requires the CI pipeline to validate the
 API contract.  A naïve approach (running model-related unit tests) does
 not detect drift between the committed OpenAPI document and the live
 schema.  For example, a developer could add a new error response to a
@@ -86,10 +86,10 @@ class TestOpenApiContractAlignment:
     def test_committed_openapi_specification_exists(self) -> None:
         """The openapi.yaml file must exist at the repository root."""
         assert _COMMITTED_OPENAPI_SPECIFICATION_PATH.exists(), (
-            f"The committed OpenAPI specification file was not found at "
-            f"{_COMMITTED_OPENAPI_SPECIFICATION_PATH}.  This file is "
-            f"required for API contract validation and must be checked "
-            f"into the repository."
+            f"The committed OpenAPI specification file was not found at"
+            f" {_COMMITTED_OPENAPI_SPECIFICATION_PATH}.  This file is"
+            " required for API contract validation and must be checked"
+            " into the repository."
         )
 
     def test_committed_openapi_specification_is_valid_yaml(self) -> None:
@@ -101,9 +101,9 @@ class TestOpenApiContractAlignment:
             parsed_content = yaml.safe_load(specification_file)
 
         assert isinstance(parsed_content, dict), (
-            "The committed openapi.yaml file does not contain a valid "
-            "OpenAPI specification.  Expected a YAML mapping (dictionary) "
-            "at the top level."
+            "The committed openapi.yaml file does not contain a valid"
+            " OpenAPI specification.  Expected a YAML mapping"
+            " (dictionary) at the top level."
         )
 
     def test_committed_specification_matches_generated_schema(self) -> None:
@@ -213,10 +213,11 @@ class TestOpenApiContractAlignment:
         second_call_schema = fastapi_application.openapi()
 
         assert first_call_schema is second_call_schema, (
-            "The second call to openapi() did not return the cached "
-            "schema object.  The customised_openapi() function should "
-            "cache the generated schema on fastapi_application.openapi_schema "
-            "and return it on subsequent calls without regenerating."
+            "The second call to openapi() did not return the cached"
+            " schema object.  The customised_openapi() function should"
+            " cache the generated schema on"
+            " fastapi_application.openapi_schema and return it on"
+            " subsequent calls without regenerating."
         )
 
     def test_generated_schema_excludes_unused_validation_error_components(
@@ -241,12 +242,12 @@ class TestOpenApiContractAlignment:
         )
 
         assert "HTTPValidationError" not in component_schemas, (
-            "The OpenAPI schema still contains the HTTPValidationError "
-            "component schema, which is unused after the removal of "
-            "phantom 422 responses."
+            "The OpenAPI schema still contains the"
+            " HTTPValidationError component schema, which is unused"
+            " after the removal of phantom 422 responses."
         )
         assert "ValidationError" not in component_schemas, (
-            "The OpenAPI schema still contains the ValidationError "
-            "component schema, which is unused after the removal of "
-            "phantom 422 responses."
+            "The OpenAPI schema still contains the ValidationError"
+            " component schema, which is unused after the removal of"
+            " phantom 422 responses."
         )

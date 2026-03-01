@@ -3,7 +3,7 @@ Centralised error-handling registration for the FastAPI application.
 
 Every exception type that can be raised within the service is mapped to
 a specific HTTP status code and a consistent JSON error response body.
-The mapping follows the v5.0.0 specification requirements:
+The mapping follows the v5.2.0 specification requirements:
 
     - Invalid JSON                        →  400 Bad Request
     - Request validation failure          →  400 Bad Request
@@ -23,7 +23,7 @@ default plain-text or HTML responses.
 
 Allow header on 405 responses
 -----------------------------
-Per RFC 9110 §15.5.6 and NFR22 of the v5.0.0 specification, every
+Per RFC 9110 §15.5.6 and NFR22 of the v5.2.0 specification, every
 HTTP 405 response must include an ``Allow`` header listing the methods
 supported by the requested endpoint.  Rather than maintaining a static
 dictionary that must be kept in sync with route registrations (audit
@@ -51,13 +51,14 @@ logger = structlog.get_logger()
 # ──────────────────────────────────────────────────────────────────────────────
 #
 # Maps Starlette/FastAPI framework-raised HTTP status codes to the
-# machine-readable error codes defined in the v5.0.0 specification
+# machine-readable error codes defined in the v5.2.0 specification
 # (Section 11 — Error Response Schema).  Any status code not listed
-# here falls back to "unexpected_error".
+# here falls back to "internal_server_error".
 
 _HTTP_STATUS_CODE_TO_ERROR_CODE: dict[int, str] = {
     404: "not_found",
     405: "method_not_allowed",
+    500: "internal_server_error",
 }
 
 _HTTP_STATUS_CODE_TO_ERROR_MESSAGE: dict[int, str] = {
@@ -66,8 +67,8 @@ _HTTP_STATUS_CODE_TO_ERROR_MESSAGE: dict[int, str] = {
 }
 
 # Maps Starlette/FastAPI framework-raised HTTP status codes to the
-# specification-defined structured logging event names.  The v5.0.0
-# specification's 31-event taxonomy (Section 18) requires distinct
+# specification-defined structured logging event names.  The v5.2.0
+# specification's 45-event taxonomy (Section 18) requires distinct
 # event names for each HTTP error condition — ``http_not_found`` for
 # 404 responses and ``http_method_not_allowed`` for 405 responses —
 # rather than a generic "http_framework_error" event.  This enables
@@ -150,7 +151,7 @@ def _build_error_response(
     code: str,
     message: str,
     correlation_id: str,
-    details: list | None = None,
+    details: str | list | None = None,
 ) -> fastapi.responses.JSONResponse:
     """
     Build a consistent JSON error response.
@@ -158,8 +159,11 @@ def _build_error_response(
     When ``details`` is ``None`` (the default for non-validation errors),
     the ``details`` field is omitted from the serialised JSON payload
     entirely, matching the specification's annotated examples which prefer
-    field omission over explicit ``null``.  When ``details`` is a list
-    (for ``request_validation_failed`` responses), it is included as a
+    field omission over explicit ``null``.  When ``details`` is a string
+    (for single-cause errors such as ``service_busy`` or
+    ``payload_too_large``), it is included as a descriptive string
+    providing operational context.  When ``details`` is a list (for
+    ``request_validation_failed`` responses), it is included as a
     structured array of validation error objects.
 
     Args:
@@ -169,21 +173,22 @@ def _build_error_response(
             to end users.
         correlation_id: The UUID v4 correlation identifier for this
             request.
-        details: Optional structured details (used for validation errors).
+        details: Optional structured details — a descriptive string for
+            single-cause errors or an array of validation error objects.
 
     Returns:
         A ``JSONResponse`` with the standard error response body.
     """
-    error_detail_keyword_arguments: dict = {
+    keyword_arguments_for_error_detail: dict = {
         "code": code,
         "message": message,
         "correlation_id": correlation_id,
     }
     if details is not None:
-        error_detail_keyword_arguments["details"] = details
+        keyword_arguments_for_error_detail["details"] = details
 
     error_response = application.models.ErrorResponse(
-        error=application.models.ErrorDetail(**error_detail_keyword_arguments),
+        error=application.models.ErrorDetail(**keyword_arguments_for_error_detail),
     )
 
     return fastapi.responses.JSONResponse(
@@ -233,11 +238,21 @@ def register_error_handlers(fastapi_application: fastapi.FastAPI) -> None:
         is_json_parse_error = any(error.get("type", "").startswith("json") for error in errors)
 
         if is_json_parse_error:
+            # Extract the parse error description from the first JSON
+            # error for the ``details`` field, as prescribed by the
+            # Registry of Error Codes ("String describing the parse
+            # error").  The Pydantic ``msg`` field contains a
+            # human-readable description of the syntax error.
+            description_of_error_from_json_parsing = next(
+                (error.get("msg", "") for error in errors if error.get("type", "").startswith("json")),
+                "Could not parse the request body as valid JSON.",
+            )
             return _build_error_response(
                 status_code=400,
                 code="invalid_request_json",
                 message="The request body contains invalid JSON.",
                 correlation_id=_get_correlation_id(request),
+                details=description_of_error_from_json_parsing,
             )
 
         # Build a sanitised, structured details array containing only the
@@ -246,10 +261,10 @@ def register_error_handlers(fastapi_application: fastapi.FastAPI) -> None:
         # never exposed in the message field — this prevents leaking
         # internal implementation details such as documentation URLs,
         # actual input values, and internal field paths (NFR14).
-        sanitised_validation_error_details = [
+        details_of_sanitised_validation_errors = [
             {
-                "loc": error.get("loc", []),
-                "msg": error.get("msg", ""),
+                "location": error.get("loc", []),
+                "message": error.get("msg", ""),
                 "type": error.get("type", ""),
             }
             for error in errors
@@ -260,23 +275,23 @@ def register_error_handlers(fastapi_application: fastapi.FastAPI) -> None:
             code="request_validation_failed",
             message="Request body failed schema validation.",
             correlation_id=_get_correlation_id(request),
-            details=sanitised_validation_error_details,
+            details=details_of_sanitised_validation_errors,
         )
 
     @fastapi_application.exception_handler(
-        application.exceptions.LanguageModelServiceUnavailableError,
+        application.exceptions.LargeLanguageModelServiceUnavailableError,
     )
-    async def handle_language_model_unavailable(
+    async def handle_large_language_model_unavailable(
         request: fastapi.Request,
-        unavailable_error: application.exceptions.LanguageModelServiceUnavailableError,
+        unavailable_error: application.exceptions.LargeLanguageModelServiceUnavailableError,
     ) -> fastapi.responses.JSONResponse:
         """
-        Return 502 Bad Gateway when the llama.cpp language model server
+        Return 502 Bad Gateway when the llama.cpp large language model server
         cannot be reached or returns a non-success status code.
         """
         logger.error(
             "upstream_service_error",
-            upstream="language_model",
+            upstream="large_language_model",
             detail=unavailable_error.detail,
         )
         return _build_error_response(
@@ -322,7 +337,7 @@ def register_error_handlers(fastapi_application: fastapi.FastAPI) -> None:
         """
         logger.error(
             "upstream_service_error",
-            upstream="language_model",
+            upstream="large_language_model",
             detail=enhancement_error.detail,
         )
         return _build_error_response(
@@ -366,13 +381,8 @@ def register_error_handlers(fastapi_application: fastapi.FastAPI) -> None:
         Return 429 Too Many Requests when the image generation admission
         control concurrency limit is fully occupied.
 
-        This is distinct from IP-based rate limiting: admission control
-        limits the total number of concurrent image generation operations
-        across all clients, whilst rate limiting restricts request
-        frequency from a single IP address.
-
         The ``Retry-After`` header is populated from the operator-
-        configured ``retry_after_busy_seconds`` value stored on
+        configured ``retry_after_busy_in_seconds`` value stored on
         ``app.state`` during application startup.
         """
         logger.warning(
@@ -380,15 +390,32 @@ def register_error_handlers(fastapi_application: fastapi.FastAPI) -> None:
             detail=busy_error.detail,
         )
 
-        retry_after_seconds = getattr(request.app.state, "retry_after_busy_seconds", 30)
+        retry_after_in_seconds = getattr(request.app.state, "retry_after_busy_in_seconds", 30)
+
+        instance_of_admission_controller_for_image_generation = getattr(
+            request.app.state,
+            "admission_controller_for_image_generation",
+            None,
+        )
+        if instance_of_admission_controller_for_image_generation is not None:
+            maximum_number_of_concurrent_operations = (
+                instance_of_admission_controller_for_image_generation.maximum_number_of_concurrent_operations
+            )
+            details_for_busy_response_body = (
+                f"Current concurrency limit: {maximum_number_of_concurrent_operations}."
+                " All inference slots are occupied."
+            )
+        else:
+            details_for_busy_response_body = "All inference slots are occupied."
 
         response = _build_error_response(
             429,
             "service_busy",
             busy_error.detail,
             _get_correlation_id(request),
+            details=details_for_busy_response_body,
         )
-        response.headers["Retry-After"] = str(retry_after_seconds)
+        response.headers["Retry-After"] = str(retry_after_in_seconds)
 
         return response
 
@@ -409,18 +436,18 @@ def register_error_handlers(fastapi_application: fastapi.FastAPI) -> None:
 
         The handler looks up the machine-readable error code from the
         ``_HTTP_STATUS_CODE_TO_ERROR_CODE`` mapping.  Unmapped status
-        codes fall back to ``"unexpected_error"`` to ensure every
+        codes fall back to ``"internal_server_error"`` to ensure every
         framework-originated error still produces valid JSON.
 
         For HTTP 405 (Method Not Allowed), the handler dynamically
         discovers the allowed methods for the requested path by
         introspecting the application's registered routes, and includes
         the result in an ``Allow`` header as required by RFC 9110 §15.5.6
-        and NFR22 of the v5.0.0 specification.
+        and NFR22 of the v5.2.0 specification.
         """
         error_code = _HTTP_STATUS_CODE_TO_ERROR_CODE.get(
             http_exception.status_code,
-            "unexpected_error",
+            "internal_server_error",
         )
         error_message = _HTTP_STATUS_CODE_TO_ERROR_MESSAGE.get(
             http_exception.status_code,
@@ -428,7 +455,7 @@ def register_error_handlers(fastapi_application: fastapi.FastAPI) -> None:
         )
 
         # Emit specification-aligned log events for 404 and 405 responses.
-        # The v5.0.0 specification's 31-event logging taxonomy defines
+        # The v5.2.0 specification's 45-event logging taxonomy defines
         # distinct event names for each HTTP error condition rather than
         # a generic "http_framework_error" event, enabling precise
         # monitoring dashboard filters and alert rules.
@@ -443,24 +470,41 @@ def register_error_handlers(fastapi_application: fastapi.FastAPI) -> None:
             detail=str(http_exception.detail),
         )
 
+        # Per the Registry of Error Codes, the ``not_found`` error
+        # response includes a ``details`` string indicating the requested
+        # path, and the ``method_not_allowed`` error response includes a
+        # ``details`` string listing the allowed HTTP methods.
+        #
+        # For 405 responses, the allowed methods are discovered by
+        # introspecting the application's registered routes (audit
+        # finding A-6), ensuring the value is always in sync with
+        # actual route registrations.  The same value is used for both
+        # the ``details`` field and the ``Allow`` header (RFC 9110
+        # §15.5.6, NFR22).
+        details_for_http_error: str | None = None
+        allowed_methods: str | None = None
+
+        if http_exception.status_code == 404:
+            details_for_http_error = request.url.path
+        elif http_exception.status_code == 405:
+            allowed_methods = _discover_allowed_methods_for_path(
+                fastapi_application=request.app,  # type: ignore[arg-type]
+                request_path=request.url.path,
+            )
+            details_for_http_error = f"Allowed methods: {allowed_methods}"
+
         response = _build_error_response(
             http_exception.status_code,
             error_code,
             error_message,
             _get_correlation_id(request),
+            details=details_for_http_error,
         )
 
         # Per RFC 9110 §15.5.6, HTTP 405 responses MUST include an
         # ``Allow`` header listing the methods supported by the target
-        # resource.  We dynamically discover the allowed methods by
-        # introspecting the application's registered routes (audit
-        # finding A-6), ensuring the header is always in sync with
-        # actual route registrations.
-        if http_exception.status_code == 405:
-            allowed_methods = _discover_allowed_methods_for_path(
-                fastapi_application=request.app,  # type: ignore[arg-type]
-                request_path=request.url.path,
-            )
+        # resource.
+        if allowed_methods is not None:
             response.headers["Allow"] = allowed_methods
 
         return response

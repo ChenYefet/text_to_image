@@ -1,7 +1,7 @@
 """
-Semaphore-based admission control for image generation requests.
+Concurrency-limiting admission control for image generation requests.
 
-This module implements NFR44 from the v5.0.0 specification: a configurable
+This module implements NFR44 from the v5.2.0 specification: a configurable
 concurrency limit that immediately rejects overflow requests with HTTP 429
 (``service_busy``) rather than queuing them.  Queued requests under load
 would accumulate timeout debt and waste compute on operations the client
@@ -9,23 +9,15 @@ has already abandoned.
 
 Architecture
 ------------
-The ``ImageGenerationAdmissionController`` maintains an atomic counter of
+The ``AdmissionControllerForImageGeneration`` maintains an atomic counter of
 currently active image generation operations, protected by a lightweight
 ``asyncio.Lock``.  The counter is incremented on entry and decremented
 on exit (including on exception), using an async context manager to
 guarantee correct cleanup.
 
-This mechanism is distinct from IP-based rate limiting (``slowapi``):
-
-- **Admission control** limits the *total* number of concurrent image
-  generation operations across *all* clients within a single service
-  instance.  It protects the GPU/CPU from overcommitment.
-
-- **Rate limiting** limits the *frequency* of requests from a *single*
-  client IP address.  It prevents any one client from monopolising the
-  service.
-
-Both mechanisms can be active simultaneously.
+Admission control limits the *total* number of concurrent image
+generation operations across *all* clients within a single service
+instance.  It protects the GPU/CPU from overcommitment.
 
 Usage in route handlers::
 
@@ -40,12 +32,12 @@ import contextlib
 import application.exceptions
 
 
-class ImageGenerationAdmissionController:
+class AdmissionControllerForImageGeneration:
     """
     Controls the maximum number of concurrent image generation operations
     permitted within a single service instance.
 
-    When the number of active operations reaches ``maximum_concurrency``,
+    When the number of active operations reaches ``maximum_number_of_concurrent_operations``,
     any further call to ``acquire_or_reject`` raises
     ``ServiceBusyError`` immediately — no queuing, no waiting.
 
@@ -55,18 +47,19 @@ class ImageGenerationAdmissionController:
     raises an exception.
     """
 
-    def __init__(self, maximum_concurrency: int = 1) -> None:
+    def __init__(self, maximum_number_of_concurrent_operations: int = 1) -> None:
         """
         Initialise the admission controller.
 
         Args:
-            maximum_concurrency: The maximum number of image generation
-                operations that may execute concurrently.  The v5.0.0
-                specification default is 1, which serialises inference
-                to prevent GPU memory contention on single-GPU hosts.
+            maximum_number_of_concurrent_operations: The maximum number of
+                image generation operations that may execute concurrently.
+                The v5.2.0 specification default is 1, which serialises
+                inference to prevent GPU memory contention on single-GPU
+                hosts.
         """
-        self._maximum_concurrency = maximum_concurrency
-        self._active_operation_count: int = 0
+        self._maximum_number_of_concurrent_operations = maximum_number_of_concurrent_operations
+        self._number_of_active_operations: int = 0
         self._counter_lock = asyncio.Lock()
 
     @contextlib.asynccontextmanager
@@ -82,9 +75,9 @@ class ImageGenerationAdmissionController:
         manager (whether normally or via exception), the active count
         is decremented.
 
-        If the maximum concurrency has already been reached, a
-        ``ServiceBusyError`` is raised immediately without incrementing
-        the counter.
+        If the maximum number of concurrent operations has already been
+        reached, a ``ServiceBusyError`` is raised immediately without
+        incrementing the counter.
 
         Yields:
             None — the context manager body executes the image
@@ -92,25 +85,25 @@ class ImageGenerationAdmissionController:
 
         Raises:
             application.exceptions.ServiceBusyError:
-                When the maximum concurrency limit has been reached.
+                When the maximum number of concurrent operations has been reached.
         """
         async with self._counter_lock:
-            if self._active_operation_count >= self._maximum_concurrency:
+            if self._number_of_active_operations >= self._maximum_number_of_concurrent_operations:
                 raise application.exceptions.ServiceBusyError()
-            self._active_operation_count += 1
+            self._number_of_active_operations += 1
 
         try:
             yield
         finally:
             async with self._counter_lock:
-                self._active_operation_count -= 1
+                self._number_of_active_operations -= 1
 
     @property
-    def active_operation_count(self) -> int:
+    def number_of_active_operations(self) -> int:
         """Return the current number of active image generation operations."""
-        return self._active_operation_count
+        return self._number_of_active_operations
 
     @property
-    def maximum_concurrency(self) -> int:
+    def maximum_number_of_concurrent_operations(self) -> int:
         """Return the configured maximum concurrency limit."""
-        return self._maximum_concurrency
+        return self._maximum_number_of_concurrent_operations

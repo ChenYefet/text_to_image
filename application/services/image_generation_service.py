@@ -61,13 +61,13 @@ logger = structlog.get_logger()
 # The baseline pixel count used as the denominator in the timeout scaling
 # formula.  A single 512×512 image represents 1.0× the base timeout.
 # Larger images scale proportionally (e.g. 1024×1024 = 4.0× base).
-_BASELINE_PIXEL_COUNT = 512 * 512
+_NUMBER_OF_PIXELS_IN_BASELINE = 512 * 512
 
-# On CPU hardware, inference is approximately 30× slower than on GPU.
+# On GPU, inference is approximately 30× faster than on CPU hardware.
 # This multiplier is applied to the computed timeout when the inference
 # device is not a CUDA GPU, ensuring that CPU-bound generation requests
 # receive a proportionally longer timeout window.
-_CPU_TIMEOUT_MULTIPLIER = 30
+_MULTIPLIER_FOR_TIMEOUT_ON_CPU = 30
 
 
 class ImageGenerationService:
@@ -80,10 +80,10 @@ class ImageGenerationService:
     the synchronous PyTorch forward pass.
 
     Concurrency control is handled externally by the
-    ``ImageGenerationAdmissionController`` (see ``admission_control.py``),
+    ``AdmissionControllerForImageGeneration`` (see ``admission_control.py``),
     which rejects overflow requests with HTTP 429 before they reach this
     service.  This service therefore does not maintain its own lock or
-    semaphore.
+    concurrency limiter.
 
     The inference timeout scales automatically with request complexity and
     device type::
@@ -93,7 +93,7 @@ class ImageGenerationService:
     so large or CPU-bound requests get proportionally more time.
     """
 
-    DEFAULT_INFERENCE_TIMEOUT_PER_UNIT_SECONDS = 60.0
+    DEFAULT_TIMEOUT_OF_INFERENCE_PER_BASELINE_UNIT_IN_SECONDS = 60.0
 
     def __init__(
         self,
@@ -101,7 +101,9 @@ class ImageGenerationService:
         device: torch.device,
         number_of_inference_steps: int = 20,
         guidance_scale: float = 7.0,
-        inference_timeout_per_unit_seconds: float = DEFAULT_INFERENCE_TIMEOUT_PER_UNIT_SECONDS,
+        inference_timeout_per_baseline_unit_in_seconds: float = (
+            DEFAULT_TIMEOUT_OF_INFERENCE_PER_BASELINE_UNIT_IN_SECONDS
+        ),
     ) -> None:
         """
         Initialise the image generation service.
@@ -121,15 +123,16 @@ class ImageGenerationService:
             guidance_scale: Classifier-free guidance scale.  Higher values
                 follow the prompt more closely; lower values are more
                 creative.
-            inference_timeout_per_unit_seconds: Base timeout (seconds) for
-                generating a single 512×512 image.  The actual timeout
-                scales with the number of images and pixel area.
+            inference_timeout_per_baseline_unit_in_seconds: Base timeout
+                (seconds) for generating a single 512×512 baseline unit
+                image.  The actual timeout scales with the number of images
+                and pixel area.
         """
         self._pipeline = pipeline
         self._device = device
         self._number_of_inference_steps = number_of_inference_steps
         self._guidance_scale = guidance_scale
-        self._inference_timeout_per_unit_seconds = inference_timeout_per_unit_seconds
+        self._inference_timeout_per_baseline_unit_in_seconds = inference_timeout_per_baseline_unit_in_seconds
 
         # Track whether the first inference has been completed, so we can
         # emit the ``first_warmup_of_inference_of_stable_diffusion`` log event
@@ -164,19 +167,17 @@ class ImageGenerationService:
         enable_safety_checker: bool = True,
         number_of_inference_steps: int = 20,
         guidance_scale: float = 7.0,
-        inference_timeout_per_unit_seconds: float = DEFAULT_INFERENCE_TIMEOUT_PER_UNIT_SECONDS,
+        inference_timeout_per_baseline_unit_in_seconds: float = (
+            DEFAULT_TIMEOUT_OF_INFERENCE_PER_BASELINE_UNIT_IN_SECONDS
+        ),
     ) -> "ImageGenerationService":
         """
         Download (or load from cache) a Stable Diffusion model and return
         a ready-to-use ``ImageGenerationService``.
 
         This class method handles the entire model loading lifecycle:
-        device resolution, dtype selection, model download, pipeline
+        device resolution, data type selection, model download, pipeline
         construction, and memory optimisation (attention slicing).
-
-        On successful loading, emits a ``model_validation_at_startup_passed``
-        log event at INFO level as required by the v5.0.0 specification
-        (Section 18, event B-5).
 
         Args:
             model_id: A HuggingFace model ID (e.g.
@@ -191,32 +192,34 @@ class ImageGenerationService:
                 checker.  Generated images will not be filtered.
             number_of_inference_steps: Number of denoising steps per image.
             guidance_scale: Classifier-free guidance scale.
-            inference_timeout_per_unit_seconds: Base timeout (seconds) for a
-                single 512×512 image.  Actual timeout scales with the number
-                of images and pixel area:
+            inference_timeout_per_baseline_unit_in_seconds: Base timeout
+                (seconds) for a single 512×512 baseline unit image.  Actual
+                timeout scales with the number of images and pixel area:
                 ``base × number_of_images × (w × h) / (512 × 512)``.
         """
         device = cls._resolve_device(device_preference)
-        dtype = torch.float16 if device.type == "cuda" else torch.float32
+        torch_data_type = torch.float16 if device.type == "cuda" else torch.float32
 
         logger.info(
             "stable_diffusion_pipeline_loading",
             model_id=model_id,
             model_revision=model_revision,
             device=str(device),
-            dtype=str(dtype),
+            torch_data_type=str(torch_data_type),
         )
 
-        pipeline_keyword_arguments: dict = {
-            "torch_dtype": dtype,
+        pipeline_loading_start_time = time.monotonic()
+
+        keyword_arguments_for_pipeline: dict = {
+            "torch_dtype": torch_data_type,
             "revision": model_revision,
         }
         if not enable_safety_checker:
-            pipeline_keyword_arguments["safety_checker"] = None
+            keyword_arguments_for_pipeline["safety_checker"] = None
 
         pipeline = diffusers.StableDiffusionPipeline.from_pretrained(
             model_id,
-            **pipeline_keyword_arguments,
+            **keyword_arguments_for_pipeline,
         )
         pipeline = pipeline.to(device)
 
@@ -226,16 +229,15 @@ class ImageGenerationService:
         # target deployment profile (single-GPU hosts with limited VRAM).
         pipeline.enable_attention_slicing()
 
-        logger.info("stable_diffusion_pipeline_loaded")
+        pipeline_loading_duration_in_milliseconds = round(
+            (time.monotonic() - pipeline_loading_start_time) * 1000,
+            1,
+        )
 
-        # Emit the specification-defined model_validation_at_startup_passed
-        # event (v5.0.0 Section 18, event B-5) to confirm that the model
-        # was loaded successfully and is ready for inference.
         logger.info(
-            "model_validation_at_startup_passed",
-            model_id=model_id,
-            model_revision=model_revision,
+            "stable_diffusion_pipeline_loaded",
             device=str(device),
+            duration_in_milliseconds=pipeline_loading_duration_in_milliseconds,
         )
 
         return cls(
@@ -243,7 +245,7 @@ class ImageGenerationService:
             device=device,
             number_of_inference_steps=number_of_inference_steps,
             guidance_scale=guidance_scale,
-            inference_timeout_per_unit_seconds=inference_timeout_per_unit_seconds,
+            inference_timeout_per_baseline_unit_in_seconds=inference_timeout_per_baseline_unit_in_seconds,
         )
 
     async def run_startup_warmup(self) -> None:
@@ -296,7 +298,7 @@ class ImageGenerationService:
             del warmup_result
             self._cleanup_after_inference()
 
-            warmup_duration_seconds = time.monotonic() - warmup_start_time
+            warmup_duration_in_seconds = time.monotonic() - warmup_start_time
 
             # Mark the first inference as completed so that the
             # ``generate_images`` method does not re-emit the
@@ -310,7 +312,7 @@ class ImageGenerationService:
             # event (specification Section 18, event B-4).
             logger.info(
                 "stable_diffusion_startup_warmup_completed",
-                warmup_latency_milliseconds=round(warmup_duration_seconds * 1000, 1),
+                warmup_latency_in_milliseconds=round(warmup_duration_in_seconds * 1000, 1),
             )
         except Exception as warmup_error:
             # The warmup is a best-effort optimisation.  If it fails, the
@@ -346,11 +348,13 @@ class ImageGenerationService:
         Returns:
             The computed timeout in seconds.
         """
-        pixel_scale = (image_width * image_height) / _BASELINE_PIXEL_COUNT
-        timeout = self._inference_timeout_per_unit_seconds * number_of_images * pixel_scale
+        ratio_of_pixel_area_to_baseline = (image_width * image_height) / _NUMBER_OF_PIXELS_IN_BASELINE
+        timeout_for_inference_in_seconds = (
+            self._inference_timeout_per_baseline_unit_in_seconds * number_of_images * ratio_of_pixel_area_to_baseline
+        )
         if self._device.type != "cuda":
-            timeout *= _CPU_TIMEOUT_MULTIPLIER
-        return timeout
+            timeout_for_inference_in_seconds *= _MULTIPLIER_FOR_TIMEOUT_ON_CPU
+        return timeout_for_inference_in_seconds
 
     async def generate_images(
         self,
@@ -402,13 +406,13 @@ class ImageGenerationService:
             seed=seed,
         )
 
-        timeout_seconds = self._compute_timeout(image_width, image_height, number_of_images)
+        timeout_in_seconds = self._compute_timeout(image_width, image_height, number_of_images)
 
         # Record the start time for first-inference warmup measurement.
         inference_start_time = time.monotonic()
 
         try:
-            result = await asyncio.wait_for(
+            output_from_inference = await asyncio.wait_for(
                 asyncio.to_thread(
                     self._run_inference,
                     prompt,
@@ -417,16 +421,16 @@ class ImageGenerationService:
                     number_of_images,
                     seed,
                 ),
-                timeout=timeout_seconds,
+                timeout=timeout_in_seconds,
             )
         except TimeoutError as timeout_error:
             self._cleanup_after_inference()
             logger.error(
                 "stable_diffusion_inference_timeout",
-                timeout_seconds=timeout_seconds,
+                timeout_in_seconds=timeout_in_seconds,
             )
             raise application.exceptions.ImageGenerationServiceUnavailableError(
-                detail=(f"Image generation timed out after {timeout_seconds}s."),
+                detail=(f"Image generation timed out after {timeout_in_seconds}s."),
             ) from timeout_error
         except RuntimeError as runtime_error:
             self._cleanup_after_inference()
@@ -438,7 +442,7 @@ class ImageGenerationService:
                 detail="Image generation failed during inference.",
             ) from runtime_error
 
-        inference_duration_seconds = time.monotonic() - inference_start_time
+        inference_duration_in_seconds = time.monotonic() - inference_start_time
 
         # Emit the first-inference warmup event if this is the first
         # inference call since model loading.  The warmup latency includes
@@ -447,20 +451,20 @@ class ImageGenerationService:
         # calls on the same hardware.
         #
         # The warmup latency is reported in milliseconds as required by the
-        # v5.0.0 specification (Section 18, event B-4).
+        # v5.2.0 specification (Section 18, event B-4).
         if not self._first_inference_completed:
             self._first_inference_completed = True
             logger.info(
                 "first_warmup_of_inference_of_stable_diffusion",
-                warmup_latency_milliseconds=round(inference_duration_seconds * 1000, 1),
+                warmup_latency_in_milliseconds=round(inference_duration_in_seconds * 1000, 1),
                 image_width=image_width,
                 image_height=image_height,
                 number_of_images=number_of_images,
             )
 
-        pipeline_output_images = result.images
+        output_images_from_pipeline = output_from_inference.images
 
-        if not pipeline_output_images:
+        if not output_images_from_pipeline:
             self._cleanup_after_inference()
             raise application.exceptions.ImageGenerationError(
                 detail="The Stable Diffusion pipeline returned no images.",
@@ -473,24 +477,26 @@ class ImageGenerationService:
         # when the safety checker is enabled.  Each entry corresponds to
         # an image in the batch: ``True`` means the image was flagged and
         # should be replaced with ``None`` in the response.
-        content_safety_flags: list[bool] = getattr(result, "nsfw_content_detected", None) or [False] * len(
-            pipeline_output_images
-        )
+        content_safety_flags: list[bool] = getattr(output_from_inference, "nsfw_content_detected", None) or [
+            False
+        ] * len(output_images_from_pipeline)
 
-        content_safety_flagged_indices: list[int] = [
+        indices_flagged_by_content_safety_checker: list[int] = [
             index for index, is_flagged in enumerate(content_safety_flags) if is_flagged
         ]
 
-        if content_safety_flagged_indices:
+        if indices_flagged_by_content_safety_checker:
             logger.warning(
                 "image_generation_safety_filtered",
-                flagged_indices=content_safety_flagged_indices,
-                total_images=len(pipeline_output_images),
+                flagged_indices=indices_flagged_by_content_safety_checker,
+                total_number_of_images=len(output_images_from_pipeline),
             )
 
         # Convert the flagged indices list to a frozenset for O(1)
         # membership testing in the per-image encoding loop below.
-        content_safety_flagged_indices_set: frozenset[int] = frozenset(content_safety_flagged_indices)
+        frozenset_of_indices_flagged_by_content_safety_checker: frozenset[int] = frozenset(
+            indices_flagged_by_content_safety_checker
+        )
 
         # ── Encode images to base64 PNG ───────────────────────────────────
         #
@@ -498,8 +504,8 @@ class ImageGenerationService:
         # using the standard alphabet (RFC 4648 §4).  Flagged images are
         # replaced with ``None`` to indicate content policy filtering.
         base64_encoded_images: list[str | None] = []
-        for index, individual_output_image in enumerate(pipeline_output_images):
-            if index in content_safety_flagged_indices_set:
+        for index, individual_output_image in enumerate(output_images_from_pipeline):
+            if index in frozenset_of_indices_flagged_by_content_safety_checker:
                 base64_encoded_images.append(None)
             else:
                 image_byte_buffer = io.BytesIO()
@@ -511,22 +517,22 @@ class ImageGenerationService:
         #
         # Delete references to PIL images and intermediate tensors, then
         # force garbage collection to prevent monotonic RSS growth.
-        del result
-        del pipeline_output_images
+        del output_from_inference
+        del output_images_from_pipeline
         self._cleanup_after_inference()
 
         logger.info(
             "image_generation_completed",
-            image_count=len(base64_encoded_images),
+            number_of_images=len(base64_encoded_images),
             image_width=image_width,
             image_height=image_height,
-            content_safety_filtered_count=len(content_safety_flagged_indices),
+            number_of_images_filtered_by_content_safety_checker=len(indices_flagged_by_content_safety_checker),
             number_of_bytes_of_resident_set_size_of_process=psutil.Process().memory_info().rss,
         )
 
         return ImageGenerationResult(
             base64_encoded_images=base64_encoded_images,
-            content_safety_flagged_indices=content_safety_flagged_indices,
+            indices_flagged_by_content_safety_checker=indices_flagged_by_content_safety_checker,
         )
 
     def _run_inference(
@@ -548,6 +554,14 @@ class ImageGenerationService:
         to enable reproducible image generation.  Seed 0 is a valid
         deterministic seed with no special semantics.
 
+        When ``number_of_images`` is greater than 1, the pipeline is called
+        once per image with ``num_images_per_prompt=1`` and a freshly seeded
+        generator each time.  This guarantees that all images in a batch
+        with a fixed seed are byte-for-byte identical, as required by the
+        specification (RO3 step 12).  Passing a single generator to
+        ``num_images_per_prompt=n`` would cause the generator state to
+        advance between images, producing distinct outputs.
+
         Args:
             prompt: The text prompt describing the desired image.
             image_width: Width of the generated image in pixels.
@@ -559,16 +573,28 @@ class ImageGenerationService:
             A ``StableDiffusionPipelineOutput`` containing the generated
             images and optional content safety detection flags.
         """
-        random_number_generator = torch.Generator(device="cpu").manual_seed(seed)
+        all_images: list = []
+        all_nsfw_flags: list[bool] = []
 
-        return self._pipeline(  # type: ignore[operator,no-any-return]
-            prompt=prompt,
-            width=image_width,
-            height=image_height,
-            num_images_per_prompt=number_of_images,
-            num_inference_steps=self._number_of_inference_steps,
-            guidance_scale=self._guidance_scale,
-            generator=random_number_generator,
+        for _ in range(number_of_images):
+            random_number_generator = torch.Generator(device="cpu").manual_seed(seed)
+
+            single_result = self._pipeline(  # type: ignore[operator]
+                prompt=prompt,
+                width=image_width,
+                height=image_height,
+                num_images_per_prompt=1,
+                num_inference_steps=self._number_of_inference_steps,
+                guidance_scale=self._guidance_scale,
+                generator=random_number_generator,
+            )
+            all_images.extend(single_result.images)  # type: ignore[union-attr]
+            nsfw_flags_for_single_result: list[bool] = getattr(single_result, "nsfw_content_detected", None) or [False]
+            all_nsfw_flags.extend(nsfw_flags_for_single_result)
+
+        return diffusers.pipelines.stable_diffusion.StableDiffusionPipelineOutput(  # type: ignore[no-any-return]
+            images=all_images,
+            nsfw_content_detected=all_nsfw_flags,
         )
 
     def _cleanup_after_inference(self) -> None:
@@ -603,7 +629,7 @@ class ImageGenerationService:
         Delete the pipeline and free GPU memory if applicable.
 
         This method must be called during application shutdown to release
-        the substantial memory (CPU RAM and/or GPU VRAM) occupied by the
+        the substantial memory (GPU VRAM and/or CPU RAM) occupied by the
         loaded model weights.
         """
         if not hasattr(self, "_pipeline"):
@@ -626,7 +652,7 @@ class ImageGenerationResult:
         base64_encoded_images: A list of base64-encoded PNG strings, one
             per requested image.  Entries are ``None`` for images that
             were filtered by the content safety checker.
-        content_safety_flagged_indices: A list of zero-based indices identifying
+        indices_flagged_by_content_safety_checker: A list of zero-based indices identifying
             which images in the batch were flagged by the content safety
             checker.  Empty when no images were flagged.
     """
@@ -634,7 +660,7 @@ class ImageGenerationResult:
     def __init__(
         self,
         base64_encoded_images: list[str | None],
-        content_safety_flagged_indices: list[int],
+        indices_flagged_by_content_safety_checker: list[int],
     ) -> None:
         self.base64_encoded_images = base64_encoded_images
-        self.content_safety_flagged_indices = content_safety_flagged_indices
+        self.indices_flagged_by_content_safety_checker = indices_flagged_by_content_safety_checker

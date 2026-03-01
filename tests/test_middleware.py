@@ -26,13 +26,13 @@ class TestInFlightRequestCounter:
     def test_initial_count_is_zero(self):
         """A freshly created counter must report zero in-flight requests."""
         counter = application.middleware.InFlightRequestCounter()
-        assert counter.count == 0
+        assert counter.number_of_in_flight_requests == 0
 
     def test_increment_increases_count(self):
         """Calling ``increment`` must increase the count by one."""
         counter = application.middleware.InFlightRequestCounter()
         counter.increment()
-        assert counter.count == 1
+        assert counter.number_of_in_flight_requests == 1
 
     def test_decrement_decreases_count(self):
         """Calling ``decrement`` after ``increment`` must restore the count."""
@@ -40,7 +40,7 @@ class TestInFlightRequestCounter:
         counter.increment()
         counter.increment()
         counter.decrement()
-        assert counter.count == 1
+        assert counter.number_of_in_flight_requests == 1
 
     def test_multiple_increments_and_decrements(self):
         """The counter must correctly track multiple concurrent requests."""
@@ -48,10 +48,10 @@ class TestInFlightRequestCounter:
         counter.increment()
         counter.increment()
         counter.increment()
-        assert counter.count == 3
+        assert counter.number_of_in_flight_requests == 3
         counter.decrement()
         counter.decrement()
-        assert counter.count == 1
+        assert counter.number_of_in_flight_requests == 1
 
     @pytest.mark.asyncio
     async def test_correlation_id_middleware_increments_and_decrements_counter(self):
@@ -66,7 +66,7 @@ class TestInFlightRequestCounter:
         async def inner_app(scope, receive, send):
             nonlocal counter_during_request
             # Record the counter value while the request is in flight.
-            counter_during_request = counter.count
+            counter_during_request = counter.number_of_in_flight_requests
 
             await send(
                 {
@@ -107,7 +107,7 @@ class TestInFlightRequestCounter:
         # During the request, the counter should have been 1.
         assert counter_during_request == 1
         # After the request completes, the counter should be back to 0.
-        assert counter.count == 0
+        assert counter.number_of_in_flight_requests == 0
 
     @pytest.mark.asyncio
     async def test_counter_decremented_even_on_unhandled_exception(self):
@@ -145,59 +145,59 @@ class TestInFlightRequestCounter:
         await middleware(scope, receive, send)
 
         # The counter must be back to 0 even though the request failed.
-        assert counter.count == 0
+        assert counter.number_of_in_flight_requests == 0
 
 
-def _create_test_app():
-    """Create a minimal FastAPI app with the correlation ID middleware."""
-    app = fastapi.FastAPI()
-    app.add_middleware(application.middleware.CorrelationIdMiddleware)
+def _create_test_application():
+    """Create a minimal FastAPI application with the correlation ID middleware."""
+    test_application = fastapi.FastAPI()
+    test_application.add_middleware(application.middleware.CorrelationIdMiddleware)
 
-    @app.get("/test")
+    @test_application.get("/test")
     async def test_endpoint(request: fastapi.Request):
         return {"correlation_id": request.state.correlation_id}
 
-    @app.get("/error")
+    @test_application.get("/error")
     async def error_endpoint():
         raise RuntimeError("something broke")
 
-    return app
+    return test_application
 
 
-def _create_timeout_test_app(request_timeout_seconds: float = 1.0):
+def _create_timeout_test_application(request_timeout_in_seconds: float = 1.0):
     """
-    Create a minimal FastAPI app with both the CorrelationIdMiddleware
+    Create a minimal FastAPI application with both the CorrelationIdMiddleware
     and the RequestTimeoutMiddleware for timeout testing.
 
     The CorrelationIdMiddleware is registered as the outermost middleware
     so that the timeout response includes a traceable correlation ID.
     """
-    app = fastapi.FastAPI()
+    test_application = fastapi.FastAPI()
 
-    @app.get("/fast")
+    @test_application.get("/fast")
     async def fast_endpoint():
         return {"status": "completed"}
 
-    @app.get("/slow")
+    @test_application.get("/slow")
     async def slow_endpoint():
         await asyncio.sleep(5.0)
         return {"status": "completed"}
 
     # Register in reverse order: last registered = outermost.
-    # Execution order: CorrelationId → RequestTimeout → App
-    app.add_middleware(
+    # Execution order: CorrelationId → RequestTimeout → Application
+    test_application.add_middleware(
         application.middleware.RequestTimeoutMiddleware,
-        request_timeout_seconds=request_timeout_seconds,
+        request_timeout_in_seconds=request_timeout_in_seconds,
     )
-    app.add_middleware(application.middleware.CorrelationIdMiddleware)
+    test_application.add_middleware(application.middleware.CorrelationIdMiddleware)
 
-    return app
+    return test_application
 
 
 @pytest_asyncio.fixture
 async def client():
-    app = _create_test_app()
-    transport = httpx.ASGITransport(app=app)
+    test_application = _create_test_application()
+    transport = httpx.ASGITransport(app=test_application)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as http_client:
         yield http_client
 
@@ -208,8 +208,8 @@ async def timeout_client():
     HTTP client connected to a test application with a very short
     request timeout (0.1 seconds) for deterministic timeout testing.
     """
-    app = _create_timeout_test_app(request_timeout_seconds=0.1)
-    transport = httpx.ASGITransport(app=app)
+    test_application = _create_timeout_test_application(request_timeout_in_seconds=0.1)
+    transport = httpx.ASGITransport(app=test_application)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as http_client:
         yield http_client
 
@@ -239,9 +239,9 @@ class TestCorrelationIdMiddleware:
     async def test_unique_per_request(self, client):
         response1 = await client.get("/test")
         response2 = await client.get("/test")
-        id1 = response1.headers["X-Correlation-ID"]
-        id2 = response2.headers["X-Correlation-ID"]
-        assert id1 != id2
+        correlation_id_from_first_response = response1.headers["X-Correlation-ID"]
+        correlation_id_from_second_response = response2.headers["X-Correlation-ID"]
+        assert correlation_id_from_first_response != correlation_id_from_second_response
 
     @pytest.mark.asyncio
     async def test_unhandled_exception_returns_json_500(self, client):
@@ -279,7 +279,7 @@ class TestCorrelationIdMiddleware:
         Content-Length values in the logging context.
 
         The middleware should process the request normally and include
-        ``request_payload_bytes=None`` in the ``http_request_received``
+        ``number_of_bytes_of_request_payload=None`` in the ``http_request_received``
         log event.
         """
 
@@ -431,7 +431,7 @@ class TestRequestTimeoutMiddleware:
 
         middleware = application.middleware.RequestTimeoutMiddleware(
             slow_inner_app_that_sends_headers_first,
-            request_timeout_seconds=0.05,
+            request_timeout_in_seconds=0.05,
         )
 
         scope = {
@@ -471,7 +471,7 @@ class TestRequestTimeoutMiddleware:
 
         middleware = application.middleware.RequestTimeoutMiddleware(
             inner_app,
-            request_timeout_seconds=1.0,
+            request_timeout_in_seconds=1.0,
         )
         await middleware({"type": "lifespan"}, None, None)
         assert inner_called
@@ -482,41 +482,41 @@ class TestRequestTimeoutMiddleware:
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-def _create_content_type_test_app():
+def _create_content_type_test_application():
     """
-    Create a minimal FastAPI app with both the CorrelationIdMiddleware
+    Create a minimal FastAPI application with both the CorrelationIdMiddleware
     (outermost) and the ContentTypeValidationMiddleware (inner) for
     Content-Type enforcement testing.
 
     Includes a POST endpoint that echoes the request body and a GET
     endpoint that returns a simple response.
     """
-    app = fastapi.FastAPI()
+    test_application = fastapi.FastAPI()
 
-    @app.post("/echo")
+    @test_application.post("/echo")
     async def echo_endpoint(request: fastapi.Request):
         body = await request.json()
         return {"received": body}
 
-    @app.get("/ping")
+    @test_application.get("/ping")
     async def ping_endpoint():
         return {"status": "ok"}
 
     # Register in reverse order: last registered = outermost.
-    # Execution order: CorrelationId → ContentType → App
-    app.add_middleware(
+    # Execution order: CorrelationId → ContentType → Application
+    test_application.add_middleware(
         application.middleware.ContentTypeValidationMiddleware,
     )
-    app.add_middleware(application.middleware.CorrelationIdMiddleware)
+    test_application.add_middleware(application.middleware.CorrelationIdMiddleware)
 
-    return app
+    return test_application
 
 
 @pytest_asyncio.fixture
 async def content_type_client():
-    """HTTP client connected to a test app with Content-Type validation."""
-    app = _create_content_type_test_app()
-    transport = httpx.ASGITransport(app=app)
+    """HTTP client connected to a test application with Content-Type validation."""
+    test_application = _create_content_type_test_application()
+    transport = httpx.ASGITransport(app=test_application)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as http_client:
         yield http_client
 
@@ -744,9 +744,9 @@ class TestContentTypeValidationMiddleware:
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-def _create_payload_size_test_app(maximum_request_payload_bytes: int = 100):
+def _create_payload_size_test_application(maximum_number_of_bytes_of_request_payload: int = 100):
     """
-    Create a minimal FastAPI app with both the CorrelationIdMiddleware
+    Create a minimal FastAPI application with both the CorrelationIdMiddleware
     (outermost) and the RequestPayloadSizeLimitMiddleware (inner) for
     payload size enforcement testing.
 
@@ -756,38 +756,38 @@ def _create_payload_size_test_app(maximum_request_payload_bytes: int = 100):
     Includes a POST endpoint that reads the request body and echoes its
     length, and a GET endpoint that returns a simple response.
     """
-    app = fastapi.FastAPI()
+    test_application = fastapi.FastAPI()
 
-    @app.post("/upload")
+    @test_application.post("/upload")
     async def upload_endpoint(request: fastapi.Request):
         body_bytes = await request.body()
         return {"received_bytes": len(body_bytes)}
 
-    @app.get("/ping")
+    @test_application.get("/ping")
     async def ping_endpoint():
         return {"status": "ok"}
 
     # Register in reverse order: last registered = outermost.
-    # Execution order: CorrelationId → PayloadSizeLimit → App
-    app.add_middleware(
+    # Execution order: CorrelationId → PayloadSizeLimit → Application
+    test_application.add_middleware(
         application.middleware.RequestPayloadSizeLimitMiddleware,
-        maximum_request_payload_bytes=maximum_request_payload_bytes,
+        maximum_number_of_bytes_of_request_payload=maximum_number_of_bytes_of_request_payload,
     )
-    app.add_middleware(application.middleware.CorrelationIdMiddleware)
+    test_application.add_middleware(application.middleware.CorrelationIdMiddleware)
 
-    return app
+    return test_application
 
 
 @pytest_asyncio.fixture
 async def payload_size_client():
     """
-    HTTP client connected to a test app with a 100-byte payload size limit.
+    HTTP client connected to a test application with a 100-byte payload size limit.
 
     The limit is deliberately small so that tests can trigger rejection
     with compact payloads.
     """
-    app = _create_payload_size_test_app(maximum_request_payload_bytes=100)
-    transport = httpx.ASGITransport(app=app)
+    test_application = _create_payload_size_test_application(maximum_number_of_bytes_of_request_payload=100)
+    transport = httpx.ASGITransport(app=test_application)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as http_client:
         yield http_client
 
@@ -938,7 +938,7 @@ class TestRequestPayloadSizeLimitMiddleware:
 
         middleware = application.middleware.RequestPayloadSizeLimitMiddleware(
             inner_app,
-            maximum_request_payload_bytes=100,
+            maximum_number_of_bytes_of_request_payload=100,
         )
         await middleware({"type": "lifespan"}, None, None)
         assert inner_called
@@ -1011,13 +1011,13 @@ class TestRequestPayloadSizeLimitStreamingGuard:
                 }
             )
 
-        call_count = 0
+        number_of_calls = 0
 
         async def receive() -> dict:
-            nonlocal call_count
-            if call_count < len(messages):
-                message = messages[call_count]
-                call_count += 1
+            nonlocal number_of_calls
+            if number_of_calls < len(messages):
+                message = messages[number_of_calls]
+                number_of_calls += 1
                 return message
             # After all chunks have been consumed, return a
             # disconnect event.
@@ -1059,7 +1059,7 @@ class TestRequestPayloadSizeLimitStreamingGuard:
 
         middleware = application.middleware.RequestPayloadSizeLimitMiddleware(
             inner_app,
-            maximum_request_payload_bytes=100,
+            maximum_number_of_bytes_of_request_payload=100,
         )
 
         scope = self._build_http_scope(content_length=None)
@@ -1108,7 +1108,7 @@ class TestRequestPayloadSizeLimitStreamingGuard:
 
         middleware = application.middleware.RequestPayloadSizeLimitMiddleware(
             inner_app,
-            maximum_request_payload_bytes=100,
+            maximum_number_of_bytes_of_request_payload=100,
         )
 
         # Send two chunks: 80 + 80 = 160 bytes total, exceeding the 100-byte limit.
@@ -1146,7 +1146,7 @@ class TestRequestPayloadSizeLimitStreamingGuard:
 
         middleware = application.middleware.RequestPayloadSizeLimitMiddleware(
             inner_app,
-            maximum_request_payload_bytes=50,
+            maximum_number_of_bytes_of_request_payload=50,
         )
 
         # Send a single chunk of 100 bytes, exceeding the 50-byte limit.
@@ -1187,7 +1187,7 @@ class TestRequestPayloadSizeLimitStreamingGuard:
 
         middleware = application.middleware.RequestPayloadSizeLimitMiddleware(
             inner_app,
-            maximum_request_payload_bytes=50,
+            maximum_number_of_bytes_of_request_payload=50,
         )
 
         scope = self._build_http_scope(content_length=None)
@@ -1222,7 +1222,7 @@ class TestRequestPayloadSizeLimitStreamingGuard:
 
         middleware = application.middleware.RequestPayloadSizeLimitMiddleware(
             inner_app,
-            maximum_request_payload_bytes=1000,
+            maximum_number_of_bytes_of_request_payload=1000,
         )
 
         scope = self._build_http_scope(content_length=None)
@@ -1270,7 +1270,7 @@ class TestRequestPayloadSizeLimitStreamingGuard:
 
         middleware = application.middleware.RequestPayloadSizeLimitMiddleware(
             inner_app,
-            maximum_request_payload_bytes=50,
+            maximum_number_of_bytes_of_request_payload=50,
         )
 
         # Send 100 bytes — exceeds the 50-byte limit.
@@ -1331,7 +1331,7 @@ class TestRequestPayloadSizeLimitStreamingGuard:
 
         middleware = application.middleware.RequestPayloadSizeLimitMiddleware(
             inner_app,
-            maximum_request_payload_bytes=100,
+            maximum_number_of_bytes_of_request_payload=100,
         )
 
         # Construct a scope with a malformed Content-Length header that

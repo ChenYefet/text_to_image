@@ -14,7 +14,6 @@ import copy
 import fastapi
 import fastapi.middleware.cors
 import fastapi.openapi.utils
-import slowapi.errors
 import structlog
 
 import application.admission_control
@@ -23,12 +22,11 @@ import application.error_handling
 import application.logging_config
 import application.metrics
 import application.middleware
-import application.rate_limiting
 import application.routes.health_routes
 import application.routes.image_generation_routes
 import application.routes.prompt_enhancement_routes
 import application.services.image_generation_service
-import application.services.language_model_service
+import application.services.large_language_model_service
 import configuration
 
 logger = structlog.get_logger()
@@ -61,27 +59,35 @@ def create_application() -> fastapi.FastAPI:
         """
         Manage the lifecycle of shared service instances.
 
-        On startup, create the language model HTTP client and load the
+        On startup, create the large language model HTTP client and load the
         Stable Diffusion pipeline in-process. On shutdown, close them
         to release resources.
         """
-        language_model_circuit_breaker = application.circuit_breaker.CircuitBreaker(
-            failure_threshold=(application_configuration.circuit_breaker_failure_threshold_for_language_model),
-            recovery_timeout_seconds=(
-                application_configuration.circuit_breaker_recovery_timeout_for_language_model_in_seconds
+        circuit_breaker_for_large_language_model = application.circuit_breaker.CircuitBreaker(
+            failure_threshold=(application_configuration.failure_threshold_of_circuit_breaker_for_large_language_model),
+            timeout_for_recovery_in_seconds=(
+                application_configuration.recovery_timeout_of_circuit_breaker_for_large_language_model_in_seconds
             ),
-            name="language_model",
+            name="large_language_model",
         )
 
-        language_model_service_instance = application.services.language_model_service.LanguageModelService(
-            language_model_server_base_url=(application_configuration.language_model_server_base_url),
-            request_timeout_seconds=(application_configuration.timeout_for_language_model_requests_in_seconds),
-            temperature=(application_configuration.language_model_temperature),
-            maximum_tokens=(application_configuration.language_model_maximum_tokens),
-            system_prompt=(application_configuration.language_model_system_prompt),
-            connection_pool_size=(application_configuration.language_model_connection_pool_size),
-            maximum_response_bytes=(application_configuration.language_model_maximum_response_bytes),
-            circuit_breaker=language_model_circuit_breaker,
+        instance_of_large_language_model_service = (
+            application.services.large_language_model_service.LargeLanguageModelService(
+                base_url_of_large_language_model_server=(
+                    application_configuration.base_url_of_large_language_model_server
+                ),
+                request_timeout_in_seconds=(
+                    application_configuration.timeout_for_requests_to_large_language_model_in_seconds
+                ),
+                temperature=(application_configuration.large_language_model_temperature),
+                maximum_tokens=(application_configuration.maximum_tokens_generated_by_large_language_model),
+                system_prompt=(application_configuration.system_prompt_for_large_language_model),
+                size_of_connection_pool=(application_configuration.size_of_connection_pool_for_large_language_model),
+                maximum_number_of_bytes_of_response_body=(
+                    application_configuration.maximum_number_of_bytes_of_response_body_from_large_language_model
+                ),
+                circuit_breaker=circuit_breaker_for_large_language_model,
+            )
         )
 
         # FR49 — Startup Model File Validation
@@ -102,27 +108,35 @@ def create_application() -> fastapi.FastAPI:
         # action (for example, restarting the pod or alerting operators)
         # without losing the ability to diagnose the failure via the
         # liveness probe and structured logs.
-        image_generation_service_instance = None
+        instance_of_image_generation_service = None
         try:
-            image_generation_service_instance = (
+            instance_of_image_generation_service = (
                 application.services.image_generation_service.ImageGenerationService.load_pipeline(
-                    model_id=(application_configuration.stable_diffusion_model_id),
-                    model_revision=(application_configuration.stable_diffusion_model_revision),
+                    model_id=(application_configuration.id_of_stable_diffusion_model),
+                    model_revision=(application_configuration.revision_of_stable_diffusion_model),
                     device_preference=(application_configuration.stable_diffusion_device),
-                    enable_safety_checker=(application_configuration.stable_diffusion_safety_checker),
-                    number_of_inference_steps=(application_configuration.stable_diffusion_inference_steps),
-                    guidance_scale=(application_configuration.stable_diffusion_guidance_scale),
-                    inference_timeout_per_unit_seconds=(
-                        application_configuration.stable_diffusion_inference_timeout_per_unit_seconds
+                    enable_safety_checker=(application_configuration.safety_checker_for_stable_diffusion),
+                    number_of_inference_steps=(application_configuration.number_of_inference_steps_of_stable_diffusion),
+                    guidance_scale=(application_configuration.guidance_scale_of_stable_diffusion),
+                    inference_timeout_per_baseline_unit_in_seconds=(
+                        application_configuration.inference_timeout_by_stable_diffusion_per_baseline_unit_in_seconds
                     ),
                 )
             )
         except Exception as model_loading_error:
             logger.critical(
                 "model_validation_at_startup_failed",
-                model_id=application_configuration.stable_diffusion_model_id,
-                model_revision=application_configuration.stable_diffusion_model_revision,
+                model_id=application_configuration.id_of_stable_diffusion_model,
+                model_revision=application_configuration.revision_of_stable_diffusion_model,
                 error=str(model_loading_error),
+            )
+
+        if instance_of_image_generation_service is not None:
+            logger.info(
+                "model_validation_at_startup_passed",
+                model_id=application_configuration.id_of_stable_diffusion_model,
+                model_revision=application_configuration.revision_of_stable_diffusion_model,
+                device=str(instance_of_image_generation_service._device),
             )
 
         # ── Startup warmup (SA-3) ────────────────────────────────────
@@ -132,39 +146,42 @@ def create_application() -> fastapi.FastAPI:
         # sequence rather than on the first real user request.  This
         # is a best-effort optimisation: if the warmup fails, the
         # first user request absorbs the warmup cost instead.
-        if image_generation_service_instance is not None:
-            await image_generation_service_instance.run_startup_warmup()
+        if instance_of_image_generation_service is not None:
+            await instance_of_image_generation_service.run_startup_warmup()
 
-        image_generation_admission_controller_instance = (
-            application.admission_control.ImageGenerationAdmissionController(
-                maximum_concurrency=(application_configuration.image_generation_maximum_concurrency),
+        instance_of_admission_controller_for_image_generation = (
+            application.admission_control.AdmissionControllerForImageGeneration(
+                maximum_number_of_concurrent_operations=(
+                    application_configuration.maximum_number_of_concurrent_operations_of_image_generation
+                ),
             )
         )
 
-        fastapi_application.state.language_model_service = language_model_service_instance
-        fastapi_application.state.image_generation_service = image_generation_service_instance
-        fastapi_application.state.image_generation_admission_controller = image_generation_admission_controller_instance
-        fastapi_application.state.metrics_collector = metrics_collector
-        fastapi_application.state.retry_after_busy_seconds = application_configuration.retry_after_busy_seconds
-        fastapi_application.state.retry_after_rate_limit_seconds = (
-            application_configuration.retry_after_rate_limit_seconds
+        fastapi_application.state.large_language_model_service = instance_of_large_language_model_service
+        fastapi_application.state.image_generation_service = instance_of_image_generation_service
+        fastapi_application.state.admission_controller_for_image_generation = (
+            instance_of_admission_controller_for_image_generation
         )
-        fastapi_application.state.retry_after_not_ready_seconds = (
-            application_configuration.retry_after_not_ready_seconds
+        fastapi_application.state.metrics_collector = metrics_collector
+        fastapi_application.state.retry_after_busy_in_seconds = application_configuration.retry_after_busy_in_seconds
+        fastapi_application.state.retry_after_not_ready_in_seconds = (
+            application_configuration.retry_after_not_ready_in_seconds
         )
 
         logger.info(
             "services_initialised",
-            language_model_server=application_configuration.language_model_server_base_url,
-            stable_diffusion_model=application_configuration.stable_diffusion_model_id,
-            image_generation_maximum_concurrency=(application_configuration.image_generation_maximum_concurrency),
+            large_language_model_server=application_configuration.base_url_of_large_language_model_server,
+            stable_diffusion_model=application_configuration.id_of_stable_diffusion_model,
+            maximum_number_of_concurrent_operations_of_image_generation=(
+                application_configuration.maximum_number_of_concurrent_operations_of_image_generation
+            ),
         )
 
         yield
 
         # ── Graceful shutdown sequence (FR40) ─────────────────────────────
         #
-        # The v5.0.0 specification requires a ``graceful_shutdown_initiated``
+        # The v5.2.0 specification requires a ``graceful_shutdown_initiated``
         # log event at INFO level when the service begins its shutdown
         # sequence.  This event must include the number of HTTP requests
         # still in progress at the moment of shutdown initiation, allowing
@@ -179,20 +196,21 @@ def create_application() -> fastapi.FastAPI:
         # or releasing model pipelines) have taken place.
         logger.info(
             "graceful_shutdown_initiated",
-            in_flight_requests=in_flight_request_counter.count,
+            in_flight_requests=in_flight_request_counter.number_of_in_flight_requests,
         )
 
-        await language_model_service_instance.close()
-        if image_generation_service_instance is not None:
-            await image_generation_service_instance.close()
+        await instance_of_large_language_model_service.close()
+        if instance_of_image_generation_service is not None:
+            await instance_of_image_generation_service.close()
         logger.info("services_shutdown_complete")
 
     fastapi_application = fastapi.FastAPI(
         title="Text-to-Image with Prompt Assist",
         description=(
-            "A production-grade REST API service that generates images from "
-            "text prompts using Stable Diffusion, with optional prompt "
-            "enhancement powered by a llama.cpp language model."
+            "A production-grade REST API service that generates images"
+            " from text prompts using Stable Diffusion, with optional"
+            " prompt enhancement powered by a llama.cpp large language"
+            " model."
         ),
         version="1.0.0",
         lifespan=application_lifespan,
@@ -200,21 +218,13 @@ def create_application() -> fastapi.FastAPI:
 
     application.error_handling.register_error_handlers(fastapi_application)
 
-    application.rate_limiting.inference_rate_limit_configuration.configure(
-        application_configuration.rate_limit,
-    )
-    fastapi_application.state.limiter = application.rate_limiting.rate_limiter
-    fastapi_application.add_exception_handler(
-        slowapi.errors.RateLimitExceeded,
-        application.rate_limiting.rate_limit_exceeded_handler,  # type: ignore[arg-type]
-    )
-
     if application_configuration.cors_allowed_origins:
         fastapi_application.add_middleware(
             fastapi.middleware.cors.CORSMiddleware,
             allow_origins=application_configuration.cors_allowed_origins,
             allow_methods=["GET", "POST"],
             allow_headers=["Content-Type", "Accept"],
+            expose_headers=["X-Correlation-ID"],
         )
 
     # ── Middleware registration ───────────────────────────────────────
@@ -237,7 +247,9 @@ def create_application() -> fastapi.FastAPI:
 
     fastapi_application.add_middleware(
         application.middleware.RequestPayloadSizeLimitMiddleware,
-        maximum_request_payload_bytes=(application_configuration.maximum_request_payload_bytes),
+        maximum_number_of_bytes_of_request_payload=(
+            application_configuration.maximum_number_of_bytes_of_request_payload
+        ),
     )
 
     fastapi_application.add_middleware(
@@ -246,7 +258,7 @@ def create_application() -> fastapi.FastAPI:
 
     fastapi_application.add_middleware(
         application.middleware.RequestTimeoutMiddleware,
-        request_timeout_seconds=(application_configuration.timeout_for_requests_in_seconds),
+        request_timeout_in_seconds=(application_configuration.timeout_for_requests_in_seconds),
     )
 
     fastapi_application.add_middleware(
@@ -310,7 +322,7 @@ def _customise_openapi_schema(fastapi_application: fastapi.FastAPI) -> None:
     # (404, 405, 500).  These errors are handled at the framework and
     # middleware level and apply to every endpoint, but FastAPI does not
     # add them automatically because they are not declared per-route.
-    _error_response_schema_reference = {
+    _reference_to_error_response_schema = {
         "content": {
             "application/json": {
                 "schema": {
@@ -358,24 +370,24 @@ def _customise_openapi_schema(fastapi_application: fastapi.FastAPI) -> None:
         # accurately documents all possible error responses.
         global_error_responses = {
             "404": {
-                **copy.deepcopy(_error_response_schema_reference),
+                **copy.deepcopy(_reference_to_error_response_schema),
                 "description": ("Not Found — the requested endpoint does not exist (``not_found``)."),
             },
             "405": {
-                **copy.deepcopy(_error_response_schema_reference),
+                **copy.deepcopy(_reference_to_error_response_schema),
                 "description": (
-                    "Method Not Allowed — the HTTP method is not "
-                    "supported for this endpoint "
-                    "(``method_not_allowed``). The ``Allow`` header "
-                    "lists permitted methods."
+                    "Method Not Allowed — the HTTP method is not"
+                    " supported for this endpoint"
+                    " (``method_not_allowed``). The ``Allow`` header"
+                    " lists permitted methods."
                 ),
             },
             "500": {
-                **copy.deepcopy(_error_response_schema_reference),
+                **copy.deepcopy(_reference_to_error_response_schema),
                 "description": (
-                    "Internal Server Error — an unexpected error "
-                    "occurred during request processing "
-                    "(``internal_server_error``)."
+                    "Internal Server Error — an unexpected error"
+                    " occurred during request processing"
+                    " (``internal_server_error``)."
                 ),
             },
         }

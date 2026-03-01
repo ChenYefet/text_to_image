@@ -4,7 +4,7 @@ Tests for the in-memory request metrics collector (application/metrics.py).
 Validates that the MetricsCollector correctly:
 
 - Returns ISO 8601 UTC timestamps for ``collected_at`` and
-  ``service_started_at`` as required by the v5.0.0 specification (FR38).
+  ``service_started_at`` as required by the v5.2.0 specification (FR38).
 - Records request counts grouped by method, path, and status code.
 - Computes latency statistics (count, minimum, maximum, average, and
   95th percentile) from accumulated observations.
@@ -18,7 +18,7 @@ import re
 import application.metrics
 
 # A regular expression pattern that matches ISO 8601 UTC timestamps with
-# microsecond precision and the 'Z' suffix, as required by the v5.0.0
+# microsecond precision and the 'Z' suffix, as required by the v5.2.0
 # specification (FR38, Section 11).
 #
 # Example match: "2026-02-23T14:32:10.123456Z"
@@ -37,8 +37,9 @@ class TestMetricsCollectorTimestamps:
 
         assert isinstance(snapshot["collected_at"], str)
         assert _ISO_8601_UTC_TIMESTAMP_PATTERN.match(snapshot["collected_at"]), (
-            f"collected_at value '{snapshot['collected_at']}' does not match "
-            f"the expected ISO 8601 UTC format (YYYY-MM-DDTHH:MM:SS.ffffffZ)"
+            f"collected_at value '{snapshot['collected_at']}' does not"
+            " match the expected ISO 8601 UTC format"
+            " (YYYY-MM-DDTHH:MM:SS.ffffffZ)"
         )
 
     def test_service_started_at_is_iso_8601_utc_string(self):
@@ -50,8 +51,8 @@ class TestMetricsCollectorTimestamps:
 
         assert isinstance(snapshot["service_started_at"], str)
         assert _ISO_8601_UTC_TIMESTAMP_PATTERN.match(snapshot["service_started_at"]), (
-            f"service_started_at value '{snapshot['service_started_at']}' does "
-            f"not match the expected ISO 8601 UTC format"
+            f"service_started_at value '{snapshot['service_started_at']}'"
+            " does not match the expected ISO 8601 UTC format"
         )
 
     def test_collected_at_reflects_current_time(self):
@@ -152,10 +153,10 @@ class TestMetricsCollectorLatencyStatistics:
         snapshot = collector.snapshot()
         latency_statistics = snapshot["request_latencies"]["GET /health"]
 
-        assert latency_statistics["count"] == 3
-        assert latency_statistics["minimum_milliseconds"] == 5.0
-        assert latency_statistics["maximum_milliseconds"] == 15.0
-        assert latency_statistics["average_milliseconds"] == 10.0
+        assert latency_statistics["number_of_observations"] == 3
+        assert latency_statistics["minimum_latency_in_milliseconds"] == 5.0
+        assert latency_statistics["maximum_latency_in_milliseconds"] == 15.0
+        assert latency_statistics["average_latency_in_milliseconds"] == 10.0
 
     def test_single_observation_produces_identical_statistics(self):
         """When only one observation exists, all statistical measures
@@ -167,14 +168,14 @@ class TestMetricsCollectorLatencyStatistics:
         snapshot = collector.snapshot()
         latency_statistics = snapshot["request_latencies"]["POST /v1/images/generations"]
 
-        assert latency_statistics["count"] == 1
-        assert latency_statistics["minimum_milliseconds"] == 42.5
-        assert latency_statistics["maximum_milliseconds"] == 42.5
-        assert latency_statistics["ninety_fifth_percentile_milliseconds"] == 42.5
+        assert latency_statistics["number_of_observations"] == 1
+        assert latency_statistics["minimum_latency_in_milliseconds"] == 42.5
+        assert latency_statistics["maximum_latency_in_milliseconds"] == 42.5
+        assert latency_statistics["ninety_fifth_percentile_latency_in_milliseconds"] == 42.5
 
     def test_latency_aggregates_across_status_codes(self):
         """Latency statistics must aggregate across all status codes for
-        the same method and path combination, as prescribed by the v5.0.0
+        the same method and path combination, as prescribed by the v5.2.0
         specification."""
         collector = application.metrics.MetricsCollector()
         collector.record_request("POST", "/v1/prompts/enhance", 200, 100.0)
@@ -183,10 +184,10 @@ class TestMetricsCollectorLatencyStatistics:
         snapshot = collector.snapshot()
         latency_statistics = snapshot["request_latencies"]["POST /v1/prompts/enhance"]
 
-        assert latency_statistics["count"] == 2
-        assert latency_statistics["minimum_milliseconds"] == 50.0
-        assert latency_statistics["maximum_milliseconds"] == 100.0
-        assert latency_statistics["average_milliseconds"] == 75.0
+        assert latency_statistics["number_of_observations"] == 2
+        assert latency_statistics["minimum_latency_in_milliseconds"] == 50.0
+        assert latency_statistics["maximum_latency_in_milliseconds"] == 100.0
+        assert latency_statistics["average_latency_in_milliseconds"] == 75.0
 
 
 class TestMetricsCollectorBoundedRetention:
@@ -203,9 +204,9 @@ class TestMetricsCollectorBoundedRetention:
         """When the number of observations exceeds the configured maximum,
         the oldest observations must be evicted so that only the most
         recent observations are retained."""
-        maximum_observations = 5
+        maximum_number_of_observations = 5
         collector = application.metrics.MetricsCollector(
-            maximum_observations_per_endpoint=maximum_observations,
+            maximum_number_of_observations_per_endpoint=maximum_number_of_observations,
         )
 
         # Record more observations than the maximum allows.  Observations
@@ -219,17 +220,17 @@ class TestMetricsCollectorBoundedRetention:
 
         # The oldest 3 observations (1.0, 2.0, 3.0) should have been
         # evicted, leaving observations 4.0, 5.0, 6.0, 7.0, 8.0.
-        assert latency_statistics["count"] == maximum_observations
-        assert latency_statistics["minimum_milliseconds"] == 4.0
-        assert latency_statistics["maximum_milliseconds"] == 8.0
+        assert latency_statistics["number_of_observations"] == maximum_number_of_observations
+        assert latency_statistics["minimum_latency_in_milliseconds"] == 4.0
+        assert latency_statistics["maximum_latency_in_milliseconds"] == 8.0
 
     def test_request_counts_are_not_bounded(self):
         """Request counts must accumulate without eviction, even when
         the latency observation limit is reached.  Counts are simple
         integer counters and do not consume significant memory."""
-        maximum_observations = 3
+        maximum_number_of_observations = 3
         collector = application.metrics.MetricsCollector(
-            maximum_observations_per_endpoint=maximum_observations,
+            maximum_number_of_observations_per_endpoint=maximum_number_of_observations,
         )
 
         for _ in range(10):
@@ -241,18 +242,18 @@ class TestMetricsCollectorBoundedRetention:
         # latency observations are retained.
         assert snapshot["request_counts"]["GET /health 200"] == 10
 
-    def test_default_maximum_observations_matches_specification(self):
+    def test_default_maximum_number_of_observations_matches_specification(self):
         """The default maximum observation count must be 10,000, matching
-        the v5.0.0 specification's expected evaluation scope."""
-        assert application.metrics.DEFAULT_MAXIMUM_OBSERVATIONS_PER_ENDPOINT == 10_000
+        the v5.2.0 specification's expected evaluation scope."""
+        assert application.metrics.DEFAULT_MAXIMUM_NUMBER_OF_OBSERVATIONS_PER_ENDPOINT == 10_000
 
     def test_separate_endpoints_have_independent_observation_limits(self):
         """Each endpoint must have its own independent observation limit.
         Reaching the limit on one endpoint must not affect observations
         recorded for other endpoints."""
-        maximum_observations = 3
+        maximum_number_of_observations = 3
         collector = application.metrics.MetricsCollector(
-            maximum_observations_per_endpoint=maximum_observations,
+            maximum_number_of_observations_per_endpoint=maximum_number_of_observations,
         )
 
         # Fill up the /health endpoint's observation window.
@@ -265,7 +266,7 @@ class TestMetricsCollectorBoundedRetention:
         snapshot = collector.snapshot()
 
         # /health should have its oldest observations evicted.
-        assert snapshot["request_latencies"]["GET /health"]["count"] == 3
+        assert snapshot["request_latencies"]["GET /health"]["number_of_observations"] == 3
 
         # /v1/prompts/enhance should be unaffected.
-        assert snapshot["request_latencies"]["POST /v1/prompts/enhance"]["count"] == 1
+        assert snapshot["request_latencies"]["POST /v1/prompts/enhance"]["number_of_observations"] == 1

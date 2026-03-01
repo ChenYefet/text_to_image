@@ -28,7 +28,7 @@ class TestCircuitBreakerClosedState:
         """A newly created circuit breaker starts in the CLOSED state."""
         breaker = application.circuit_breaker.CircuitBreaker(
             failure_threshold=5,
-            recovery_timeout_seconds=30.0,
+            timeout_for_recovery_in_seconds=30.0,
             name="test",
         )
 
@@ -39,7 +39,7 @@ class TestCircuitBreakerClosedState:
         """A newly created circuit breaker has zero consecutive failures."""
         breaker = application.circuit_breaker.CircuitBreaker()
 
-        assert breaker.consecutive_failure_count == 0
+        assert breaker.number_of_consecutive_failures == 0
 
     @pytest.mark.asyncio
     async def test_closed_circuit_allows_requests(self) -> None:
@@ -51,17 +51,17 @@ class TestCircuitBreakerClosedState:
 
     @pytest.mark.asyncio
     async def test_success_resets_failure_count(self) -> None:
-        """A successful call resets the consecutive failure counter to zero."""
+        """A successful call resets the counter of consecutive failures to zero."""
         breaker = application.circuit_breaker.CircuitBreaker(failure_threshold=5)
 
         await breaker.record_failure()
         await breaker.record_failure()
 
-        assert breaker.consecutive_failure_count == 2
+        assert breaker.number_of_consecutive_failures == 2
 
         await breaker.record_success()
 
-        assert breaker.consecutive_failure_count == 0
+        assert breaker.number_of_consecutive_failures == 0
 
     @pytest.mark.asyncio
     async def test_failures_below_threshold_keep_circuit_closed(self) -> None:
@@ -72,7 +72,7 @@ class TestCircuitBreakerClosedState:
         await breaker.record_failure()
 
         assert breaker.state == application.circuit_breaker.CircuitState.CLOSED
-        assert breaker.consecutive_failure_count == 2
+        assert breaker.number_of_consecutive_failures == 2
 
 
 class TestCircuitBreakerOpening:
@@ -103,7 +103,7 @@ class TestCircuitBreakerOpening:
         """When the circuit is OPEN, ensure_circuit_is_not_open raises CircuitOpenError."""
         breaker = application.circuit_breaker.CircuitBreaker(
             failure_threshold=1,
-            recovery_timeout_seconds=60.0,
+            timeout_for_recovery_in_seconds=60.0,
             name="test_circuit",
         )
 
@@ -116,11 +116,11 @@ class TestCircuitBreakerOpening:
             await breaker.ensure_circuit_is_not_open()
 
     @pytest.mark.asyncio
-    async def test_circuit_open_error_includes_remaining_seconds(self) -> None:
+    async def test_circuit_open_error_includes_remaining_number_of_seconds_until_recovery(self) -> None:
         """The CircuitOpenError includes the approximate remaining recovery time."""
         breaker = application.circuit_breaker.CircuitBreaker(
             failure_threshold=1,
-            recovery_timeout_seconds=60.0,
+            timeout_for_recovery_in_seconds=60.0,
             name="test_circuit",
         )
 
@@ -129,7 +129,7 @@ class TestCircuitBreakerOpening:
         with pytest.raises(application.circuit_breaker.CircuitOpenError) as exception_context:
             await breaker.ensure_circuit_is_not_open()
 
-        assert exception_context.value.remaining_seconds_until_recovery > 0
+        assert exception_context.value.remaining_number_of_seconds_until_recovery > 0
         assert exception_context.value.circuit_name == "test_circuit"
 
 
@@ -141,7 +141,7 @@ class TestCircuitBreakerRecovery:
         """After the recovery timeout elapses, the circuit transitions to HALF_OPEN."""
         breaker = application.circuit_breaker.CircuitBreaker(
             failure_threshold=1,
-            recovery_timeout_seconds=0.1,
+            timeout_for_recovery_in_seconds=0.1,
         )
 
         await breaker.record_failure()
@@ -162,7 +162,7 @@ class TestCircuitBreakerRecovery:
         """A successful probe in HALF_OPEN state transitions the circuit to CLOSED."""
         breaker = application.circuit_breaker.CircuitBreaker(
             failure_threshold=1,
-            recovery_timeout_seconds=0.1,
+            timeout_for_recovery_in_seconds=0.1,
         )
 
         await breaker.record_failure()
@@ -174,14 +174,14 @@ class TestCircuitBreakerRecovery:
         await breaker.record_success()
 
         assert breaker.state == application.circuit_breaker.CircuitState.CLOSED
-        assert breaker.consecutive_failure_count == 0
+        assert breaker.number_of_consecutive_failures == 0
 
     @pytest.mark.asyncio
     async def test_failed_probe_reopens_circuit(self) -> None:
         """A failed probe in HALF_OPEN state transitions the circuit back to OPEN."""
         breaker = application.circuit_breaker.CircuitBreaker(
             failure_threshold=1,
-            recovery_timeout_seconds=0.1,
+            timeout_for_recovery_in_seconds=0.1,
         )
 
         await breaker.record_failure()
@@ -195,23 +195,27 @@ class TestCircuitBreakerRecovery:
         assert breaker.state == application.circuit_breaker.CircuitState.OPEN
 
     @pytest.mark.asyncio
-    async def test_half_open_allows_concurrent_probes(self) -> None:
-        """In HALF_OPEN state, multiple calls to ensure_circuit_is_not_open all pass through."""
+    async def test_half_open_rejects_concurrent_probes(self) -> None:
+        """In HALF_OPEN state, only a single probe request is permitted.
+        Subsequent calls to ensure_circuit_is_not_open are rejected with
+        CircuitOpenError while the first probe is in progress."""
         breaker = application.circuit_breaker.CircuitBreaker(
             failure_threshold=1,
-            recovery_timeout_seconds=0.1,
+            timeout_for_recovery_in_seconds=0.1,
         )
 
         await breaker.record_failure()
         await asyncio.sleep(0.15)
 
-        # First call transitions to HALF_OPEN.
+        # First call transitions to HALF_OPEN and is the single probe.
         await breaker.ensure_circuit_is_not_open()
 
         assert breaker.state == application.circuit_breaker.CircuitState.HALF_OPEN
 
-        # Second call in HALF_OPEN should also pass through.
-        await breaker.ensure_circuit_is_not_open()
+        # Second call in HALF_OPEN must be rejected because a probe is
+        # already in progress (single-probe behaviour per spec).
+        with pytest.raises(application.circuit_breaker.CircuitOpenError):
+            await breaker.ensure_circuit_is_not_open()
 
     @pytest.mark.asyncio
     async def test_full_recovery_cycle(self) -> None:
@@ -223,7 +227,7 @@ class TestCircuitBreakerRecovery:
         """
         breaker = application.circuit_breaker.CircuitBreaker(
             failure_threshold=2,
-            recovery_timeout_seconds=0.1,
+            timeout_for_recovery_in_seconds=0.1,
         )
 
         # Phase 1: Accumulate failures to open the circuit.
@@ -244,7 +248,7 @@ class TestCircuitBreakerRecovery:
         await breaker.record_success()
 
         assert breaker.state == application.circuit_breaker.CircuitState.CLOSED
-        assert breaker.consecutive_failure_count == 0
+        assert breaker.number_of_consecutive_failures == 0
 
         # Phase 5: Verify the circuit operates normally after recovery.
         await breaker.ensure_circuit_is_not_open()
@@ -280,7 +284,7 @@ class TestCircuitBreakerLogging:
         """When the circuit transitions to HALF_OPEN, an info event is logged."""
         breaker = application.circuit_breaker.CircuitBreaker(
             failure_threshold=1,
-            recovery_timeout_seconds=0.1,
+            timeout_for_recovery_in_seconds=0.1,
             name="test_logging",
         )
 
@@ -299,7 +303,7 @@ class TestCircuitBreakerLogging:
         """When a successful probe closes the circuit, an info event is logged."""
         breaker = application.circuit_breaker.CircuitBreaker(
             failure_threshold=1,
-            recovery_timeout_seconds=0.1,
+            timeout_for_recovery_in_seconds=0.1,
             name="test_logging",
         )
 
@@ -320,7 +324,7 @@ class TestCircuitBreakerLogging:
         """When a failed probe reopens the circuit, a warning event is logged."""
         breaker = application.circuit_breaker.CircuitBreaker(
             failure_threshold=1,
-            recovery_timeout_seconds=0.1,
+            timeout_for_recovery_in_seconds=0.1,
             name="test_logging",
         )
 
@@ -342,7 +346,7 @@ class TestCircuitBreakerTimingEdgeCases:
         """A request sent just before the recovery timeout expires is still rejected."""
         breaker = application.circuit_breaker.CircuitBreaker(
             failure_threshold=1,
-            recovery_timeout_seconds=10.0,
+            timeout_for_recovery_in_seconds=10.0,
         )
 
         await breaker.record_failure()
@@ -359,14 +363,14 @@ class TestCircuitBreakerTimingEdgeCases:
         await breaker.record_success()
 
         assert breaker.state == application.circuit_breaker.CircuitState.CLOSED
-        assert breaker.consecutive_failure_count == 0
+        assert breaker.number_of_consecutive_failures == 0
 
     @pytest.mark.asyncio
     async def test_additional_failures_in_open_state_do_not_change_state(self) -> None:
         """Recording additional failures while the circuit is OPEN keeps it OPEN."""
         breaker = application.circuit_breaker.CircuitBreaker(
             failure_threshold=1,
-            recovery_timeout_seconds=60.0,
+            timeout_for_recovery_in_seconds=60.0,
         )
 
         await breaker.record_failure()
@@ -377,7 +381,7 @@ class TestCircuitBreakerTimingEdgeCases:
         await breaker.record_failure()
 
         assert breaker.state == application.circuit_breaker.CircuitState.OPEN
-        assert breaker.consecutive_failure_count == 3
+        assert breaker.number_of_consecutive_failures == 3
 
 
 class TestCircuitOpenError:
@@ -386,18 +390,18 @@ class TestCircuitOpenError:
     def test_error_message_includes_circuit_name(self) -> None:
         """The error message includes the circuit breaker's name."""
         error = application.circuit_breaker.CircuitOpenError(
-            circuit_name="language_model",
-            remaining_seconds_until_recovery=15.5,
+            circuit_name="large_language_model",
+            remaining_number_of_seconds_until_recovery=15.5,
         )
 
-        assert "language_model" in str(error)
+        assert "large_language_model" in str(error)
 
     def test_error_attributes_are_accessible(self) -> None:
-        """The circuit_name and remaining_seconds attributes are accessible."""
+        """The circuit_name and remaining_number_of_seconds_until_recovery attributes are accessible."""
         error = application.circuit_breaker.CircuitOpenError(
             circuit_name="test_circuit",
-            remaining_seconds_until_recovery=42.0,
+            remaining_number_of_seconds_until_recovery=42.0,
         )
 
         assert error.circuit_name == "test_circuit"
-        assert error.remaining_seconds_until_recovery == 42.0
+        assert error.remaining_number_of_seconds_until_recovery == 42.0

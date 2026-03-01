@@ -13,28 +13,28 @@ ALL_CONFIGURATION_ENVIRONMENT_VARIABLE_NAMES: list[str] = [
     "TEXT_TO_IMAGE_APPLICATION_PORT",
     "TEXT_TO_IMAGE_CORS_ALLOWED_ORIGINS",
     "TEXT_TO_IMAGE_LOG_LEVEL",
-    "TEXT_TO_IMAGE_RATE_LIMIT",
-    "TEXT_TO_IMAGE_LANGUAGE_MODEL_PATH",
-    "TEXT_TO_IMAGE_LANGUAGE_MODEL_SERVER_BASE_URL",
-    "TEXT_TO_IMAGE_TIMEOUT_FOR_LANGUAGE_MODEL_REQUESTS_IN_SECONDS",
-    "TEXT_TO_IMAGE_LANGUAGE_MODEL_TEMPERATURE",
-    "TEXT_TO_IMAGE_LANGUAGE_MODEL_MAXIMUM_TOKENS",
-    "TEXT_TO_IMAGE_LANGUAGE_MODEL_SYSTEM_PROMPT",
-    "TEXT_TO_IMAGE_LANGUAGE_MODEL_CONNECTION_POOL_SIZE",
-    "TEXT_TO_IMAGE_LANGUAGE_MODEL_MAXIMUM_RESPONSE_BYTES",
-    "TEXT_TO_IMAGE_STABLE_DIFFUSION_MODEL_ID",
-    "TEXT_TO_IMAGE_STABLE_DIFFUSION_MODEL_REVISION",
+    "TEXT_TO_IMAGE_LARGE_LANGUAGE_MODEL_PATH",
+    "TEXT_TO_IMAGE_BASE_URL_OF_LARGE_LANGUAGE_MODEL_SERVER",
+    "TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_TO_LARGE_LANGUAGE_MODEL_IN_SECONDS",
+    "TEXT_TO_IMAGE_LARGE_LANGUAGE_MODEL_TEMPERATURE",
+    "TEXT_TO_IMAGE_MAXIMUM_TOKENS_GENERATED_BY_LARGE_LANGUAGE_MODEL",
+    "TEXT_TO_IMAGE_SYSTEM_PROMPT_FOR_LARGE_LANGUAGE_MODEL",
+    "TEXT_TO_IMAGE_SIZE_OF_CONNECTION_POOL_FOR_LARGE_LANGUAGE_MODEL",
+    "TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_BYTES_OF_RESPONSE_BODY_FROM_LARGE_LANGUAGE_MODEL",
+    "TEXT_TO_IMAGE_ID_OF_STABLE_DIFFUSION_MODEL",
+    "TEXT_TO_IMAGE_REVISION_OF_STABLE_DIFFUSION_MODEL",
     "TEXT_TO_IMAGE_STABLE_DIFFUSION_DEVICE",
-    "TEXT_TO_IMAGE_STABLE_DIFFUSION_INFERENCE_STEPS",
-    "TEXT_TO_IMAGE_STABLE_DIFFUSION_GUIDANCE_SCALE",
-    "TEXT_TO_IMAGE_STABLE_DIFFUSION_SAFETY_CHECKER",
-    "TEXT_TO_IMAGE_STABLE_DIFFUSION_INFERENCE_TIMEOUT_PER_UNIT_SECONDS",
-    "TEXT_TO_IMAGE_IMAGE_GENERATION_MAXIMUM_CONCURRENCY",
-    "TEXT_TO_IMAGE_RETRY_AFTER_BUSY_SECONDS",
-    "TEXT_TO_IMAGE_RETRY_AFTER_RATE_LIMIT_SECONDS",
-    "TEXT_TO_IMAGE_RETRY_AFTER_NOT_READY_SECONDS",
-    "TEXT_TO_IMAGE_MAXIMUM_REQUEST_PAYLOAD_BYTES",
+    "TEXT_TO_IMAGE_NUMBER_OF_INFERENCE_STEPS_OF_STABLE_DIFFUSION",
+    "TEXT_TO_IMAGE_GUIDANCE_SCALE_OF_STABLE_DIFFUSION",
+    "TEXT_TO_IMAGE_SAFETY_CHECKER_FOR_STABLE_DIFFUSION",
+    "TEXT_TO_IMAGE_INFERENCE_TIMEOUT_BY_STABLE_DIFFUSION_PER_BASELINE_UNIT_IN_SECONDS",
+    "TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION",
+    "TEXT_TO_IMAGE_RETRY_AFTER_BUSY_IN_SECONDS",
+    "TEXT_TO_IMAGE_RETRY_AFTER_NOT_READY_IN_SECONDS",
+    "TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_BYTES_OF_REQUEST_PAYLOAD",
     "TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS",
+    "TEXT_TO_IMAGE_FAILURE_THRESHOLD_OF_CIRCUIT_BREAKER_FOR_LARGE_LANGUAGE_MODEL",
+    "TEXT_TO_IMAGE_RECOVERY_TIMEOUT_OF_CIRCUIT_BREAKER_FOR_LARGE_LANGUAGE_MODEL_IN_SECONDS",
 ]
 
 
@@ -56,33 +56,35 @@ class TestApplicationConfigurationDefaults:
         assert application_configuration.application_port == 8000
         assert application_configuration.cors_allowed_origins == []
         assert application_configuration.log_level == "INFO"
-        assert application_configuration.rate_limit == "10/minute"
 
         # ── Language model settings ──
-        assert application_configuration.language_model_path == ""
-        assert application_configuration.language_model_server_base_url == "http://localhost:8080"
-        assert application_configuration.timeout_for_language_model_requests_in_seconds == 120.0
-        assert application_configuration.language_model_temperature == 0.7
-        assert application_configuration.language_model_maximum_tokens == 512
-        assert "enhancing text-to-image prompts" in application_configuration.language_model_system_prompt
-        assert application_configuration.language_model_connection_pool_size == 10
-        assert application_configuration.language_model_maximum_response_bytes == 1_048_576
+        assert application_configuration.large_language_model_path == ""
+        assert application_configuration.base_url_of_large_language_model_server == "http://localhost:8080"
+        assert application_configuration.timeout_for_requests_to_large_language_model_in_seconds == 120.0
+        assert application_configuration.large_language_model_temperature == 0.7
+        assert application_configuration.maximum_tokens_generated_by_large_language_model == 512
+        assert "enhancing text-to-image prompts" in application_configuration.system_prompt_for_large_language_model
+        assert application_configuration.size_of_connection_pool_for_large_language_model == 10
+        assert application_configuration.maximum_number_of_bytes_of_response_body_from_large_language_model == 1_048_576
 
         # ── Stable Diffusion settings ──
-        assert application_configuration.stable_diffusion_model_id == "stable-diffusion-v1-5/stable-diffusion-v1-5"
-        assert application_configuration.stable_diffusion_model_revision == "main"
+        assert application_configuration.id_of_stable_diffusion_model == "stable-diffusion-v1-5/stable-diffusion-v1-5"
+        assert application_configuration.revision_of_stable_diffusion_model == "main"
         assert application_configuration.stable_diffusion_device == "auto"
-        assert application_configuration.stable_diffusion_inference_steps == 20
-        assert application_configuration.stable_diffusion_guidance_scale == 7.0
-        assert application_configuration.stable_diffusion_safety_checker is True
-        assert application_configuration.stable_diffusion_inference_timeout_per_unit_seconds == 60.0
+        assert application_configuration.number_of_inference_steps_of_stable_diffusion == 20
+        assert application_configuration.guidance_scale_of_stable_diffusion == 7.0
+        assert application_configuration.safety_checker_for_stable_diffusion is True
+        assert application_configuration.inference_timeout_by_stable_diffusion_per_baseline_unit_in_seconds == 60.0
+
+        # ── Circuit breaker settings ──
+        assert application_configuration.failure_threshold_of_circuit_breaker_for_large_language_model == 5
+        assert application_configuration.recovery_timeout_of_circuit_breaker_for_large_language_model_in_seconds == 30.0
 
         # ── Admission control and resilience settings ──
-        assert application_configuration.image_generation_maximum_concurrency == 1
-        assert application_configuration.retry_after_busy_seconds == 30
-        assert application_configuration.retry_after_rate_limit_seconds == 60
-        assert application_configuration.retry_after_not_ready_seconds == 10
-        assert application_configuration.maximum_request_payload_bytes == 1_048_576
+        assert application_configuration.maximum_number_of_concurrent_operations_of_image_generation == 1
+        assert application_configuration.retry_after_busy_in_seconds == 30
+        assert application_configuration.retry_after_not_ready_in_seconds == 10
+        assert application_configuration.maximum_number_of_bytes_of_request_payload == 1_048_576
         assert application_configuration.timeout_for_requests_in_seconds == 300.0
 
 
@@ -102,67 +104,80 @@ class TestApplicationConfigurationOverrides:
 
     def test_system_prompt_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
         custom_prompt = "You are a helpful assistant that improves prompts."
-        monkeypatch.setenv("TEXT_TO_IMAGE_LANGUAGE_MODEL_SYSTEM_PROMPT", custom_prompt)
+        monkeypatch.setenv("TEXT_TO_IMAGE_SYSTEM_PROMPT_FOR_LARGE_LANGUAGE_MODEL", custom_prompt)
         application_configuration = configuration.ApplicationConfiguration()
-        assert application_configuration.language_model_system_prompt == custom_prompt
+        assert application_configuration.system_prompt_for_large_language_model == custom_prompt
 
-    def test_connection_pool_size_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("TEXT_TO_IMAGE_LANGUAGE_MODEL_CONNECTION_POOL_SIZE", "25")
+    def test_size_of_connection_pool_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("TEXT_TO_IMAGE_SIZE_OF_CONNECTION_POOL_FOR_LARGE_LANGUAGE_MODEL", "25")
         application_configuration = configuration.ApplicationConfiguration()
-        assert application_configuration.language_model_connection_pool_size == 25
+        assert application_configuration.size_of_connection_pool_for_large_language_model == 25
 
-    def test_maximum_response_bytes_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("TEXT_TO_IMAGE_LANGUAGE_MODEL_MAXIMUM_RESPONSE_BYTES", "2097152")
+    def test_maximum_number_of_bytes_of_response_body_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv(
+            "TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_BYTES_OF_RESPONSE_BODY_FROM_LARGE_LANGUAGE_MODEL",
+            "2097152",
+        )
         application_configuration = configuration.ApplicationConfiguration()
-        assert application_configuration.language_model_maximum_response_bytes == 2_097_152
+        assert application_configuration.maximum_number_of_bytes_of_response_body_from_large_language_model == 2_097_152
 
-    def test_language_model_path_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """TEXT_TO_IMAGE_LANGUAGE_MODEL_PATH is reference-only but must be
+    def test_path_override_for_large_language_model(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """TEXT_TO_IMAGE_LARGE_LANGUAGE_MODEL_PATH is reference-only but must be
         accepted as a configuration variable for deployment visibility."""
         monkeypatch.setenv(
-            "TEXT_TO_IMAGE_LANGUAGE_MODEL_PATH",
+            "TEXT_TO_IMAGE_LARGE_LANGUAGE_MODEL_PATH",
             "/models/Meta-Llama-3-8B-Instruct.Q4_K_M.gguf",
         )
         application_configuration = configuration.ApplicationConfiguration()
-        assert application_configuration.language_model_path == "/models/Meta-Llama-3-8B-Instruct.Q4_K_M.gguf"
+        assert application_configuration.large_language_model_path == "/models/Meta-Llama-3-8B-Instruct.Q4_K_M.gguf"
 
     def test_model_revision_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv(
-            "TEXT_TO_IMAGE_STABLE_DIFFUSION_MODEL_REVISION",
+            "TEXT_TO_IMAGE_REVISION_OF_STABLE_DIFFUSION_MODEL",
             "39593d5650112b4cc580433f6b0435385882d819",
         )
         application_configuration = configuration.ApplicationConfiguration()
-        assert application_configuration.stable_diffusion_model_revision == "39593d5650112b4cc580433f6b0435385882d819"
+        assert (
+            application_configuration.revision_of_stable_diffusion_model == "39593d5650112b4cc580433f6b0435385882d819"
+        )
 
-    def test_maximum_concurrency_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("TEXT_TO_IMAGE_IMAGE_GENERATION_MAXIMUM_CONCURRENCY", "3")
+    def test_maximum_number_of_concurrent_operations_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION", "3")
         application_configuration = configuration.ApplicationConfiguration()
-        assert application_configuration.image_generation_maximum_concurrency == 3
+        assert application_configuration.maximum_number_of_concurrent_operations_of_image_generation == 3
 
-    def test_retry_after_busy_seconds_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("TEXT_TO_IMAGE_RETRY_AFTER_BUSY_SECONDS", "60")
+    def test_retry_after_busy_in_seconds_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("TEXT_TO_IMAGE_RETRY_AFTER_BUSY_IN_SECONDS", "60")
         application_configuration = configuration.ApplicationConfiguration()
-        assert application_configuration.retry_after_busy_seconds == 60
+        assert application_configuration.retry_after_busy_in_seconds == 60
 
-    def test_retry_after_rate_limit_seconds_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("TEXT_TO_IMAGE_RETRY_AFTER_RATE_LIMIT_SECONDS", "90")
+    def test_retry_after_not_ready_in_seconds_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("TEXT_TO_IMAGE_RETRY_AFTER_NOT_READY_IN_SECONDS", "20")
         application_configuration = configuration.ApplicationConfiguration()
-        assert application_configuration.retry_after_rate_limit_seconds == 90
+        assert application_configuration.retry_after_not_ready_in_seconds == 20
 
-    def test_retry_after_not_ready_seconds_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("TEXT_TO_IMAGE_RETRY_AFTER_NOT_READY_SECONDS", "20")
+    def test_maximum_number_of_bytes_of_request_payload_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_BYTES_OF_REQUEST_PAYLOAD", "5242880")
         application_configuration = configuration.ApplicationConfiguration()
-        assert application_configuration.retry_after_not_ready_seconds == 20
-
-    def test_maximum_request_payload_bytes_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("TEXT_TO_IMAGE_MAXIMUM_REQUEST_PAYLOAD_BYTES", "5242880")
-        application_configuration = configuration.ApplicationConfiguration()
-        assert application_configuration.maximum_request_payload_bytes == 5_242_880
+        assert application_configuration.maximum_number_of_bytes_of_request_payload == 5_242_880
 
     def test_request_timeout_seconds_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS", "600")
         application_configuration = configuration.ApplicationConfiguration()
         assert application_configuration.timeout_for_requests_in_seconds == 600.0
+
+    def test_circuit_breaker_failure_threshold_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("TEXT_TO_IMAGE_FAILURE_THRESHOLD_OF_CIRCUIT_BREAKER_FOR_LARGE_LANGUAGE_MODEL", "10")
+        application_configuration = configuration.ApplicationConfiguration()
+        assert application_configuration.failure_threshold_of_circuit_breaker_for_large_language_model == 10
+
+    def test_circuit_breaker_recovery_timeout_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv(
+            "TEXT_TO_IMAGE_RECOVERY_TIMEOUT_OF_CIRCUIT_BREAKER_FOR_LARGE_LANGUAGE_MODEL_IN_SECONDS",
+            "60",
+        )
+        application_configuration = configuration.ApplicationConfiguration()
+        assert application_configuration.recovery_timeout_of_circuit_breaker_for_large_language_model_in_seconds == 60.0
 
 
 class TestConfigurationEnvironmentVariables:
@@ -170,54 +185,56 @@ class TestConfigurationEnvironmentVariables:
     Verify that environment variable names set the correct configuration values.
 
     These tests confirm that the canonical environment variable names defined
-    in Section 17 of the v5.0.0 specification are accepted and mapped to the
+    in Section 17 of the v5.2.0 specification are accepted and mapped to the
     correct Python fields.
     """
 
-    def test_language_model_path_env_var_accepted(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """TEXT_TO_IMAGE_LANGUAGE_MODEL_PATH is accepted and mapped to the
-        language_model_path field (reference-only variable for deployment
-        tooling visibility, §17 of the v5.0.0 specification)."""
+    def test_environment_variable_for_large_language_model_path_is_accepted(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """TEXT_TO_IMAGE_LARGE_LANGUAGE_MODEL_PATH is accepted and mapped to the
+        large_language_model_path field (reference-only variable for deployment
+        tooling visibility, §17 of the v5.2.0 specification)."""
         _clear_all_configuration_environment_variables(monkeypatch)
         monkeypatch.setenv(
-            "TEXT_TO_IMAGE_LANGUAGE_MODEL_PATH",
+            "TEXT_TO_IMAGE_LARGE_LANGUAGE_MODEL_PATH",
             "/opt/models/llama-3-8b.gguf",
         )
         application_configuration = configuration.ApplicationConfiguration()
-        assert application_configuration.language_model_path == "/opt/models/llama-3-8b.gguf"
+        assert application_configuration.large_language_model_path == "/opt/models/llama-3-8b.gguf"
 
     def test_maximum_tokens_env_var_accepted(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """TEXT_TO_IMAGE_LANGUAGE_MODEL_MAXIMUM_TOKENS overrides the default."""
+        """TEXT_TO_IMAGE_MAXIMUM_TOKENS_GENERATED_BY_LARGE_LANGUAGE_MODEL overrides the default."""
         _clear_all_configuration_environment_variables(monkeypatch)
-        monkeypatch.setenv("TEXT_TO_IMAGE_LANGUAGE_MODEL_MAXIMUM_TOKENS", "1024")
+        monkeypatch.setenv("TEXT_TO_IMAGE_MAXIMUM_TOKENS_GENERATED_BY_LARGE_LANGUAGE_MODEL", "1024")
         application_configuration = configuration.ApplicationConfiguration()
-        assert application_configuration.language_model_maximum_tokens == 1024
+        assert application_configuration.maximum_tokens_generated_by_large_language_model == 1024
 
-    def test_maximum_response_bytes_env_var_accepted(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """TEXT_TO_IMAGE_LANGUAGE_MODEL_MAXIMUM_RESPONSE_BYTES overrides the default."""
+    def test_maximum_number_of_bytes_of_response_body_env_var_accepted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_BYTES_OF_RESPONSE_BODY_FROM_LARGE_LANGUAGE_MODEL overrides the default."""
         _clear_all_configuration_environment_variables(monkeypatch)
-        monkeypatch.setenv("TEXT_TO_IMAGE_LANGUAGE_MODEL_MAXIMUM_RESPONSE_BYTES", "524288")
+        monkeypatch.setenv("TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_BYTES_OF_RESPONSE_BODY_FROM_LARGE_LANGUAGE_MODEL", "524288")
         application_configuration = configuration.ApplicationConfiguration()
-        assert application_configuration.language_model_maximum_response_bytes == 524_288
+        assert application_configuration.maximum_number_of_bytes_of_response_body_from_large_language_model == 524_288
 
-    def test_maximum_concurrency_env_var_accepted(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """TEXT_TO_IMAGE_IMAGE_GENERATION_MAXIMUM_CONCURRENCY overrides the default."""
+    def test_maximum_number_of_concurrent_operations_env_var_accepted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION overrides the default."""
         _clear_all_configuration_environment_variables(monkeypatch)
-        monkeypatch.setenv("TEXT_TO_IMAGE_IMAGE_GENERATION_MAXIMUM_CONCURRENCY", "2")
+        monkeypatch.setenv("TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION", "2")
         application_configuration = configuration.ApplicationConfiguration()
-        assert application_configuration.image_generation_maximum_concurrency == 2
+        assert application_configuration.maximum_number_of_concurrent_operations_of_image_generation == 2
 
     def test_maximum_tokens_validation_applied(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Validation constraints are enforced for MAXIMUM_TOKENS."""
         _clear_all_configuration_environment_variables(monkeypatch)
-        monkeypatch.setenv("TEXT_TO_IMAGE_LANGUAGE_MODEL_MAXIMUM_TOKENS", "0")
+        monkeypatch.setenv("TEXT_TO_IMAGE_MAXIMUM_TOKENS_GENERATED_BY_LARGE_LANGUAGE_MODEL", "0")
         with pytest.raises(pydantic.ValidationError):
             configuration.ApplicationConfiguration()
 
-    def test_maximum_concurrency_validation_applied(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Validation constraints are enforced for MAXIMUM_CONCURRENCY."""
+    def test_maximum_number_of_concurrent_operations_validation_applied(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Validation constraints are enforced for MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION."""
         _clear_all_configuration_environment_variables(monkeypatch)
-        monkeypatch.setenv("TEXT_TO_IMAGE_IMAGE_GENERATION_MAXIMUM_CONCURRENCY", "0")
+        monkeypatch.setenv("TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION", "0")
         with pytest.raises(pydantic.ValidationError):
             configuration.ApplicationConfiguration()
 
@@ -236,84 +253,79 @@ class TestConfigurationValidation:
             configuration.ApplicationConfiguration()
 
     def test_negative_timeout_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("TEXT_TO_IMAGE_TIMEOUT_FOR_LANGUAGE_MODEL_REQUESTS_IN_SECONDS", "-1")
+        monkeypatch.setenv("TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_TO_LARGE_LANGUAGE_MODEL_IN_SECONDS", "-1")
         with pytest.raises(pydantic.ValidationError):
             configuration.ApplicationConfiguration()
 
     def test_zero_timeout_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("TEXT_TO_IMAGE_TIMEOUT_FOR_LANGUAGE_MODEL_REQUESTS_IN_SECONDS", "0")
+        monkeypatch.setenv("TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_TO_LARGE_LANGUAGE_MODEL_IN_SECONDS", "0")
         with pytest.raises(pydantic.ValidationError):
             configuration.ApplicationConfiguration()
 
     def test_temperature_above_maximum_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("TEXT_TO_IMAGE_LANGUAGE_MODEL_TEMPERATURE", "3.0")
+        monkeypatch.setenv("TEXT_TO_IMAGE_LARGE_LANGUAGE_MODEL_TEMPERATURE", "3.0")
         with pytest.raises(pydantic.ValidationError):
             configuration.ApplicationConfiguration()
 
     def test_negative_temperature_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("TEXT_TO_IMAGE_LANGUAGE_MODEL_TEMPERATURE", "-0.1")
+        monkeypatch.setenv("TEXT_TO_IMAGE_LARGE_LANGUAGE_MODEL_TEMPERATURE", "-0.1")
         with pytest.raises(pydantic.ValidationError):
             configuration.ApplicationConfiguration()
 
     def test_zero_inference_steps_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("TEXT_TO_IMAGE_STABLE_DIFFUSION_INFERENCE_STEPS", "0")
+        monkeypatch.setenv("TEXT_TO_IMAGE_NUMBER_OF_INFERENCE_STEPS_OF_STABLE_DIFFUSION", "0")
         with pytest.raises(pydantic.ValidationError):
             configuration.ApplicationConfiguration()
 
     def test_negative_guidance_scale_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("TEXT_TO_IMAGE_STABLE_DIFFUSION_GUIDANCE_SCALE", "-1")
+        monkeypatch.setenv("TEXT_TO_IMAGE_GUIDANCE_SCALE_OF_STABLE_DIFFUSION", "-1")
         with pytest.raises(pydantic.ValidationError):
             configuration.ApplicationConfiguration()
 
     def test_zero_maximum_tokens_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("TEXT_TO_IMAGE_LANGUAGE_MODEL_MAXIMUM_TOKENS", "0")
+        monkeypatch.setenv("TEXT_TO_IMAGE_MAXIMUM_TOKENS_GENERATED_BY_LARGE_LANGUAGE_MODEL", "0")
         with pytest.raises(pydantic.ValidationError):
             configuration.ApplicationConfiguration()
 
     def test_zero_inference_timeout_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("TEXT_TO_IMAGE_STABLE_DIFFUSION_INFERENCE_TIMEOUT_PER_UNIT_SECONDS", "0")
+        monkeypatch.setenv("TEXT_TO_IMAGE_INFERENCE_TIMEOUT_BY_STABLE_DIFFUSION_PER_BASELINE_UNIT_IN_SECONDS", "0")
         with pytest.raises(pydantic.ValidationError):
             configuration.ApplicationConfiguration()
 
     # ── New configuration variable validation ──
 
     def test_empty_system_prompt_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("TEXT_TO_IMAGE_LANGUAGE_MODEL_SYSTEM_PROMPT", "")
+        monkeypatch.setenv("TEXT_TO_IMAGE_SYSTEM_PROMPT_FOR_LARGE_LANGUAGE_MODEL", "")
         with pytest.raises(pydantic.ValidationError):
             configuration.ApplicationConfiguration()
 
-    def test_zero_connection_pool_size_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("TEXT_TO_IMAGE_LANGUAGE_MODEL_CONNECTION_POOL_SIZE", "0")
+    def test_zero_size_of_connection_pool_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("TEXT_TO_IMAGE_SIZE_OF_CONNECTION_POOL_FOR_LARGE_LANGUAGE_MODEL", "0")
         with pytest.raises(pydantic.ValidationError):
             configuration.ApplicationConfiguration()
 
-    def test_zero_maximum_response_bytes_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("TEXT_TO_IMAGE_LANGUAGE_MODEL_MAXIMUM_RESPONSE_BYTES", "0")
+    def test_zero_maximum_number_of_bytes_of_response_body_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_BYTES_OF_RESPONSE_BODY_FROM_LARGE_LANGUAGE_MODEL", "0")
         with pytest.raises(pydantic.ValidationError):
             configuration.ApplicationConfiguration()
 
-    def test_zero_maximum_concurrency_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("TEXT_TO_IMAGE_IMAGE_GENERATION_MAXIMUM_CONCURRENCY", "0")
+    def test_zero_maximum_number_of_concurrent_operations_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION", "0")
         with pytest.raises(pydantic.ValidationError):
             configuration.ApplicationConfiguration()
 
-    def test_negative_retry_after_busy_seconds_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("TEXT_TO_IMAGE_RETRY_AFTER_BUSY_SECONDS", "-1")
+    def test_negative_retry_after_busy_in_seconds_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("TEXT_TO_IMAGE_RETRY_AFTER_BUSY_IN_SECONDS", "-1")
         with pytest.raises(pydantic.ValidationError):
             configuration.ApplicationConfiguration()
 
-    def test_negative_retry_after_rate_limit_seconds_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("TEXT_TO_IMAGE_RETRY_AFTER_RATE_LIMIT_SECONDS", "-1")
+    def test_negative_retry_after_not_ready_in_seconds_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("TEXT_TO_IMAGE_RETRY_AFTER_NOT_READY_IN_SECONDS", "-1")
         with pytest.raises(pydantic.ValidationError):
             configuration.ApplicationConfiguration()
 
-    def test_negative_retry_after_not_ready_seconds_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("TEXT_TO_IMAGE_RETRY_AFTER_NOT_READY_SECONDS", "-1")
-        with pytest.raises(pydantic.ValidationError):
-            configuration.ApplicationConfiguration()
-
-    def test_zero_maximum_request_payload_bytes_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("TEXT_TO_IMAGE_MAXIMUM_REQUEST_PAYLOAD_BYTES", "0")
+    def test_zero_maximum_number_of_bytes_of_request_payload_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_BYTES_OF_REQUEST_PAYLOAD", "0")
         with pytest.raises(pydantic.ValidationError):
             configuration.ApplicationConfiguration()
 
@@ -324,5 +336,33 @@ class TestConfigurationValidation:
 
     def test_negative_request_timeout_seconds_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS", "-10")
+        with pytest.raises(pydantic.ValidationError):
+            configuration.ApplicationConfiguration()
+
+    # ── Circuit breaker configuration validation ──
+
+    def test_zero_circuit_breaker_failure_threshold_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("TEXT_TO_IMAGE_FAILURE_THRESHOLD_OF_CIRCUIT_BREAKER_FOR_LARGE_LANGUAGE_MODEL", "0")
+        with pytest.raises(pydantic.ValidationError):
+            configuration.ApplicationConfiguration()
+
+    def test_negative_circuit_breaker_failure_threshold_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("TEXT_TO_IMAGE_FAILURE_THRESHOLD_OF_CIRCUIT_BREAKER_FOR_LARGE_LANGUAGE_MODEL", "-1")
+        with pytest.raises(pydantic.ValidationError):
+            configuration.ApplicationConfiguration()
+
+    def test_zero_circuit_breaker_recovery_timeout_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv(
+            "TEXT_TO_IMAGE_RECOVERY_TIMEOUT_OF_CIRCUIT_BREAKER_FOR_LARGE_LANGUAGE_MODEL_IN_SECONDS",
+            "0",
+        )
+        with pytest.raises(pydantic.ValidationError):
+            configuration.ApplicationConfiguration()
+
+    def test_negative_circuit_breaker_recovery_timeout_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv(
+            "TEXT_TO_IMAGE_RECOVERY_TIMEOUT_OF_CIRCUIT_BREAKER_FOR_LARGE_LANGUAGE_MODEL_IN_SECONDS",
+            "-5",
+        )
         with pytest.raises(pydantic.ValidationError):
             configuration.ApplicationConfiguration()

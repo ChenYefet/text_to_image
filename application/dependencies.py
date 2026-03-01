@@ -11,16 +11,16 @@ import fastapi
 import application.admission_control
 import application.exceptions
 import application.services.image_generation_service
-import application.services.language_model_service
+import application.services.large_language_model_service
 
 
-def get_language_model_service(
+def get_large_language_model_service(
     request: fastapi.Request,
-) -> application.services.language_model_service.LanguageModelService:
+) -> application.services.large_language_model_service.LargeLanguageModelService:
     """
-    Retrieve the shared LanguageModelService instance from application state.
+    Retrieve the shared LargeLanguageModelService instance from application state.
     """
-    return request.app.state.language_model_service  # type: ignore[no-any-return]
+    return request.app.state.large_language_model_service  # type: ignore[no-any-return]
 
 
 def get_image_generation_service(
@@ -35,23 +35,24 @@ def get_image_generation_service(
     HTTP 502 response with the ``model_unavailable`` error code.  This
     ensures clients receive a meaningful error rather than an opaque 500.
     """
-    image_generation_service_instance = getattr(request.app.state, "image_generation_service", None)
-    if image_generation_service_instance is None:
+    instance_of_image_generation_service = getattr(request.app.state, "image_generation_service", None)
+    if instance_of_image_generation_service is None:
         raise application.exceptions.ImageGenerationServiceUnavailableError(
             detail=(
-                "The image generation service is not available. "
-                "The Stable Diffusion model failed to load during startup."
+                "The image generation service is not available."
+                " The Stable Diffusion model failed to load"
+                " during startup."
             ),
         )
-    return image_generation_service_instance  # type: ignore[no-any-return]
+    return instance_of_image_generation_service  # type: ignore[no-any-return]
 
 
-def get_image_generation_admission_controller(
+def get_admission_controller_for_image_generation(
     request: fastapi.Request,
-) -> application.admission_control.ImageGenerationAdmissionController:
+) -> application.admission_control.AdmissionControllerForImageGeneration:
     """
-    Retrieve the shared ImageGenerationAdmissionController from application
+    Retrieve the shared AdmissionControllerForImageGeneration from application
     state.  The controller is created during application startup with the
-    operator-configured ``image_generation_maximum_concurrency`` value.
+    operator-configured ``maximum_number_of_concurrent_operations_of_image_generation`` value.
     """
-    return request.app.state.image_generation_admission_controller  # type: ignore[no-any-return]
+    return request.app.state.admission_controller_for_image_generation  # type: ignore[no-any-return]

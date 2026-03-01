@@ -1,5 +1,5 @@
 """
-Tests for application/services/language_model_service.py.
+Tests for application/services/large_language_model_service.py.
 
 Covers all public methods and defensive handling paths:
 - Successful prompt enhancement and whitespace stripping.
@@ -20,34 +20,34 @@ import pytest
 
 import application.circuit_breaker
 import application.exceptions
-import application.services.language_model_service
+import application.services.large_language_model_service
 
 
-def _make_service(
+def _build_large_language_model_service(
     base_url: str = "http://localhost:8080",
-    timeout: float = 30.0,
-    maximum_response_bytes: int = 1_048_576,
+    request_timeout_in_seconds: float = 30.0,
+    maximum_number_of_bytes_of_response_body: int = 1_048_576,
     circuit_breaker: application.circuit_breaker.CircuitBreaker | None = None,
-) -> application.services.language_model_service.LanguageModelService:
+) -> application.services.large_language_model_service.LargeLanguageModelService:
     """
-    Create a LanguageModelService instance with configurable parameters.
+    Create a LargeLanguageModelService instance with configurable parameters.
 
-    The ``maximum_response_bytes`` parameter controls the response body size
+    The ``maximum_number_of_bytes_of_response_body`` parameter controls the response body size
     limit for testing the oversized-response rejection path.
 
     The ``circuit_breaker`` parameter allows tests to inject a circuit
     breaker instance for verifying the integration between the service
     and the circuit breaker pattern.
     """
-    return application.services.language_model_service.LanguageModelService(
-        language_model_server_base_url=base_url,
-        request_timeout_seconds=timeout,
-        maximum_response_bytes=maximum_response_bytes,
+    return application.services.large_language_model_service.LargeLanguageModelService(
+        base_url_of_large_language_model_server=base_url,
+        request_timeout_in_seconds=request_timeout_in_seconds,
+        maximum_number_of_bytes_of_response_body=maximum_number_of_bytes_of_response_body,
         circuit_breaker=circuit_breaker,
     )
 
 
-def _mock_json_response(
+def _build_mock_of_json_response(
     content_text: str,
     status_code: int = 200,
     finish_reason: str = "stop",
@@ -57,7 +57,7 @@ def _mock_json_response(
     Create a mock httpx.Response with the standard chat-completion shape.
 
     Includes the ``headers`` and ``content`` attributes that the
-    LanguageModelService inspects for streaming response detection (checking
+    LargeLanguageModelService inspects for streaming response detection (checking
     Content-Type for ``text/event-stream``) and response body size
     enforcement (checking ``len(response.content)``).
 
@@ -88,8 +88,8 @@ def _mock_json_response(
 class TestEnhancePrompt:
     @pytest.mark.asyncio
     async def test_success(self):
-        service = _make_service()
-        mock_response = _mock_json_response("Enhanced prompt text")
+        service = _build_large_language_model_service()
+        mock_response = _build_mock_of_json_response("Enhanced prompt text")
         service.http_client = AsyncMock()
         service.http_client.post = AsyncMock(return_value=mock_response)
 
@@ -100,8 +100,8 @@ class TestEnhancePrompt:
 
     @pytest.mark.asyncio
     async def test_strips_whitespace(self):
-        service = _make_service()
-        mock_response = _mock_json_response("  Enhanced with spaces  ")
+        service = _build_large_language_model_service()
+        mock_response = _build_mock_of_json_response("  Enhanced with spaces  ")
         service.http_client = AsyncMock()
         service.http_client.post = AsyncMock(return_value=mock_response)
 
@@ -111,16 +111,16 @@ class TestEnhancePrompt:
 
     @pytest.mark.asyncio
     async def test_connection_error(self):
-        service = _make_service()
+        service = _build_large_language_model_service()
         service.http_client = AsyncMock()
         service.http_client.post = AsyncMock(side_effect=httpx.ConnectError("Connection refused"))
 
-        with pytest.raises(application.exceptions.LanguageModelServiceUnavailableError):
+        with pytest.raises(application.exceptions.LargeLanguageModelServiceUnavailableError):
             await service.enhance_prompt("A cat")
 
     @pytest.mark.asyncio
     async def test_http_status_error(self):
-        service = _make_service()
+        service = _build_large_language_model_service()
         mock_response = MagicMock(spec=httpx.Response)
         mock_response.status_code = 500
         service.http_client = AsyncMock()
@@ -132,25 +132,25 @@ class TestEnhancePrompt:
             )
         )
 
-        with pytest.raises(application.exceptions.LanguageModelServiceUnavailableError):
+        with pytest.raises(application.exceptions.LargeLanguageModelServiceUnavailableError):
             await service.enhance_prompt("A cat")
 
     @pytest.mark.asyncio
     async def test_timeout(self):
-        service = _make_service()
+        service = _build_large_language_model_service()
         service.http_client = AsyncMock()
         service.http_client.post = AsyncMock(side_effect=httpx.TimeoutException("Timed out"))
 
-        with pytest.raises(application.exceptions.LanguageModelServiceUnavailableError):
+        with pytest.raises(application.exceptions.LargeLanguageModelServiceUnavailableError):
             await service.enhance_prompt("A cat")
 
     @pytest.mark.asyncio
     async def test_uncommon_request_error_maps_to_502(self):
         """Uncommon httpx failure modes such as TooManyRedirects must be
         caught by the httpx.RequestError catch-all and mapped to
-        LanguageModelServiceUnavailableError (HTTP 502) rather than
+        LargeLanguageModelServiceUnavailableError (HTTP 502) rather than
         propagating as unhandled 500 errors (audit finding P-2)."""
-        service = _make_service()
+        service = _build_large_language_model_service()
         service.http_client = AsyncMock()
         service.http_client.post = AsyncMock(
             side_effect=httpx.TooManyRedirects(
@@ -159,12 +159,12 @@ class TestEnhancePrompt:
             )
         )
 
-        with pytest.raises(application.exceptions.LanguageModelServiceUnavailableError, match="TooManyRedirects"):
+        with pytest.raises(application.exceptions.LargeLanguageModelServiceUnavailableError, match="TooManyRedirects"):
             await service.enhance_prompt("A cat")
 
     @pytest.mark.asyncio
     async def test_malformed_response(self):
-        service = _make_service()
+        service = _build_large_language_model_service()
         malformed_body = {"unexpected": "structure"}
         import json
 
@@ -183,12 +183,34 @@ class TestEnhancePrompt:
 
     @pytest.mark.asyncio
     async def test_empty_content(self):
-        service = _make_service()
-        mock_response = _mock_json_response("")
+        service = _build_large_language_model_service()
+        mock_response = _build_mock_of_json_response("")
         service.http_client = AsyncMock()
         service.http_client.post = AsyncMock(return_value=mock_response)
 
         with pytest.raises(application.exceptions.PromptEnhancementError):
+            await service.enhance_prompt("A cat")
+
+    @pytest.mark.asyncio
+    async def test_non_json_response_raises_unavailable_error(self):
+        """A non-JSON response body (for example, an HTML error page) must
+        be caught and mapped to LargeLanguageModelServiceUnavailableError
+        (HTTP 502) rather than propagating as an unhandled ValueError."""
+        service = _build_large_language_model_service()
+        html_body = b"<html><body>502 Bad Gateway</body></html>"
+
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.raise_for_status = MagicMock()
+        mock_response.headers = {"content-type": "text/html"}
+        mock_response.content = html_body
+        mock_response.json.side_effect = ValueError("No JSON object could be decoded")
+        service.http_client = AsyncMock()
+        service.http_client.post = AsyncMock(return_value=mock_response)
+
+        with pytest.raises(
+            application.exceptions.LargeLanguageModelServiceUnavailableError,
+            match="non-JSON response",
+        ):
             await service.enhance_prompt("A cat")
 
 
@@ -199,7 +221,7 @@ class TestStreamingResponseDetection:
 
     A misconfigured llama.cpp server may ignore the ``stream: false``
     directive and return a ``text/event-stream`` Content-Type. The service
-    must detect this condition and raise ``LanguageModelServiceUnavailableError``
+    must detect this condition and raise ``LargeLanguageModelServiceUnavailableError``
     rather than attempting to parse Server-Sent Events as JSON.
     """
 
@@ -208,10 +230,10 @@ class TestStreamingResponseDetection:
         """
         When the upstream returns ``text/event-stream`` despite
         ``stream: false``, the service raises
-        ``LanguageModelServiceUnavailableError``.
+        ``LargeLanguageModelServiceUnavailableError``.
         """
-        service = _make_service()
-        mock_response = _mock_json_response(
+        service = _build_large_language_model_service()
+        mock_response = _build_mock_of_json_response(
             "Enhanced text",
             content_type="text/event-stream",
         )
@@ -219,7 +241,7 @@ class TestStreamingResponseDetection:
         service.http_client.post = AsyncMock(return_value=mock_response)
 
         with pytest.raises(
-            application.exceptions.LanguageModelServiceUnavailableError,
+            application.exceptions.LargeLanguageModelServiceUnavailableError,
             match="streaming response",
         ):
             await service.enhance_prompt("A cat")
@@ -230,8 +252,8 @@ class TestStreamingResponseDetection:
         The detection must match Content-Type values that include
         parameters (e.g., ``text/event-stream; charset=utf-8``).
         """
-        service = _make_service()
-        mock_response = _mock_json_response(
+        service = _build_large_language_model_service()
+        mock_response = _build_mock_of_json_response(
             "Enhanced text",
             content_type="text/event-stream; charset=utf-8",
         )
@@ -239,7 +261,7 @@ class TestStreamingResponseDetection:
         service.http_client.post = AsyncMock(return_value=mock_response)
 
         with pytest.raises(
-            application.exceptions.LanguageModelServiceUnavailableError,
+            application.exceptions.LargeLanguageModelServiceUnavailableError,
         ):
             await service.enhance_prompt("A cat")
 
@@ -249,8 +271,8 @@ class TestStreamingResponseDetection:
         A well-behaved upstream returning ``application/json`` must not
         trigger the streaming response detection path.
         """
-        service = _make_service()
-        mock_response = _mock_json_response(
+        service = _build_large_language_model_service()
+        mock_response = _build_mock_of_json_response(
             "Enhanced text",
             content_type="application/json",
         )
@@ -269,27 +291,27 @@ class TestResponseBodySizeLimit:
 
     An unexpectedly large response from a misconfigured llama.cpp server
     could exhaust memory. The service enforces a configurable ceiling
-    (``maximum_response_bytes``) and raises
-    ``LanguageModelServiceUnavailableError`` when the ceiling is breached.
+    (``maximum_number_of_bytes_of_response_body``) and raises
+    ``LargeLanguageModelServiceUnavailableError`` when the ceiling is breached.
     """
 
     @pytest.mark.asyncio
     async def test_oversized_response_raises_unavailable_error(self) -> None:
         """
-        When the upstream response body exceeds ``maximum_response_bytes``,
-        the service raises ``LanguageModelServiceUnavailableError``.
+        When the upstream response body exceeds ``maximum_number_of_bytes_of_response_body``,
+        the service raises ``LargeLanguageModelServiceUnavailableError``.
         """
         # Create a service with a very small response body limit (100 bytes).
-        service = _make_service(maximum_response_bytes=100)
+        service = _build_large_language_model_service(maximum_number_of_bytes_of_response_body=100)
 
         # Create a response whose serialised body exceeds 100 bytes.
         large_content_text = "A" * 200
-        mock_response = _mock_json_response(large_content_text)
+        mock_response = _build_mock_of_json_response(large_content_text)
         service.http_client = AsyncMock()
         service.http_client.post = AsyncMock(return_value=mock_response)
 
         with pytest.raises(
-            application.exceptions.LanguageModelServiceUnavailableError,
+            application.exceptions.LargeLanguageModelServiceUnavailableError,
             match="exceeds the configured maximum",
         ):
             await service.enhance_prompt("A cat")
@@ -300,8 +322,8 @@ class TestResponseBodySizeLimit:
         A response body within the configured limit must be accepted
         and parsed normally.
         """
-        service = _make_service(maximum_response_bytes=10_000)
-        mock_response = _mock_json_response("Short enhanced text")
+        service = _build_large_language_model_service(maximum_number_of_bytes_of_response_body=10_000)
+        mock_response = _build_mock_of_json_response("Short enhanced text")
         service.http_client = AsyncMock()
         service.http_client.post = AsyncMock(return_value=mock_response)
 
@@ -312,14 +334,14 @@ class TestResponseBodySizeLimit:
     @pytest.mark.asyncio
     async def test_response_exactly_at_limit_succeeds(self) -> None:
         """
-        A response body whose size equals exactly ``maximum_response_bytes``
+        A response body whose size equals exactly ``maximum_number_of_bytes_of_response_body``
         must be accepted — the limit is exclusive (greater than, not
         greater than or equal to).
         """
-        mock_response = _mock_json_response("test content")
+        mock_response = _build_mock_of_json_response("test content")
         response_body_size = len(mock_response.content)
 
-        service = _make_service(maximum_response_bytes=response_body_size)
+        service = _build_large_language_model_service(maximum_number_of_bytes_of_response_body=response_body_size)
         service.http_client = AsyncMock()
         service.http_client.post = AsyncMock(return_value=mock_response)
 
@@ -350,8 +372,8 @@ class TestFinishReasonTruncationDetection:
         than through the standard ``caplog`` mechanism, so we capture
         the stdout stream directly via ``capsys``.
         """
-        service = _make_service()
-        mock_response = _mock_json_response(
+        service = _build_large_language_model_service()
+        mock_response = _build_mock_of_json_response(
             "Truncated enhanced prompt text",
             finish_reason="length",
         )
@@ -370,8 +392,8 @@ class TestFinishReasonTruncationDetection:
         The truncated prompt is still returned to the caller — truncation
         is informational, not a hard failure.
         """
-        service = _make_service()
-        mock_response = _mock_json_response(
+        service = _build_large_language_model_service()
+        mock_response = _build_mock_of_json_response(
             "Truncated but usable prompt",
             finish_reason="length",
         )
@@ -388,8 +410,8 @@ class TestFinishReasonTruncationDetection:
         A normal ``finish_reason: "stop"`` must not trigger the
         truncation warning.
         """
-        service = _make_service()
-        mock_response = _mock_json_response(
+        service = _build_large_language_model_service()
+        mock_response = _build_mock_of_json_response(
             "Complete enhanced prompt",
             finish_reason="stop",
         )
@@ -407,7 +429,7 @@ class TestFinishReasonTruncationDetection:
         When the response lacks a ``finish_reason`` field entirely, the
         service must not raise or log a truncation warning.
         """
-        service = _make_service()
+        service = _build_large_language_model_service()
 
         # Build a response without any finish_reason field.
         response_body = {
@@ -440,7 +462,7 @@ class TestFinishReasonTruncationDetection:
         self,
     ) -> None:
         """
-        The ``finish_reason`` extraction (language_model_service.py lines
+        The ``finish_reason`` extraction (large_language_model_service.py lines
         212–215) is wrapped in a defensive ``try/except (KeyError,
         IndexError)`` guard.  This guard protects against the unlikely
         scenario where the ``choices`` list is accessible during prompt
@@ -503,7 +525,7 @@ class TestFinishReasonTruncationDetection:
         mock_response.headers = {"content-type": "application/json"}
         mock_response.content = serialised_body
 
-        service = _make_service()
+        service = _build_large_language_model_service()
         service.http_client = AsyncMock()
         service.http_client.post = AsyncMock(return_value=mock_response)
 
@@ -516,20 +538,20 @@ class TestFinishReasonTruncationDetection:
 
 class TestCheckHealth:
     @pytest.mark.asyncio
-    async def test_healthy_when_server_returns_200(self):
-        service = _make_service()
+    async def test_healthy_when_server_returns_2xx(self):
+        service = _build_large_language_model_service()
         mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 200
+        mock_response.is_success = True
         service.http_client = AsyncMock()
         service.http_client.get = AsyncMock(return_value=mock_response)
 
         assert await service.check_health() is True
 
     @pytest.mark.asyncio
-    async def test_unhealthy_when_server_returns_500(self):
-        service = _make_service()
+    async def test_unhealthy_when_server_returns_non_2xx(self):
+        service = _build_large_language_model_service()
         mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 500
+        mock_response.is_success = False
         service.http_client = AsyncMock()
         service.http_client.get = AsyncMock(return_value=mock_response)
 
@@ -537,7 +559,7 @@ class TestCheckHealth:
 
     @pytest.mark.asyncio
     async def test_unhealthy_when_connection_fails(self):
-        service = _make_service()
+        service = _build_large_language_model_service()
         service.http_client = AsyncMock()
         service.http_client.get = AsyncMock(side_effect=httpx.ConnectError("Connection refused"))
 
@@ -546,7 +568,7 @@ class TestCheckHealth:
 
 class TestCircuitBreakerIntegration:
     """
-    Verify the integration between LanguageModelService and the circuit
+    Verify the integration between LargeLanguageModelService and the circuit
     breaker pattern.
 
     The circuit breaker prevents the service from repeatedly waiting for
@@ -563,21 +585,21 @@ class TestCircuitBreakerIntegration:
     async def test_open_circuit_rejects_without_calling_upstream(self) -> None:
         """
         When the circuit breaker is open, the service raises
-        LanguageModelServiceUnavailableError without sending any HTTP
+        LargeLanguageModelServiceUnavailableError without sending any HTTP
         request to the upstream server.
         """
         breaker = application.circuit_breaker.CircuitBreaker(
             failure_threshold=1,
-            recovery_timeout_seconds=60.0,
+            timeout_for_recovery_in_seconds=60.0,
             name="test",
         )
         await breaker.record_failure()
 
-        service = _make_service(circuit_breaker=breaker)
+        service = _build_large_language_model_service(circuit_breaker=breaker)
         service.http_client = AsyncMock()
 
         with pytest.raises(
-            application.exceptions.LanguageModelServiceUnavailableError,
+            application.exceptions.LargeLanguageModelServiceUnavailableError,
             match="circuit breaker",
         ):
             await service.enhance_prompt("A cat")
@@ -596,16 +618,16 @@ class TestCircuitBreakerIntegration:
         await breaker.record_failure()
         await breaker.record_failure()
 
-        assert breaker.consecutive_failure_count == 2
+        assert breaker.number_of_consecutive_failures == 2
 
-        service = _make_service(circuit_breaker=breaker)
-        mock_response = _mock_json_response("Enhanced prompt text")
+        service = _build_large_language_model_service(circuit_breaker=breaker)
+        mock_response = _build_mock_of_json_response("Enhanced prompt text")
         service.http_client = AsyncMock()
         service.http_client.post = AsyncMock(return_value=mock_response)
 
         await service.enhance_prompt("A cat")
 
-        assert breaker.consecutive_failure_count == 0
+        assert breaker.number_of_consecutive_failures == 0
 
     @pytest.mark.asyncio
     async def test_connection_failure_records_with_circuit_breaker(self) -> None:
@@ -615,16 +637,16 @@ class TestCircuitBreakerIntegration:
             name="test",
         )
 
-        service = _make_service(circuit_breaker=breaker)
+        service = _build_large_language_model_service(circuit_breaker=breaker)
         service.http_client = AsyncMock()
         service.http_client.post = AsyncMock(
             side_effect=httpx.ConnectError("Connection refused"),
         )
 
-        with pytest.raises(application.exceptions.LanguageModelServiceUnavailableError):
+        with pytest.raises(application.exceptions.LargeLanguageModelServiceUnavailableError):
             await service.enhance_prompt("A cat")
 
-        assert breaker.consecutive_failure_count == 1
+        assert breaker.number_of_consecutive_failures == 1
 
     @pytest.mark.asyncio
     async def test_timeout_failure_records_with_circuit_breaker(self) -> None:
@@ -634,16 +656,16 @@ class TestCircuitBreakerIntegration:
             name="test",
         )
 
-        service = _make_service(circuit_breaker=breaker)
+        service = _build_large_language_model_service(circuit_breaker=breaker)
         service.http_client = AsyncMock()
         service.http_client.post = AsyncMock(
             side_effect=httpx.TimeoutException("Timed out"),
         )
 
-        with pytest.raises(application.exceptions.LanguageModelServiceUnavailableError):
+        with pytest.raises(application.exceptions.LargeLanguageModelServiceUnavailableError):
             await service.enhance_prompt("A cat")
 
-        assert breaker.consecutive_failure_count == 1
+        assert breaker.number_of_consecutive_failures == 1
 
     @pytest.mark.asyncio
     async def test_http_error_records_with_circuit_breaker(self) -> None:
@@ -653,7 +675,7 @@ class TestCircuitBreakerIntegration:
             name="test",
         )
 
-        service = _make_service(circuit_breaker=breaker)
+        service = _build_large_language_model_service(circuit_breaker=breaker)
         mock_response = MagicMock(spec=httpx.Response)
         mock_response.status_code = 500
         service.http_client = AsyncMock()
@@ -665,10 +687,10 @@ class TestCircuitBreakerIntegration:
             ),
         )
 
-        with pytest.raises(application.exceptions.LanguageModelServiceUnavailableError):
+        with pytest.raises(application.exceptions.LargeLanguageModelServiceUnavailableError):
             await service.enhance_prompt("A cat")
 
-        assert breaker.consecutive_failure_count == 1
+        assert breaker.number_of_consecutive_failures == 1
 
     @pytest.mark.asyncio
     async def test_request_error_records_with_circuit_breaker(self) -> None:
@@ -678,7 +700,7 @@ class TestCircuitBreakerIntegration:
             name="test",
         )
 
-        service = _make_service(circuit_breaker=breaker)
+        service = _build_large_language_model_service(circuit_breaker=breaker)
         service.http_client = AsyncMock()
         service.http_client.post = AsyncMock(
             side_effect=httpx.TooManyRedirects(
@@ -687,16 +709,16 @@ class TestCircuitBreakerIntegration:
             ),
         )
 
-        with pytest.raises(application.exceptions.LanguageModelServiceUnavailableError):
+        with pytest.raises(application.exceptions.LargeLanguageModelServiceUnavailableError):
             await service.enhance_prompt("A cat")
 
-        assert breaker.consecutive_failure_count == 1
+        assert breaker.number_of_consecutive_failures == 1
 
     @pytest.mark.asyncio
     async def test_no_circuit_breaker_operates_normally(self) -> None:
         """When no circuit breaker is configured, the service operates normally."""
-        service = _make_service(circuit_breaker=None)
-        mock_response = _mock_json_response("Enhanced prompt text")
+        service = _build_large_language_model_service(circuit_breaker=None)
+        mock_response = _build_mock_of_json_response("Enhanced prompt text")
         service.http_client = AsyncMock()
         service.http_client.post = AsyncMock(return_value=mock_response)
 
@@ -712,21 +734,21 @@ class TestCircuitBreakerIntegration:
         """
         breaker = application.circuit_breaker.CircuitBreaker(
             failure_threshold=2,
-            recovery_timeout_seconds=60.0,
+            timeout_for_recovery_in_seconds=60.0,
             name="test",
         )
 
-        service = _make_service(circuit_breaker=breaker)
+        service = _build_large_language_model_service(circuit_breaker=breaker)
         service.http_client = AsyncMock()
         service.http_client.post = AsyncMock(
             side_effect=httpx.ConnectError("Connection refused"),
         )
 
         # First two failures should still attempt the upstream call.
-        with pytest.raises(application.exceptions.LanguageModelServiceUnavailableError):
+        with pytest.raises(application.exceptions.LargeLanguageModelServiceUnavailableError):
             await service.enhance_prompt("A cat")
 
-        with pytest.raises(application.exceptions.LanguageModelServiceUnavailableError):
+        with pytest.raises(application.exceptions.LargeLanguageModelServiceUnavailableError):
             await service.enhance_prompt("A dog")
 
         assert breaker.state == application.circuit_breaker.CircuitState.OPEN
@@ -736,7 +758,7 @@ class TestCircuitBreakerIntegration:
         service.http_client.post.reset_mock()
 
         with pytest.raises(
-            application.exceptions.LanguageModelServiceUnavailableError,
+            application.exceptions.LargeLanguageModelServiceUnavailableError,
             match="circuit breaker",
         ):
             await service.enhance_prompt("A bird")
@@ -747,7 +769,7 @@ class TestCircuitBreakerIntegration:
 class TestClose:
     @pytest.mark.asyncio
     async def test_close_calls_aclose(self):
-        service = _make_service()
+        service = _build_large_language_model_service()
         service.http_client = AsyncMock()
 
         await service.close()

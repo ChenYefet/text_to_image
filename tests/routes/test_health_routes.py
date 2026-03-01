@@ -36,7 +36,7 @@ class TestHealthRoutes:
     async def test_health_has_pragma_no_cache_header(self, client):
         """Infrastructure endpoints must include Pragma: no-cache for
         backward-compatible cache suppression with HTTP/1.0 intermediaries
-        (§12 of the v5.0.0 specification)."""
+        (§12 of the v5.2.0 specification)."""
         response = await client.get("/health")
 
         assert response.headers.get("pragma") == "no-cache"
@@ -45,7 +45,7 @@ class TestHealthRoutes:
 class TestReadinessRoutes:
     @pytest.mark.asyncio
     async def test_ready_when_services_healthy(
-        self, client, mock_language_model_service, mock_image_generation_service
+        self, client, mock_of_large_language_model_service, mock_of_image_generation_service
     ):
         response = await client.get("/health/ready")
 
@@ -53,7 +53,7 @@ class TestReadinessRoutes:
         body = response.json()
         assert body["status"] == "ready"
         assert body["checks"]["image_generation"] == "ok"
-        assert body["checks"]["language_model"] == "ok"
+        assert body["checks"]["large_language_model"] == "ok"
 
     @pytest.mark.asyncio
     async def test_ready_has_correlation_id(self, client):
@@ -63,14 +63,14 @@ class TestReadinessRoutes:
 
     @pytest.mark.asyncio
     async def test_not_ready_when_services_missing(self):
-        """Return 503 when services are not set on app.state."""
-        app = fastapi.FastAPI()
-        app.add_middleware(
+        """Return 503 when services are not set on application state."""
+        test_application = fastapi.FastAPI()
+        test_application.add_middleware(
             application.middleware.CorrelationIdMiddleware,
         )
-        app.include_router(application.routes.health_routes.health_router)
+        test_application.include_router(application.routes.health_routes.health_router)
 
-        transport = httpx.ASGITransport(app=app)
+        transport = httpx.ASGITransport(app=test_application)
         async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
             response = await client.get("/health/ready")
 
@@ -78,22 +78,22 @@ class TestReadinessRoutes:
         body = response.json()
         assert body["status"] == "not_ready"
         assert body["checks"]["image_generation"] == "unavailable"
-        assert body["checks"]["language_model"] == "unavailable"
+        assert body["checks"]["large_language_model"] == "unavailable"
 
     @pytest.mark.asyncio
-    async def test_not_ready_when_language_model_unhealthy(self, client, mock_language_model_service):
-        mock_language_model_service.check_health = AsyncMock(return_value=False)
+    async def test_not_ready_when_large_language_model_unhealthy(self, client, mock_of_large_language_model_service):
+        mock_of_large_language_model_service.check_health = AsyncMock(return_value=False)
 
         response = await client.get("/health/ready")
 
         assert response.status_code == 503
         body = response.json()
         assert body["status"] == "not_ready"
-        assert body["checks"]["language_model"] == "unavailable"
+        assert body["checks"]["large_language_model"] == "unavailable"
 
     @pytest.mark.asyncio
-    async def test_not_ready_when_image_pipeline_unhealthy(self, client, mock_image_generation_service):
-        mock_image_generation_service.check_health = lambda: False
+    async def test_not_ready_when_image_pipeline_unhealthy(self, client, mock_of_image_generation_service):
+        mock_of_image_generation_service.check_health = lambda: False
 
         response = await client.get("/health/ready")
 
@@ -103,20 +103,20 @@ class TestReadinessRoutes:
         assert body["checks"]["image_generation"] == "unavailable"
 
     @pytest.mark.asyncio
-    async def test_not_ready_when_language_model_check_raises(self, client, mock_language_model_service):
-        mock_language_model_service.check_health = AsyncMock(side_effect=RuntimeError("unexpected"))
+    async def test_not_ready_when_large_language_model_check_raises(self, client, mock_of_large_language_model_service):
+        mock_of_large_language_model_service.check_health = AsyncMock(side_effect=RuntimeError("unexpected"))
 
         response = await client.get("/health/ready")
 
         assert response.status_code == 503
         body = response.json()
-        assert body["checks"]["language_model"] == "unavailable"
+        assert body["checks"]["large_language_model"] == "unavailable"
 
     @pytest.mark.asyncio
-    async def test_503_response_includes_retry_after_header(self, client, mock_language_model_service):
+    async def test_503_response_includes_retry_after_header(self, client, mock_of_large_language_model_service):
         """Per NFR47, HTTP 503 responses must include a Retry-After header
-        populated from the retry_after_not_ready_seconds configuration."""
-        mock_language_model_service.check_health = AsyncMock(return_value=False)
+        populated from the retry_after_not_ready_in_seconds configuration."""
+        mock_of_large_language_model_service.check_health = AsyncMock(return_value=False)
 
         response = await client.get("/health/ready")
 
@@ -126,7 +126,7 @@ class TestReadinessRoutes:
 
     @pytest.mark.asyncio
     async def test_200_response_does_not_include_retry_after_header(
-        self, client, mock_language_model_service, mock_image_generation_service
+        self, client, mock_of_large_language_model_service, mock_of_image_generation_service
     ):
         """When all backends are healthy, no Retry-After header is sent."""
         response = await client.get("/health/ready")
@@ -145,7 +145,7 @@ class TestReadinessRoutes:
     async def test_readiness_has_pragma_no_cache_header(self, client):
         """The readiness endpoint must include Pragma: no-cache for
         backward-compatible cache suppression with HTTP/1.0 intermediaries
-        (§12 of the v5.0.0 specification)."""
+        (§12 of the v5.2.0 specification)."""
         response = await client.get("/health/ready")
 
         assert response.headers.get("pragma") == "no-cache"
@@ -187,8 +187,8 @@ class TestMetricsRoutes:
 
         assert "GET /health" in body["request_latencies"]
         latency = body["request_latencies"]["GET /health"]
-        assert latency["count"] >= 1
-        assert latency["minimum_milliseconds"] >= 0
+        assert latency["number_of_observations"] >= 1
+        assert latency["minimum_latency_in_milliseconds"] >= 0
 
     @pytest.mark.asyncio
     async def test_metrics_has_cache_control_header(self, client):
@@ -201,24 +201,27 @@ class TestMetricsRoutes:
     async def test_metrics_has_pragma_no_cache_header(self, client):
         """The metrics endpoint must include Pragma: no-cache for
         backward-compatible cache suppression with HTTP/1.0 intermediaries
-        (§12 of the v5.0.0 specification)."""
+        (§12 of the v5.2.0 specification)."""
         response = await client.get("/metrics")
 
         assert response.headers.get("pragma") == "no-cache"
 
     @pytest.mark.asyncio
     async def test_metrics_fallback_when_collector_missing(self):
-        """Return empty metrics when metrics_collector is not on app.state."""
-        app = fastapi.FastAPI()
-        app.add_middleware(
+        """Return empty metrics when metrics_collector is not on application state."""
+        test_application = fastapi.FastAPI()
+        test_application.add_middleware(
             application.middleware.CorrelationIdMiddleware,
         )
-        app.include_router(application.routes.health_routes.health_router)
+        test_application.include_router(application.routes.health_routes.health_router)
 
-        transport = httpx.ASGITransport(app=app)
+        transport = httpx.ASGITransport(app=test_application)
         async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
             response = await client.get("/metrics")
 
         assert response.status_code == 200
         body = response.json()
-        assert body == {"request_counts": {}, "request_latencies": {}}
+        assert "collected_at" in body
+        assert "service_started_at" in body
+        assert body["request_counts"] == {}
+        assert body["request_latencies"] == {}

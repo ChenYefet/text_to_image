@@ -26,6 +26,7 @@ Health status, readiness, and metrics change on every poll; stale cached
 values would mislead orchestrators and monitoring dashboards.
 """
 
+import datetime
 import typing
 
 import fastapi
@@ -36,7 +37,7 @@ health_router = fastapi.APIRouter(tags=["Health"])
 # ``Cache-Control: no-store, no-cache`` prevents caches from storing any
 # part of the response and requires revalidation before reuse.
 # ``Pragma: no-cache`` provides backward-compatible cache suppression for
-# HTTP/1.0 intermediaries (§12 of the v5.0.0 specification mandates both).
+# HTTP/1.0 intermediaries (§12 of the v5.2.0 specification mandates both).
 # Together they ensure that every request receives fresh operational data.
 _INFRASTRUCTURE_CACHE_SUPPRESSION_HEADERS: dict[str, str] = {
     "Cache-Control": "no-store, no-cache",
@@ -64,6 +65,7 @@ _INFRASTRUCTURE_CACHE_SUPPRESSION_HEADERS: dict[str, str] = {
                             },
                         },
                         "required": ["status"],
+                        "additionalProperties": False,
                     },
                     "example": {"status": "healthy"},
                 },
@@ -89,9 +91,10 @@ async def health_check() -> fastapi.responses.JSONResponse:
     "/health/ready",
     summary="Readiness check",
     description=(
-        "Checks that backend services (language model server and image "
-        "generation pipeline) are initialised and reachable. Returns "
-        "HTTP 503 with a Retry-After header when any backend is unavailable."
+        "Checks that backend services (large language model server and"
+        " image generation pipeline) are initialised and reachable."
+        " Returns HTTP 503 with a Retry-After header when any backend"
+        " is unavailable."
     ),
     status_code=200,
     responses={
@@ -106,26 +109,28 @@ async def health_check() -> fastapi.responses.JSONResponse:
                             "checks": {
                                 "type": "object",
                                 "properties": {
-                                    "language_model": {"type": "string", "enum": ["ok"]},
+                                    "large_language_model": {"type": "string", "enum": ["ok"]},
                                     "image_generation": {"type": "string", "enum": ["ok"]},
                                 },
-                                "required": ["language_model", "image_generation"],
+                                "required": ["large_language_model", "image_generation"],
+                                "additionalProperties": False,
                             },
                         },
                         "required": ["status", "checks"],
+                        "additionalProperties": False,
                     },
                     "example": {
                         "status": "ready",
-                        "checks": {"language_model": "ok", "image_generation": "ok"},
+                        "checks": {"large_language_model": "ok", "image_generation": "ok"},
                     },
                 },
             },
         },
         503: {
             "description": (
-                "Service Unavailable — one or more backend services are "
-                "unhealthy. The ``Retry-After`` header indicates how long "
-                "to wait before retrying."
+                "Service Unavailable — one or more backend services are"
+                " unhealthy. The ``Retry-After`` header indicates how"
+                " long to wait before retrying."
             ),
             "content": {
                 "application/json": {
@@ -136,7 +141,7 @@ async def health_check() -> fastapi.responses.JSONResponse:
                             "checks": {
                                 "type": "object",
                                 "properties": {
-                                    "language_model": {
+                                    "large_language_model": {
                                         "type": "string",
                                         "enum": ["ok", "unavailable"],
                                     },
@@ -145,14 +150,16 @@ async def health_check() -> fastapi.responses.JSONResponse:
                                         "enum": ["ok", "unavailable"],
                                     },
                                 },
-                                "required": ["language_model", "image_generation"],
+                                "required": ["large_language_model", "image_generation"],
+                                "additionalProperties": False,
                             },
                         },
                         "required": ["status", "checks"],
+                        "additionalProperties": False,
                     },
                     "example": {
                         "status": "not_ready",
-                        "checks": {"language_model": "ok", "image_generation": "unavailable"},
+                        "checks": {"large_language_model": "ok", "image_generation": "unavailable"},
                     },
                 },
             },
@@ -176,13 +183,13 @@ async def readiness_check(request: fastapi.Request) -> fastapi.responses.JSONRes
     The readiness probe checks:
         - **image_generation**: Whether the Stable Diffusion pipeline
           was loaded successfully during startup (synchronous check).
-        - **language_model**: Whether the llama.cpp server responds to
+        - **large_language_model**: Whether the llama.cpp server responds to
           ``GET /health`` with HTTP 200 (asynchronous network call with
           a 5-second timeout).
 
     When any backend is unavailable, the response includes an HTTP 503
     status code and a ``Retry-After`` header (NFR47) populated from the
-    operator-configured ``retry_after_not_ready_seconds`` value.  This
+    operator-configured ``retry_after_not_ready_in_seconds`` value.  This
     header tells orchestrators and clients how long to wait before
     retrying the readiness check.
     """
@@ -201,19 +208,19 @@ async def readiness_check(request: fastapi.Request) -> fastapi.responses.JSONRes
 
     # ── Language model backend check ──────────────────────────────────
     #
-    # The language model service sends an HTTP GET request to the
+    # The large language model service sends an HTTP GET request to the
     # llama.cpp server's /health endpoint.  Any exception (connection
     # refused, timeout, HTTP error) is caught and treated as unhealthy
     # to prevent a failing upstream from crashing the readiness probe.
-    language_model_service = getattr(request.app.state, "language_model_service", None)
-    if language_model_service is not None:
+    large_language_model_service = getattr(request.app.state, "large_language_model_service", None)
+    if large_language_model_service is not None:
         try:
-            language_model_is_healthy = await language_model_service.check_health()
+            large_language_model_is_healthy = await large_language_model_service.check_health()
         except Exception:
-            language_model_is_healthy = False
-        checks["language_model"] = "ok" if language_model_is_healthy else "unavailable"
+            large_language_model_is_healthy = False
+        checks["large_language_model"] = "ok" if large_language_model_is_healthy else "unavailable"
     else:
-        checks["language_model"] = "unavailable"
+        checks["large_language_model"] = "unavailable"
 
     # ── Aggregate results ─────────────────────────────────────────────
     all_backends_are_healthy = all(check_status == "ok" for check_status in checks.values())
@@ -222,8 +229,8 @@ async def readiness_check(request: fastapi.Request) -> fastapi.responses.JSONRes
     response_headers: dict[str, str] = dict(_INFRASTRUCTURE_CACHE_SUPPRESSION_HEADERS)
 
     if not all_backends_are_healthy:
-        retry_after_not_ready_seconds = getattr(request.app.state, "retry_after_not_ready_seconds", 10)
-        response_headers["Retry-After"] = str(retry_after_not_ready_seconds)
+        retry_after_not_ready_in_seconds = getattr(request.app.state, "retry_after_not_ready_in_seconds", 10)
+        response_headers["Retry-After"] = str(retry_after_not_ready_in_seconds)
 
     return fastapi.responses.JSONResponse(
         content={
@@ -251,8 +258,8 @@ async def readiness_check(request: fastapi.Request) -> fastapi.responses.JSONRes
                             "request_counts": {
                                 "type": "object",
                                 "description": (
-                                    "Map of 'METHOD /path STATUS_CODE' keys to "
-                                    "the number of times that combination was observed."
+                                    "Map of 'METHOD /path STATUS_CODE' keys to the"
+                                    " number of times that combination was observed."
                                 ),
                                 "additionalProperties": {"type": "integer"},
                             },
@@ -260,10 +267,29 @@ async def readiness_check(request: fastapi.Request) -> fastapi.responses.JSONRes
                                 "type": "object",
                                 "description": (
                                     "Map of 'METHOD /path' keys to latency statistics"
-                                    " (count, minimum_milliseconds, maximum_milliseconds,"
-                                    " average_milliseconds, ninety_fifth_percentile_milliseconds)."
+                                    " (number_of_observations, minimum_latency_in_milliseconds,"
+                                    " maximum_latency_in_milliseconds,"
+                                    " average_latency_in_milliseconds,"
+                                    " ninety_fifth_percentile_latency_in_milliseconds)."
                                 ),
-                                "additionalProperties": {"type": "object"},
+                                "additionalProperties": {
+                                    "type": "object",
+                                    "properties": {
+                                        "number_of_observations": {"type": "integer"},
+                                        "minimum_latency_in_milliseconds": {"type": "number"},
+                                        "maximum_latency_in_milliseconds": {"type": "number"},
+                                        "average_latency_in_milliseconds": {"type": "number"},
+                                        "ninety_fifth_percentile_latency_in_milliseconds": {"type": "number"},
+                                    },
+                                    "required": [
+                                        "number_of_observations",
+                                        "minimum_latency_in_milliseconds",
+                                        "maximum_latency_in_milliseconds",
+                                        "average_latency_in_milliseconds",
+                                        "ninety_fifth_percentile_latency_in_milliseconds",
+                                    ],
+                                    "additionalProperties": False,
+                                },
                             },
                             "collected_at": {
                                 "type": "string",
@@ -276,7 +302,8 @@ async def readiness_check(request: fastapi.Request) -> fastapi.responses.JSONRes
                                 "description": "ISO 8601 UTC timestamp of when the service process started.",
                             },
                         },
-                        "required": ["request_counts", "request_latencies"],
+                        "required": ["collected_at", "service_started_at", "request_counts", "request_latencies"],
+                        "additionalProperties": False,
                     },
                 },
             },
@@ -288,7 +315,7 @@ async def get_metrics(request: fastapi.Request) -> fastapi.responses.JSONRespons
     Return a point-in-time snapshot of request count and latency metrics.
 
     The response includes two temporal metadata fields required by the
-    v5.0.0 specification (FR38, NFR12):
+    v5.2.0 specification (FR38, NFR12):
 
     - ``collected_at``: ISO 8601 UTC timestamp of when the snapshot was
       generated.
@@ -302,6 +329,8 @@ async def get_metrics(request: fastapi.Request) -> fastapi.responses.JSONRespons
     metrics_collector = getattr(request.app.state, "metrics_collector", None)
     if metrics_collector is None:
         content: dict[str, typing.Any] = {
+            "collected_at": datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+            "service_started_at": datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
             "request_counts": {},
             "request_latencies": {},
         }

@@ -13,7 +13,7 @@ Exception hierarchy
 
     Exception (Python built-in)
     └── ServiceError (base class for all service exceptions)
-        ├── LanguageModelServiceUnavailableError  → HTTP 502
+        ├── LargeLanguageModelServiceUnavailableError  → HTTP 502
         ├── ImageGenerationServiceUnavailableError → HTTP 502
         ├── PromptEnhancementError                → HTTP 502
         ├── ImageGenerationError                  → HTTP 502
@@ -55,9 +55,9 @@ class ServiceError(Exception):
         super().__init__(self.detail)
 
 
-class LanguageModelServiceUnavailableError(ServiceError):
+class LargeLanguageModelServiceUnavailableError(ServiceError):
     """
-    Raised when the llama.cpp language model server cannot be reached
+    Raised when the llama.cpp large language model server cannot be reached
     or returns a non-success HTTP status code.
 
     This exception is mapped to HTTP 502 (Bad Gateway) with the error
@@ -71,7 +71,7 @@ class LanguageModelServiceUnavailableError(ServiceError):
         - The HTTP request to the server timed out.
     """
 
-    default_detail = "The language model server is unavailable."
+    default_detail = "The large language model server is unavailable."
 
 
 class ImageGenerationServiceUnavailableError(ServiceError):
@@ -97,7 +97,7 @@ class PromptEnhancementError(ServiceError):
     """
     Raised when prompt enhancement fails for a reason other than
     network connectivity — typically a malformed or empty response
-    from the language model.
+    from the large language model.
 
     This exception is mapped to HTTP 502 (Bad Gateway) with the error
     code ``upstream_service_unavailable`` by the error-handling layer.
@@ -105,7 +105,7 @@ class PromptEnhancementError(ServiceError):
     Common causes:
         - The llama.cpp response body has an unexpected JSON structure
           (missing ``choices[0].message.content``).
-        - The language model returned an empty enhanced prompt.
+        - The large language model returned an empty enhanced prompt.
     """
 
     default_detail = "Prompt enhancement failed."
@@ -138,19 +138,12 @@ class ServiceBusyError(ServiceError):
     with the machine-readable error code ``service_busy`` and a
     ``Retry-After`` response header.
 
-    This is distinct from IP-based rate limiting
-    (``rate_limit_exceeded``):
-
-    - **Admission control** (this exception) limits the *total* number
-      of concurrent image generation operations across *all* clients
-      within a single service instance.  It protects the GPU/CPU from
-      overcommitment.
-
-    - **Rate limiting** limits the *frequency* of requests from a
-      *single* client IP address.  It prevents any one client from
-      monopolising the service.
+    Admission control limits the *total* number of concurrent image
+    generation operations across *all* clients within a single service
+    instance.  It protects the GPU/CPU from overcommitment.
     """
 
     default_detail = (
-        "The image generation service is at maximum concurrency. Please retry after the current operation completes."
+        "The image generation service is at capacity."
+        " Please retry after the duration indicated in the Retry-After header."
     )

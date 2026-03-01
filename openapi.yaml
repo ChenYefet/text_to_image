@@ -3,17 +3,17 @@ info:
   title: Text-to-Image with Prompt Assist
   description: A production-grade REST API service that generates images from text
     prompts using Stable Diffusion, with optional prompt enhancement powered by a
-    llama.cpp language model.
+    llama.cpp large language model.
   version: 1.0.0
 paths:
   /v1/prompts/enhance:
     post:
       tags:
       - Prompt Enhancement
-      summary: Enhance a text prompt using the language model
+      summary: Enhance a text prompt using the large language model
       description: Accepts a raw text prompt and returns an enhanced version optimised
         for high-quality image generation. The enhancement is performed by the llama.cpp
-        language model running in OpenAI-compatible mode.
+        large language model running in OpenAI-compatible mode.
       operationId: handle_prompt_enhancement_request_v1_prompts_enhance_post
       requestBody:
         content:
@@ -23,7 +23,9 @@ paths:
         required: true
       responses:
         '200':
-          description: Successful Response
+          description: The prompt was successfully enhanced by the large language
+            model. The response contains the original prompt, the enhanced prompt,
+            and a Unix timestamp.
           content:
             application/json:
               schema:
@@ -49,17 +51,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-        '429':
-          description: Too Many Requests — the per-IP rate limit has been exceeded
-            (``rate_limit_exceeded``). The ``Retry-After`` header indicates how long
-            to wait before retrying.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
         '502':
-          description: Bad Gateway — the llama.cpp language model server is unreachable
-            or returned an error (``upstream_service_unavailable``).
+          description: Bad Gateway — the llama.cpp large language model server is
+            unreachable or returned an error (``upstream_service_unavailable``).
           content:
             application/json:
               schema:
@@ -98,8 +92,8 @@ paths:
       - Image Generation
       summary: Generate images from a text prompt
       description: Generates one or more images from a text prompt using Stable Diffusion.
-        When use_enhancer is true, the prompt is first enhanced by the llama.cpp language
-        model to improve image quality.
+        When use_enhancer is true, the prompt is first enhanced by the llama.cpp large
+        language model to improve image quality.
       operationId: handle_image_generation_request_v1_images_generations_post
       requestBody:
         content:
@@ -109,7 +103,9 @@ paths:
         required: true
       responses:
         '200':
-          description: Successful Response
+          description: Images were generated successfully. The response contains the
+            seed used, an array of base64-encoded PNG images, and optionally the enhanced
+            prompt and content safety warnings.
           content:
             application/json:
               schema:
@@ -136,17 +132,16 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '429':
-          description: Too Many Requests — either the per-IP rate limit has been exceeded
-            (``rate_limit_exceeded``) or the image generation concurrency limit is
-            fully occupied (``service_busy``). The ``Retry-After`` header indicates
+          description: Too Many Requests — the image generation concurrency limit
+            is fully occupied (``service_busy``). The ``Retry-After`` header indicates
             how long to wait before retrying.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '502':
-          description: Bad Gateway — the upstream language model server or the Stable
-            Diffusion pipeline encountered a failure (``upstream_service_unavailable``
+          description: Bad Gateway — the upstream large language model server or the
+            Stable Diffusion pipeline encountered a failure (``upstream_service_unavailable``
             or ``model_unavailable``).
           content:
             application/json:
@@ -199,6 +194,7 @@ paths:
                     enum:
                     - healthy
                     description: Always ``healthy`` when the process is alive.
+                additionalProperties: false
                 type: object
                 required:
                 - status
@@ -230,9 +226,9 @@ paths:
       tags:
       - Health
       summary: Readiness check
-      description: Checks that backend services (language model server and image generation
-        pipeline) are initialised and reachable. Returns HTTP 503 with a Retry-After
-        header when any backend is unavailable.
+      description: Checks that backend services (large language model server and image
+        generation pipeline) are initialised and reachable. Returns HTTP 503 with
+        a Retry-After header when any backend is unavailable.
       operationId: readiness_check_health_ready_get
       responses:
         '200':
@@ -247,7 +243,7 @@ paths:
                     - ready
                   checks:
                     properties:
-                      language_model:
+                      large_language_model:
                         type: string
                         enum:
                         - ok
@@ -255,10 +251,12 @@ paths:
                         type: string
                         enum:
                         - ok
+                    additionalProperties: false
                     type: object
                     required:
-                    - language_model
+                    - large_language_model
                     - image_generation
+                additionalProperties: false
                 type: object
                 required:
                 - status
@@ -266,7 +264,7 @@ paths:
               example:
                 status: ready
                 checks:
-                  language_model: ok
+                  large_language_model: ok
                   image_generation: ok
         '503':
           description: Service Unavailable — one or more backend services are unhealthy.
@@ -287,7 +285,7 @@ paths:
                     - not_ready
                   checks:
                     properties:
-                      language_model:
+                      large_language_model:
                         type: string
                         enum:
                         - ok
@@ -297,10 +295,12 @@ paths:
                         enum:
                         - ok
                         - unavailable
+                    additionalProperties: false
                     type: object
                     required:
-                    - language_model
+                    - large_language_model
                     - image_generation
+                additionalProperties: false
                 type: object
                 required:
                 - status
@@ -308,7 +308,7 @@ paths:
               example:
                 status: not_ready
                 checks:
-                  language_model: ok
+                  large_language_model: ok
                   image_generation: unavailable
         '404':
           content:
@@ -354,11 +354,29 @@ paths:
                       of times that combination was observed.
                   request_latencies:
                     additionalProperties:
+                      properties:
+                        number_of_observations:
+                          type: integer
+                        minimum_latency_in_milliseconds:
+                          type: number
+                        maximum_latency_in_milliseconds:
+                          type: number
+                        average_latency_in_milliseconds:
+                          type: number
+                        ninety_fifth_percentile_latency_in_milliseconds:
+                          type: number
+                      additionalProperties: false
                       type: object
+                      required:
+                      - number_of_observations
+                      - minimum_latency_in_milliseconds
+                      - maximum_latency_in_milliseconds
+                      - average_latency_in_milliseconds
+                      - ninety_fifth_percentile_latency_in_milliseconds
                     type: object
                     description: Map of 'METHOD /path' keys to latency statistics
-                      (count, minimum_milliseconds, maximum_milliseconds, average_milliseconds,
-                      ninety_fifth_percentile_milliseconds).
+                      (number_of_observations, minimum_latency_in_milliseconds, maximum_latency_in_milliseconds,
+                      average_latency_in_milliseconds, ninety_fifth_percentile_latency_in_milliseconds).
                   collected_at:
                     type: string
                     format: date-time
@@ -368,8 +386,11 @@ paths:
                     format: date-time
                     description: ISO 8601 UTC timestamp of when the service process
                       started.
+                additionalProperties: false
                 type: object
                 required:
+                - collected_at
+                - service_started_at
                 - request_counts
                 - request_latencies
         '404':
@@ -417,9 +438,11 @@ components:
             a descriptive string, an array of validation error objects, or null.
         correlation_id:
           type: string
+          format: uuid
           title: Correlation Id
           description: UUID v4 correlation identifier matching the X-Correlation-ID
             response header.
+      additionalProperties: false
       type: object
       required:
       - code
@@ -441,6 +464,7 @@ components:
         error:
           $ref: '#/components/schemas/ErrorDetail'
           description: An object containing error details.
+      additionalProperties: false
       type: object
       required:
       - error
@@ -461,6 +485,7 @@ components:
           description: The generated image encoded as a base64 PNG string using the
             standard base64 alphabet (RFC 4648 §4). Null if the image was filtered
             by the content safety checker.
+      additionalProperties: false
       type: object
       required:
       - base64_json
@@ -487,7 +512,7 @@ components:
           type: boolean
           title: Use Enhancer
           description: When set to true, the prompt will first be enhanced by the
-            language model before being sent to the image generation service.
+            large language model before being sent to the image generation service.
           default: false
         n:
           type: integer
@@ -499,6 +524,10 @@ components:
           default: 1
         size:
           type: string
+          enum:
+          - 512x512
+          - 768x768
+          - 1024x1024
           title: Size
           description: 'The dimensions of the generated image in WIDTHxHEIGHT format.
             Supported sizes: 1024x1024, 512x512, 768x768.'
@@ -519,6 +548,7 @@ components:
             Seed 0 is a valid deterministic seed with no special semantics.
         response_format:
           type: string
+          const: base64_json
           title: Response Format
           description: Format of the image data in the response. Currently only 'base64_json'
             (base64-encoded inline) is supported. Reserved for future extension to
@@ -536,7 +566,7 @@ components:
 
         When ``use_enhancer`` is true, the prompt is first enhanced by the
 
-        language model before being forwarded to Stable Diffusion.'
+        large language model before being forwarded to Stable Diffusion.'
     ImageGenerationResponse:
       properties:
         created:
@@ -546,6 +576,7 @@ components:
             generation completed.
         seed:
           type: integer
+          minimum: 0.0
           title: Seed
           description: The seed used for image generation. Echoes the request seed
             if provided; otherwise, the randomly generated seed.
@@ -561,6 +592,7 @@ components:
         enhanced_prompt:
           anyOf:
           - type: string
+            minLength: 1
           - type: 'null'
           title: Enhanced Prompt
           description: 'The enhanced prompt used for image generation, present only
@@ -575,6 +607,7 @@ components:
           title: Warnings
           description: Present only when the content safety checker has flagged one
             or more images. Lists the indices of filtered images.
+      additionalProperties: false
       type: object
       required:
       - created
@@ -607,6 +640,7 @@ components:
           type: string
           title: Reason
           description: Machine-readable reason for the warning (for example, 'content_policy_violation').
+      additionalProperties: false
       type: object
       required:
       - index
@@ -624,9 +658,9 @@ components:
           minLength: 1
           pattern: .*\S.*
           title: Prompt
-          description: The original user-supplied prompt to be enhanced by the language
-            model. Must be between 1 and 2000 characters and contain at least one
-            non-whitespace character.
+          description: The original user-supplied prompt to be enhanced by the large
+            language model. Must be between 1 and 2000 characters and contain at least
+            one non-whitespace character.
           examples:
           - A cat sitting on a windowsill
       additionalProperties: false
@@ -639,17 +673,19 @@ components:
 
         The client supplies a raw text prompt which will be sent to the
 
-        language model for enhancement.'
+        large language model for enhancement.'
     PromptEnhancementResponse:
       properties:
         original_prompt:
           type: string
+          minLength: 1
           title: Original Prompt
           description: The user-provided prompt exactly as received by the service,
             echoed for client-side correlation without requiring the client to maintain
             its own request bookkeeping.
         enhanced_prompt:
           type: string
+          minLength: 1
           title: Enhanced Prompt
           description: Enhanced version of the input prompt, optimised for text-to-image
             generation. This value is the llama.cpp response content after leading
@@ -659,6 +695,7 @@ components:
           title: Created
           description: Unix timestamp (seconds since epoch) indicating when the prompt
             enhancement completed.
+      additionalProperties: false
       type: object
       required:
       - original_prompt
@@ -670,6 +707,6 @@ components:
 
         Contains the original prompt echoed back for client-side correlation,
 
-        the enhanced version produced by the language model, and a Unix
+        the enhanced version produced by the large language model, and a Unix
 
         timestamp indicating when the enhancement completed.'

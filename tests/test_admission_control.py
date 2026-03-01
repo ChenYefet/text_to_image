@@ -1,5 +1,5 @@
 """
-Comprehensive unit tests for the ImageGenerationAdmissionController.
+Comprehensive unit tests for the AdmissionControllerForImageGeneration.
 
 The admission controller (NFR44) enforces a configurable concurrency limit
 on image generation operations.  When the limit is reached, additional
@@ -25,28 +25,28 @@ import application.admission_control
 import application.exceptions
 
 
-class TestImageGenerationAdmissionControllerInitialisation:
+class TestAdmissionControllerForImageGenerationInitialisation:
     """Verify that the controller initialises with correct defaults and custom values."""
 
-    def test_default_maximum_concurrency_is_one(self) -> None:
-        """The v5.0.0 specification default for maximum concurrency is 1."""
-        controller = application.admission_control.ImageGenerationAdmissionController()
+    def test_default_maximum_number_of_concurrent_operations_is_one(self) -> None:
+        """The v5.2.0 specification default for maximum number of concurrent operations is 1."""
+        controller = application.admission_control.AdmissionControllerForImageGeneration()
 
-        assert controller.maximum_concurrency == 1
+        assert controller.maximum_number_of_concurrent_operations == 1
 
-    def test_custom_maximum_concurrency_is_stored(self) -> None:
+    def test_custom_maximum_number_of_concurrent_operations_is_stored(self) -> None:
         """Operators can configure a higher concurrency limit via the constructor."""
-        controller = application.admission_control.ImageGenerationAdmissionController(
-            maximum_concurrency=4,
+        controller = application.admission_control.AdmissionControllerForImageGeneration(
+            maximum_number_of_concurrent_operations=4,
         )
 
-        assert controller.maximum_concurrency == 4
+        assert controller.maximum_number_of_concurrent_operations == 4
 
-    def test_initial_active_operation_count_is_zero(self) -> None:
+    def test_initial_number_of_active_operations_is_zero(self) -> None:
         """No operations are active when the controller is first created."""
-        controller = application.admission_control.ImageGenerationAdmissionController()
+        controller = application.admission_control.AdmissionControllerForImageGeneration()
 
-        assert controller.active_operation_count == 0
+        assert controller.number_of_active_operations == 0
 
 
 class TestAcquireOrRejectSuccessfulAcquisition:
@@ -57,48 +57,48 @@ class TestAcquireOrRejectSuccessfulAcquisition:
         When a single operation acquires admission, the active count
         increases to 1 for the duration of the context manager body.
         """
-        controller = application.admission_control.ImageGenerationAdmissionController(
-            maximum_concurrency=1,
+        controller = application.admission_control.AdmissionControllerForImageGeneration(
+            maximum_number_of_concurrent_operations=1,
         )
 
         async with controller.acquire_or_reject():
-            assert controller.active_operation_count == 1
+            assert controller.number_of_active_operations == 1
 
     async def test_active_count_returns_to_zero_after_exit(self) -> None:
         """
         After the context manager exits normally, the active count
         returns to zero — the slot is released for the next request.
         """
-        controller = application.admission_control.ImageGenerationAdmissionController(
-            maximum_concurrency=1,
+        controller = application.admission_control.AdmissionControllerForImageGeneration(
+            maximum_number_of_concurrent_operations=1,
         )
 
         async with controller.acquire_or_reject():
             pass  # Simulate a completed operation.
 
-        assert controller.active_operation_count == 0
+        assert controller.number_of_active_operations == 0
 
     async def test_sequential_acquisitions_succeed(self) -> None:
         """
         Multiple operations can acquire and release the same slot
         sequentially without triggering rejection.
         """
-        controller = application.admission_control.ImageGenerationAdmissionController(
-            maximum_concurrency=1,
+        controller = application.admission_control.AdmissionControllerForImageGeneration(
+            maximum_number_of_concurrent_operations=1,
         )
 
         for _ in range(5):
             async with controller.acquire_or_reject():
-                assert controller.active_operation_count == 1
-            assert controller.active_operation_count == 0
+                assert controller.number_of_active_operations == 1
+            assert controller.number_of_active_operations == 0
 
     async def test_concurrent_acquisitions_up_to_limit(self) -> None:
         """
-        When the maximum concurrency is greater than 1, multiple
+        When the maximum number of concurrent operations is greater than 1, multiple
         operations can execute concurrently up to the configured limit.
         """
-        controller = application.admission_control.ImageGenerationAdmissionController(
-            maximum_concurrency=3,
+        controller = application.admission_control.AdmissionControllerForImageGeneration(
+            maximum_number_of_concurrent_operations=3,
         )
 
         # Use an event to keep all three operations active simultaneously.
@@ -114,13 +114,13 @@ class TestAcquireOrRejectSuccessfulAcquisition:
         # Give the event loop a tick to let all tasks acquire admission.
         await asyncio.sleep(0)
 
-        assert controller.active_operation_count == 3
+        assert controller.number_of_active_operations == 3
 
         # Release all operations.
         release_signal.set()
         await asyncio.gather(*tasks)
 
-        assert controller.active_operation_count == 0
+        assert controller.number_of_active_operations == 0
 
 
 class TestAcquireOrRejectRejection:
@@ -131,8 +131,8 @@ class TestAcquireOrRejectRejection:
         When the concurrency limit is reached, the next acquisition
         attempt raises ``ServiceBusyError`` immediately.
         """
-        controller = application.admission_control.ImageGenerationAdmissionController(
-            maximum_concurrency=1,
+        controller = application.admission_control.AdmissionControllerForImageGeneration(
+            maximum_number_of_concurrent_operations=1,
         )
 
         async with controller.acquire_or_reject():
@@ -146,27 +146,27 @@ class TestAcquireOrRejectRejection:
         A rejected acquisition attempt must not increment the active
         count — only successfully admitted operations occupy a slot.
         """
-        controller = application.admission_control.ImageGenerationAdmissionController(
-            maximum_concurrency=1,
+        controller = application.admission_control.AdmissionControllerForImageGeneration(
+            maximum_number_of_concurrent_operations=1,
         )
 
         async with controller.acquire_or_reject():
-            assert controller.active_operation_count == 1
+            assert controller.number_of_active_operations == 1
 
             with pytest.raises(application.exceptions.ServiceBusyError):
                 async with controller.acquire_or_reject():
                     pass  # pragma: no cover
 
             # The count must still be 1 (from the outer context), not 2.
-            assert controller.active_operation_count == 1
+            assert controller.number_of_active_operations == 1
 
     async def test_rejection_at_concurrency_of_three(self) -> None:
         """
         The rejection threshold respects the configured maximum even
         when it is higher than the default of 1.
         """
-        controller = application.admission_control.ImageGenerationAdmissionController(
-            maximum_concurrency=3,
+        controller = application.admission_control.AdmissionControllerForImageGeneration(
+            maximum_number_of_concurrent_operations=3,
         )
 
         release_signal = asyncio.Event()
@@ -179,7 +179,7 @@ class TestAcquireOrRejectRejection:
         tasks = [asyncio.create_task(hold_admission()) for _ in range(3)]
         await asyncio.sleep(0)
 
-        assert controller.active_operation_count == 3
+        assert controller.number_of_active_operations == 3
 
         # The fourth attempt must be rejected.
         with pytest.raises(application.exceptions.ServiceBusyError):
@@ -195,8 +195,8 @@ class TestAcquireOrRejectRejection:
         After a rejection, once the occupying operation completes and
         releases its slot, the next acquisition attempt succeeds.
         """
-        controller = application.admission_control.ImageGenerationAdmissionController(
-            maximum_concurrency=1,
+        controller = application.admission_control.AdmissionControllerForImageGeneration(
+            maximum_number_of_concurrent_operations=1,
         )
 
         async with controller.acquire_or_reject():
@@ -207,7 +207,7 @@ class TestAcquireOrRejectRejection:
 
         # The slot is now free; this must succeed.
         async with controller.acquire_or_reject():
-            assert controller.active_operation_count == 1
+            assert controller.number_of_active_operations == 1
 
 
 class TestAcquireOrRejectExceptionSafety:
@@ -219,25 +219,25 @@ class TestAcquireOrRejectExceptionSafety:
         context manager, the active count must still be decremented so
         the slot is freed for subsequent requests.
         """
-        controller = application.admission_control.ImageGenerationAdmissionController(
-            maximum_concurrency=1,
+        controller = application.admission_control.AdmissionControllerForImageGeneration(
+            maximum_number_of_concurrent_operations=1,
         )
 
         with pytest.raises(RuntimeError, match="simulated inference failure"):
             async with controller.acquire_or_reject():
-                assert controller.active_operation_count == 1
+                assert controller.number_of_active_operations == 1
                 raise RuntimeError("simulated inference failure")
 
         # The slot must be freed despite the exception.
-        assert controller.active_operation_count == 0
+        assert controller.number_of_active_operations == 0
 
     async def test_subsequent_acquisition_succeeds_after_exception(self) -> None:
         """
         After an exception releases the slot, a new operation can
         successfully acquire admission.
         """
-        controller = application.admission_control.ImageGenerationAdmissionController(
-            maximum_concurrency=1,
+        controller = application.admission_control.AdmissionControllerForImageGeneration(
+            maximum_number_of_concurrent_operations=1,
         )
 
         with pytest.raises(ValueError):
@@ -246,22 +246,22 @@ class TestAcquireOrRejectExceptionSafety:
 
         # The next acquisition must succeed.
         async with controller.acquire_or_reject():
-            assert controller.active_operation_count == 1
+            assert controller.number_of_active_operations == 1
 
 
 class TestAdmissionControllerProperties:
     """Verify the read-only property accessors used for operational monitoring."""
 
-    def test_active_operation_count_property_returns_integer(self) -> None:
-        """The active_operation_count property returns an integer."""
-        controller = application.admission_control.ImageGenerationAdmissionController()
+    def test_number_of_active_operations_property_returns_integer(self) -> None:
+        """The number_of_active_operations property returns an integer."""
+        controller = application.admission_control.AdmissionControllerForImageGeneration()
 
-        assert isinstance(controller.active_operation_count, int)
+        assert isinstance(controller.number_of_active_operations, int)
 
-    def test_maximum_concurrency_property_returns_configured_value(self) -> None:
-        """The maximum_concurrency property returns the value set at construction."""
-        controller = application.admission_control.ImageGenerationAdmissionController(
-            maximum_concurrency=8,
+    def test_maximum_number_of_concurrent_operations_property_returns_configured_value(self) -> None:
+        """The maximum_number_of_concurrent_operations property returns the value set at construction."""
+        controller = application.admission_control.AdmissionControllerForImageGeneration(
+            maximum_number_of_concurrent_operations=8,
         )
 
-        assert controller.maximum_concurrency == 8
+        assert controller.maximum_number_of_concurrent_operations == 8

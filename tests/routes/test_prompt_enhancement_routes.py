@@ -7,7 +7,7 @@ import application.exceptions
 
 class TestPromptEnhancementRoutes:
     @pytest.mark.asyncio
-    async def test_success(self, client, mock_language_model_service) -> None:
+    async def test_success(self, client, mock_of_large_language_model_service) -> None:
         response = await client.post(
             "/v1/prompts/enhance",
             json={"prompt": "A cat sitting on a windowsill"},
@@ -20,17 +20,19 @@ class TestPromptEnhancementRoutes:
         assert "created" in body
         assert isinstance(body["created"], int)
         assert "X-Correlation-ID" in response.headers
-        mock_language_model_service.enhance_prompt.assert_awaited_once_with(
+        mock_of_large_language_model_service.enhance_prompt.assert_awaited_once_with(
             original_prompt="A cat sitting on a windowsill"
         )
 
     @pytest.mark.asyncio
-    async def test_success_includes_cache_control_no_store_header(self, client, mock_language_model_service) -> None:
+    async def test_success_includes_cache_control_no_store_header(
+        self, client, mock_of_large_language_model_service
+    ) -> None:
         """
         Successful prompt enhancement responses must include a
         ``Cache-Control: no-store`` header to prevent intermediate proxies
         and CDNs from caching dynamically generated content (§12 of the
-        v5.0.0 specification, SHOULD-level advisory).
+        v5.2.0 specification, SHOULD-level advisory).
         """
         response = await client.post(
             "/v1/prompts/enhance",
@@ -42,7 +44,7 @@ class TestPromptEnhancementRoutes:
         assert response.headers["cache-control"] == "no-store"
 
     @pytest.mark.asyncio
-    async def test_original_prompt_echoed_exactly(self, client, mock_language_model_service) -> None:
+    async def test_original_prompt_echoed_exactly(self, client, mock_of_large_language_model_service) -> None:
         """The original_prompt field echoes the input exactly as received."""
         response = await client.post(
             "/v1/prompts/enhance",
@@ -54,7 +56,7 @@ class TestPromptEnhancementRoutes:
         assert body["original_prompt"] == "A cat"
 
     @pytest.mark.asyncio
-    async def test_response_contains_all_required_fields(self, client, mock_language_model_service) -> None:
+    async def test_response_contains_all_required_fields(self, client, mock_of_large_language_model_service) -> None:
         response = await client.post(
             "/v1/prompts/enhance",
             json={"prompt": "A sunset"},
@@ -100,6 +102,7 @@ class TestPromptEnhancementRoutes:
         )
 
         assert response.status_code == 400
+        assert response.json()["error"]["code"] == "request_validation_failed"
         assert "X-Correlation-ID" in response.headers
 
     @pytest.mark.asyncio
@@ -110,6 +113,7 @@ class TestPromptEnhancementRoutes:
         )
 
         assert response.status_code == 400
+        assert response.json()["error"]["code"] == "request_validation_failed"
         assert "X-Correlation-ID" in response.headers
 
     @pytest.mark.asyncio
@@ -120,12 +124,13 @@ class TestPromptEnhancementRoutes:
         )
 
         assert response.status_code == 400
+        assert response.json()["error"]["code"] == "request_validation_failed"
         assert "X-Correlation-ID" in response.headers
 
     @pytest.mark.asyncio
-    async def test_service_unavailable(self, client, mock_language_model_service) -> None:
-        mock_language_model_service.enhance_prompt.side_effect = (
-            application.exceptions.LanguageModelServiceUnavailableError(detail="Server down")
+    async def test_service_unavailable(self, client, mock_of_large_language_model_service) -> None:
+        mock_of_large_language_model_service.enhance_prompt.side_effect = (
+            application.exceptions.LargeLanguageModelServiceUnavailableError(detail="Server down")
         )
 
         response = await client.post(
@@ -140,8 +145,8 @@ class TestPromptEnhancementRoutes:
         assert "Server down" in body["error"]["message"]
 
     @pytest.mark.asyncio
-    async def test_enhancement_error(self, client, mock_language_model_service) -> None:
-        mock_language_model_service.enhance_prompt.side_effect = application.exceptions.PromptEnhancementError(
+    async def test_enhancement_error(self, client, mock_of_large_language_model_service) -> None:
+        mock_of_large_language_model_service.enhance_prompt.side_effect = application.exceptions.PromptEnhancementError(
             detail="Malformed response"
         )
 
@@ -157,8 +162,8 @@ class TestPromptEnhancementRoutes:
         assert "Malformed response" in body["error"]["message"]
 
     @pytest.mark.asyncio
-    async def test_unexpected_error(self, client, mock_language_model_service) -> None:
-        mock_language_model_service.enhance_prompt.side_effect = RuntimeError("something broke")
+    async def test_unexpected_error(self, client, mock_of_large_language_model_service) -> None:
+        mock_of_large_language_model_service.enhance_prompt.side_effect = RuntimeError("something broke")
 
         response = await client.post(
             "/v1/prompts/enhance",

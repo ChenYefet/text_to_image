@@ -23,17 +23,17 @@ import pytest_asyncio
 import application.exceptions
 import application.server_factory
 import application.services.image_generation_service
-import application.services.language_model_service
+import application.services.large_language_model_service
 
 
-def _build_mock_image_generation_service():
+def _build_mock_of_image_generation_service():
     """
     Create a mock ImageGenerationService that returns an
     ``ImageGenerationResult`` matching the updated service interface.
     """
     mock_generation_result = application.services.image_generation_service.ImageGenerationResult(
         base64_encoded_images=["base64encodedimage"],
-        content_safety_flagged_indices=[],
+        indices_flagged_by_content_safety_checker=[],
     )
 
     service = MagicMock(
@@ -42,13 +42,14 @@ def _build_mock_image_generation_service():
     service.generate_images = AsyncMock(return_value=mock_generation_result)
     service.check_health.return_value = True
     service.close = AsyncMock()
+    service._device = MagicMock(type="cpu")
     return service
 
 
-def _build_mock_language_model_service():
-    """Create a mock LanguageModelService that behaves like the real one."""
+def _build_mock_of_large_language_model_service():
+    """Create a mock LargeLanguageModelService that behaves like the real one."""
     service = MagicMock(
-        spec=application.services.language_model_service.LanguageModelService,
+        spec=application.services.large_language_model_service.LargeLanguageModelService,
     )
     service.enhance_prompt = AsyncMock(return_value="Enhanced prompt text")
     service.check_health = AsyncMock(return_value=True)
@@ -66,59 +67,61 @@ def _apply_default_configuration_attributes(mock_configuration_instance):
     mock_configuration_instance.application_port = 8000
     mock_configuration_instance.cors_allowed_origins = []
     mock_configuration_instance.log_level = "INFO"
-    mock_configuration_instance.rate_limit = "1000/minute"
-    mock_configuration_instance.language_model_server_base_url = "http://localhost:8080"
-    mock_configuration_instance.timeout_for_language_model_requests_in_seconds = 120.0
-    mock_configuration_instance.language_model_temperature = 0.7
-    mock_configuration_instance.language_model_maximum_tokens = 512
-    mock_configuration_instance.language_model_system_prompt = "You are an expert at enhancing text-to-image prompts."
-    mock_configuration_instance.language_model_connection_pool_size = 10
-    mock_configuration_instance.language_model_maximum_response_bytes = 1_048_576
-    mock_configuration_instance.stable_diffusion_model_id = "test-model"
-    mock_configuration_instance.stable_diffusion_model_revision = "main"
+    mock_configuration_instance.base_url_of_large_language_model_server = "http://localhost:8080"
+    mock_configuration_instance.timeout_for_requests_to_large_language_model_in_seconds = 120.0
+    mock_configuration_instance.large_language_model_temperature = 0.7
+    mock_configuration_instance.maximum_tokens_generated_by_large_language_model = 512
+    mock_configuration_instance.system_prompt_for_large_language_model = (
+        "You are an expert at enhancing text-to-image prompts."
+    )
+    mock_configuration_instance.size_of_connection_pool_for_large_language_model = 10
+    mock_configuration_instance.maximum_number_of_bytes_of_response_body_from_large_language_model = 1_048_576
+    mock_configuration_instance.id_of_stable_diffusion_model = "test-model"
+    mock_configuration_instance.revision_of_stable_diffusion_model = "main"
     mock_configuration_instance.stable_diffusion_device = "cpu"
-    mock_configuration_instance.stable_diffusion_safety_checker = True
-    mock_configuration_instance.stable_diffusion_inference_steps = 20
-    mock_configuration_instance.stable_diffusion_guidance_scale = 7.0
-    mock_configuration_instance.stable_diffusion_inference_timeout_per_unit_seconds = 60.0
-    mock_configuration_instance.image_generation_maximum_concurrency = 1
-    mock_configuration_instance.retry_after_busy_seconds = 30
-    mock_configuration_instance.retry_after_rate_limit_seconds = 60
-    mock_configuration_instance.retry_after_not_ready_seconds = 10
-    mock_configuration_instance.maximum_request_payload_bytes = 1_048_576
+    mock_configuration_instance.safety_checker_for_stable_diffusion = True
+    mock_configuration_instance.number_of_inference_steps_of_stable_diffusion = 20
+    mock_configuration_instance.guidance_scale_of_stable_diffusion = 7.0
+    mock_configuration_instance.inference_timeout_by_stable_diffusion_per_baseline_unit_in_seconds = 60.0
+    mock_configuration_instance.maximum_number_of_concurrent_operations_of_image_generation = 1
+    mock_configuration_instance.retry_after_busy_in_seconds = 30
+    mock_configuration_instance.retry_after_not_ready_in_seconds = 10
+    mock_configuration_instance.maximum_number_of_bytes_of_request_payload = 1_048_576
     mock_configuration_instance.timeout_for_requests_in_seconds = 300.0
+    mock_configuration_instance.failure_threshold_of_circuit_breaker_for_large_language_model = 5
+    mock_configuration_instance.recovery_timeout_of_circuit_breaker_for_large_language_model_in_seconds = 30.0
 
 
 @contextlib.contextmanager
-def _patched_services(mock_language_model_service, mock_image_generation_service):
+def _patched_services(mock_of_large_language_model_service, mock_of_image_generation_service):
     """Patch both ML service constructors for the duration of the block."""
     with (
         patch.object(
-            application.services.language_model_service,
-            "LanguageModelService",
-            return_value=mock_language_model_service,
+            application.services.large_language_model_service,
+            "LargeLanguageModelService",
+            return_value=mock_of_large_language_model_service,
         ),
         patch.object(
             application.services.image_generation_service.ImageGenerationService,
             "load_pipeline",
-            return_value=mock_image_generation_service,
+            return_value=mock_of_image_generation_service,
         ),
     ):
         yield
 
 
 @pytest.fixture
-def mock_language_model_service():
-    return _build_mock_language_model_service()
+def mock_of_large_language_model_service():
+    return _build_mock_of_large_language_model_service()
 
 
 @pytest.fixture
-def mock_image_generation_service():
-    return _build_mock_image_generation_service()
+def mock_of_image_generation_service():
+    return _build_mock_of_image_generation_service()
 
 
 @pytest_asyncio.fixture
-async def integration_client(mock_language_model_service, mock_image_generation_service):
+async def integration_client(mock_of_large_language_model_service, mock_of_image_generation_service):
     """
     Create a real FastAPI app via ``create_application()`` with mocked ML
     backends, invoke the lifespan, and yield an async HTTP client.
@@ -126,30 +129,30 @@ async def integration_client(mock_language_model_service, mock_image_generation_
     Patches remain active for the full lifespan because the lifespan
     closure references module-level names at runtime.
     """
-    with _patched_services(mock_language_model_service, mock_image_generation_service):
-        app = application.server_factory.create_application()
-        async with app.router.lifespan_context(app):
-            transport = httpx.ASGITransport(app=app)
+    with _patched_services(mock_of_large_language_model_service, mock_of_image_generation_service):
+        test_application = application.server_factory.create_application()
+        async with test_application.router.lifespan_context(test_application):
+            transport = httpx.ASGITransport(app=test_application)
             async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
                 yield client
 
 
 @pytest_asyncio.fixture
-async def cors_client(mock_language_model_service, mock_image_generation_service):
+async def cors_client(mock_of_large_language_model_service, mock_of_image_generation_service):
     """
-    Create a real app with CORS enabled and yield an async HTTP client.
+    Create a real application with CORS enabled and yield an async HTTP client.
     """
     with (
-        patch("configuration.ApplicationConfiguration") as mock_config_cls,
-        _patched_services(mock_language_model_service, mock_image_generation_service),
+        patch("configuration.ApplicationConfiguration") as mock_configuration_class,
+        _patched_services(mock_of_large_language_model_service, mock_of_image_generation_service),
     ):
-        configuration_instance = mock_config_cls.return_value
+        configuration_instance = mock_configuration_class.return_value
         _apply_default_configuration_attributes(configuration_instance)
         configuration_instance.cors_allowed_origins = ["http://localhost:3000"]
 
-        app = application.server_factory.create_application()
-        async with app.router.lifespan_context(app):
-            transport = httpx.ASGITransport(app=app)
+        test_application = application.server_factory.create_application()
+        async with test_application.router.lifespan_context(test_application):
+            transport = httpx.ASGITransport(app=test_application)
             async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
                 yield client
 
@@ -177,7 +180,7 @@ class TestServerFactory:
         assert response.status_code == 200
         body = response.json()
         assert body["status"] == "ready"
-        assert body["checks"]["language_model"] == "ok"
+        assert body["checks"]["large_language_model"] == "ok"
         assert body["checks"]["image_generation"] == "ok"
 
 
@@ -186,34 +189,40 @@ class TestServerFactory:
 
 class TestLifespan:
     @pytest.mark.asyncio
-    async def test_services_initialised_on_startup(self, mock_language_model_service, mock_image_generation_service):
-        """Services must be set on app.state after lifespan startup."""
-        with _patched_services(mock_language_model_service, mock_image_generation_service):
-            app = application.server_factory.create_application()
-            async with app.router.lifespan_context(app):
-                assert app.state.language_model_service is mock_language_model_service
-                assert app.state.image_generation_service is mock_image_generation_service
+    async def test_services_initialised_on_startup(
+        self, mock_of_large_language_model_service, mock_of_image_generation_service
+    ):
+        """Services must be set on application state after lifespan startup."""
+        with _patched_services(mock_of_large_language_model_service, mock_of_image_generation_service):
+            test_application = application.server_factory.create_application()
+            async with test_application.router.lifespan_context(test_application):
+                assert test_application.state.large_language_model_service is mock_of_large_language_model_service
+                assert test_application.state.image_generation_service is mock_of_image_generation_service
 
     @pytest.mark.asyncio
-    async def test_services_closed_on_shutdown(self, mock_language_model_service, mock_image_generation_service):
+    async def test_services_closed_on_shutdown(
+        self, mock_of_large_language_model_service, mock_of_image_generation_service
+    ):
         """Services must be closed when the lifespan exits."""
-        with _patched_services(mock_language_model_service, mock_image_generation_service):
-            app = application.server_factory.create_application()
-            async with app.router.lifespan_context(app):
+        with _patched_services(mock_of_large_language_model_service, mock_of_image_generation_service):
+            test_application = application.server_factory.create_application()
+            async with test_application.router.lifespan_context(test_application):
                 pass  # startup runs
 
         # After exiting, shutdown should have run
-        mock_language_model_service.close.assert_awaited_once()
-        mock_image_generation_service.close.assert_awaited_once()
+        mock_of_large_language_model_service.close.assert_awaited_once()
+        mock_of_image_generation_service.close.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_metrics_collector_on_app_state(self, mock_language_model_service, mock_image_generation_service):
-        """The metrics collector must be set on app.state."""
-        with _patched_services(mock_language_model_service, mock_image_generation_service):
-            app = application.server_factory.create_application()
-            async with app.router.lifespan_context(app):
-                assert hasattr(app.state, "metrics_collector")
-                assert app.state.metrics_collector is not None
+    async def test_metrics_collector_on_app_state(
+        self, mock_of_large_language_model_service, mock_of_image_generation_service
+    ):
+        """The metrics collector must be set on application state."""
+        with _patched_services(mock_of_large_language_model_service, mock_of_image_generation_service):
+            test_application = application.server_factory.create_application()
+            async with test_application.router.lifespan_context(test_application):
+                assert hasattr(test_application.state, "metrics_collector")
+                assert test_application.state.metrics_collector is not None
 
 
 # ─── FR49 — Startup Model Validation (Degraded State) ────────────────────────
@@ -237,7 +246,7 @@ class TestStartupModelValidation:
     """
 
     @pytest_asyncio.fixture
-    async def degraded_client(self, mock_language_model_service):
+    async def degraded_client(self, mock_of_large_language_model_service):
         """
         Create a FastAPI application where the Stable Diffusion model
         failed to load during startup, simulating the degraded state
@@ -250,9 +259,9 @@ class TestStartupModelValidation:
         """
         with (
             patch.object(
-                application.services.language_model_service,
-                "LanguageModelService",
-                return_value=mock_language_model_service,
+                application.services.large_language_model_service,
+                "LargeLanguageModelService",
+                return_value=mock_of_large_language_model_service,
             ),
             patch.object(
                 application.services.image_generation_service.ImageGenerationService,
@@ -298,7 +307,7 @@ class TestStartupModelValidation:
         response_body = response.json()
         assert response_body["status"] == "not_ready"
         assert response_body["checks"]["image_generation"] == "unavailable"
-        assert response_body["checks"]["language_model"] == "ok"
+        assert response_body["checks"]["large_language_model"] == "ok"
 
     @pytest.mark.asyncio
     async def test_image_generation_returns_502_in_degraded_state(
@@ -334,13 +343,67 @@ class TestStartupModelValidation:
         assert response_body["original_prompt"] == "A cat sitting on a windowsill"
         assert response_body["enhanced_prompt"] == "Enhanced prompt text"
 
+    @pytest.mark.asyncio
+    async def test_startup_emits_critical_log_on_model_load_failure(
+        self,
+        mock_of_large_language_model_service,
+        capsys,
+    ):
+        """FR49: When the Stable Diffusion model fails to load during
+        startup, the service must emit a CRITICAL-level
+        ``model_validation_at_startup_failed`` log event that includes the
+        model identifier and a human-readable description of the failure."""
+        with (
+            patch.object(
+                application.services.large_language_model_service,
+                "LargeLanguageModelService",
+                return_value=mock_of_large_language_model_service,
+            ),
+            patch.object(
+                application.services.image_generation_service.ImageGenerationService,
+                "load_pipeline",
+                side_effect=OSError("Model file not found: /models/stable-diffusion"),
+            ),
+        ):
+            fastapi_application = application.server_factory.create_application()
+            async with fastapi_application.router.lifespan_context(
+                fastapi_application,
+            ):
+                pass
+
+        captured = capsys.readouterr()
+        assert "model_validation_at_startup_failed" in captured.out
+
+    @pytest.mark.asyncio
+    async def test_startup_emits_info_log_on_model_load_success(
+        self,
+        mock_of_large_language_model_service,
+        mock_of_image_generation_service,
+        capsys,
+    ):
+        """FR49: When the Stable Diffusion model loads successfully during
+        startup, the service must emit an INFO-level
+        ``model_validation_at_startup_passed`` log event."""
+        with _patched_services(
+            mock_of_large_language_model_service,
+            mock_of_image_generation_service,
+        ):
+            fastapi_application = application.server_factory.create_application()
+            async with fastapi_application.router.lifespan_context(
+                fastapi_application,
+            ):
+                pass
+
+        captured = capsys.readouterr()
+        assert "model_validation_at_startup_passed" in captured.out
+
 
 # ─── Full Request Flows ──────────────────────────────────────────────────────
 
 
 class TestPromptEnhancementFlow:
     @pytest.mark.asyncio
-    async def test_successful_enhancement(self, integration_client, mock_language_model_service):
+    async def test_successful_enhancement(self, integration_client, mock_of_large_language_model_service):
         response = await integration_client.post(
             "/v1/prompts/enhance",
             json={"prompt": "A cat"},
@@ -352,14 +415,14 @@ class TestPromptEnhancementFlow:
         assert body["enhanced_prompt"] == "Enhanced prompt text"
         assert "created" in body
         assert isinstance(body["created"], int)
-        mock_language_model_service.enhance_prompt.assert_awaited_once_with(
+        mock_of_large_language_model_service.enhance_prompt.assert_awaited_once_with(
             original_prompt="A cat",
         )
 
     @pytest.mark.asyncio
-    async def test_enhancement_service_unavailable(self, integration_client, mock_language_model_service):
-        mock_language_model_service.enhance_prompt.side_effect = (
-            application.exceptions.LanguageModelServiceUnavailableError(
+    async def test_enhancement_service_unavailable(self, integration_client, mock_of_large_language_model_service):
+        mock_of_large_language_model_service.enhance_prompt.side_effect = (
+            application.exceptions.LargeLanguageModelServiceUnavailableError(
                 detail="llama.cpp not reachable",
             )
         )
@@ -375,8 +438,8 @@ class TestPromptEnhancementFlow:
         assert "llama.cpp not reachable" in body["error"]["message"]
 
     @pytest.mark.asyncio
-    async def test_enhancement_malformed_response(self, integration_client, mock_language_model_service):
-        mock_language_model_service.enhance_prompt.side_effect = application.exceptions.PromptEnhancementError(
+    async def test_enhancement_malformed_response(self, integration_client, mock_of_large_language_model_service):
+        mock_of_large_language_model_service.enhance_prompt.side_effect = application.exceptions.PromptEnhancementError(
             detail="Unexpected response structure",
         )
 
@@ -392,7 +455,7 @@ class TestPromptEnhancementFlow:
 
 class TestImageGenerationFlow:
     @pytest.mark.asyncio
-    async def test_successful_generation(self, integration_client, mock_image_generation_service):
+    async def test_successful_generation(self, integration_client, mock_of_image_generation_service):
         response = await integration_client.post(
             "/v1/images/generations",
             json={"prompt": "A sunset"},
@@ -406,14 +469,14 @@ class TestImageGenerationFlow:
         assert isinstance(body["seed"], int)
         assert len(body["data"]) == 1
         assert body["data"][0]["base64_json"] == "base64encodedimage"
-        mock_image_generation_service.generate_images.assert_awaited_once()
+        mock_of_image_generation_service.generate_images.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_generation_with_enhancer(
         self,
         integration_client,
-        mock_language_model_service,
-        mock_image_generation_service,
+        mock_of_large_language_model_service,
+        mock_of_image_generation_service,
     ):
         response = await integration_client.post(
             "/v1/images/generations",
@@ -424,19 +487,19 @@ class TestImageGenerationFlow:
         body = response.json()
         assert body["enhanced_prompt"] == "Enhanced prompt text"
         assert "seed" in body
-        mock_language_model_service.enhance_prompt.assert_awaited_once_with(
+        mock_of_large_language_model_service.enhance_prompt.assert_awaited_once_with(
             original_prompt="A sunset",
         )
         # The enhanced prompt should be passed to image generation
-        call_kwargs = mock_image_generation_service.generate_images.call_args
-        assert call_kwargs.kwargs["prompt"] == "Enhanced prompt text"
+        keyword_arguments_passed_to_generate_images = mock_of_image_generation_service.generate_images.call_args
+        assert keyword_arguments_passed_to_generate_images.kwargs["prompt"] == "Enhanced prompt text"
 
     @pytest.mark.asyncio
     async def test_generation_without_enhancer_skips_lm(
         self,
         integration_client,
-        mock_language_model_service,
-        mock_image_generation_service,
+        mock_of_large_language_model_service,
+        mock_of_image_generation_service,
     ):
         response = await integration_client.post(
             "/v1/images/generations",
@@ -444,15 +507,15 @@ class TestImageGenerationFlow:
         )
 
         assert response.status_code == 200
-        mock_language_model_service.enhance_prompt.assert_not_awaited()
+        mock_of_large_language_model_service.enhance_prompt.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_generation_custom_size_and_count(self, integration_client, mock_image_generation_service):
+    async def test_generation_custom_size_and_count(self, integration_client, mock_of_image_generation_service):
         three_image_result = application.services.image_generation_service.ImageGenerationResult(
             base64_encoded_images=["img1", "img2", "img3"],
-            content_safety_flagged_indices=[],
+            indices_flagged_by_content_safety_checker=[],
         )
-        mock_image_generation_service.generate_images.return_value = three_image_result
+        mock_of_image_generation_service.generate_images.return_value = three_image_result
 
         response = await integration_client.post(
             "/v1/images/generations",
@@ -462,14 +525,14 @@ class TestImageGenerationFlow:
         assert response.status_code == 200
         body = response.json()
         assert len(body["data"]) == 3
-        call_kwargs = mock_image_generation_service.generate_images.call_args
-        assert call_kwargs.kwargs["image_width"] == 1024
-        assert call_kwargs.kwargs["image_height"] == 1024
-        assert call_kwargs.kwargs["number_of_images"] == 3
+        keyword_arguments_passed_to_generate_images = mock_of_image_generation_service.generate_images.call_args
+        assert keyword_arguments_passed_to_generate_images.kwargs["image_width"] == 1024
+        assert keyword_arguments_passed_to_generate_images.kwargs["image_height"] == 1024
+        assert keyword_arguments_passed_to_generate_images.kwargs["number_of_images"] == 3
 
     @pytest.mark.asyncio
-    async def test_generation_service_unavailable(self, integration_client, mock_image_generation_service):
-        mock_image_generation_service.generate_images.side_effect = (
+    async def test_generation_service_unavailable(self, integration_client, mock_of_image_generation_service):
+        mock_of_image_generation_service.generate_images.side_effect = (
             application.exceptions.ImageGenerationServiceUnavailableError(
                 detail="Pipeline not loaded",
             )
@@ -486,8 +549,8 @@ class TestImageGenerationFlow:
         assert "Pipeline not loaded" in body["error"]["message"]
 
     @pytest.mark.asyncio
-    async def test_generation_error(self, integration_client, mock_image_generation_service):
-        mock_image_generation_service.generate_images.side_effect = application.exceptions.ImageGenerationError(
+    async def test_generation_error(self, integration_client, mock_of_image_generation_service):
+        mock_of_image_generation_service.generate_images.side_effect = application.exceptions.ImageGenerationError(
             detail="No images returned",
         )
 
@@ -502,12 +565,12 @@ class TestImageGenerationFlow:
 
     @pytest.mark.asyncio
     async def test_enhancer_failure_returns_502_per_specification(
-        self, integration_client, mock_language_model_service, mock_image_generation_service
+        self, integration_client, mock_of_large_language_model_service, mock_of_image_generation_service
     ):
         """Per spec §16, when use_enhancer is true and llama.cpp fails,
         the service returns HTTP 502 — no silent fallback to the original prompt."""
-        mock_language_model_service.enhance_prompt.side_effect = (
-            application.exceptions.LanguageModelServiceUnavailableError(
+        mock_of_large_language_model_service.enhance_prompt.side_effect = (
+            application.exceptions.LargeLanguageModelServiceUnavailableError(
                 detail="Timeout",
             )
         )
@@ -521,7 +584,7 @@ class TestImageGenerationFlow:
         body = response.json()
         assert body["error"]["code"] == "upstream_service_unavailable"
         # Image generation should NOT have been attempted
-        mock_image_generation_service.generate_images.assert_not_awaited()
+        mock_of_image_generation_service.generate_images.assert_not_awaited()
 
 
 # ─── Validation Through Full Stack ───────────────────────────────────────────
@@ -606,9 +669,9 @@ class TestCorrelationIdPropagation:
         assert body["error"]["correlation_id"] == response.headers["x-correlation-id"]
 
     @pytest.mark.asyncio
-    async def test_502_error_has_correlation_id(self, integration_client, mock_language_model_service):
-        mock_language_model_service.enhance_prompt.side_effect = (
-            application.exceptions.LanguageModelServiceUnavailableError(
+    async def test_502_error_has_correlation_id(self, integration_client, mock_of_large_language_model_service):
+        mock_of_large_language_model_service.enhance_prompt.side_effect = (
+            application.exceptions.LargeLanguageModelServiceUnavailableError(
                 detail="Not reachable",
             )
         )
@@ -628,17 +691,17 @@ class TestCorrelationIdPropagation:
         response1 = await integration_client.get("/health")
         response2 = await integration_client.get("/health")
 
-        id1 = response1.headers["x-correlation-id"]
-        id2 = response2.headers["x-correlation-id"]
-        assert id1 != id2
+        correlation_id_from_first_response = response1.headers["x-correlation-id"]
+        correlation_id_from_second_response = response2.headers["x-correlation-id"]
+        assert correlation_id_from_first_response != correlation_id_from_second_response
 
     @pytest.mark.asyncio
     async def test_unhandled_exception_returns_json_500_with_correlation_id(
         self,
         integration_client,
-        mock_image_generation_service,
+        mock_of_image_generation_service,
     ):
-        mock_image_generation_service.generate_images.side_effect = ValueError(
+        mock_of_image_generation_service.generate_images.side_effect = ValueError(
             "totally unexpected",
         )
 
@@ -685,9 +748,9 @@ class TestMetricsFlow:
         latencies = body["request_latencies"]
         assert "GET /health" in latencies
         health_latency = latencies["GET /health"]
-        assert health_latency["count"] >= 1
-        assert health_latency["minimum_milliseconds"] >= 0
-        assert health_latency["maximum_milliseconds"] >= health_latency["minimum_milliseconds"]
+        assert health_latency["number_of_observations"] >= 1
+        assert health_latency["minimum_latency_in_milliseconds"] >= 0
+        assert health_latency["maximum_latency_in_milliseconds"] >= health_latency["minimum_latency_in_milliseconds"]
 
     @pytest.mark.asyncio
     async def test_error_requests_tracked_in_metrics(self, integration_client):
@@ -763,49 +826,8 @@ class TestConcurrency:
             integration_client.get("/health"),
         )
 
-        correlation_ids = [r.headers["x-correlation-id"] for r in responses]
+        correlation_ids = [response.headers["x-correlation-id"] for response in responses]
         assert len(set(correlation_ids)) == 5
-
-
-# ─── Rate Limiting ──────────────────────────────────────────────────────────
-
-
-class TestRateLimiting:
-    @pytest.mark.asyncio
-    async def test_rate_limit_returns_429(self, mock_language_model_service, mock_image_generation_service):
-        """Exceeding the rate limit must return a 429 JSON response."""
-        import application.rate_limiting
-
-        with (
-            patch("configuration.ApplicationConfiguration") as mock_config_cls,
-            _patched_services(mock_language_model_service, mock_image_generation_service),
-        ):
-            configuration_instance = mock_config_cls.return_value
-            _apply_default_configuration_attributes(configuration_instance)
-            configuration_instance.rate_limit = "2/minute"
-
-            application.rate_limiting.rate_limiter.reset()
-
-            app = application.server_factory.create_application()
-            async with app.router.lifespan_context(app):
-                transport = httpx.ASGITransport(app=app)
-                async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
-                    # First two requests should succeed
-                    r1 = await client.post("/v1/prompts/enhance", json={"prompt": "A cat"})
-                    assert r1.status_code == 200
-
-                    r2 = await client.post("/v1/prompts/enhance", json={"prompt": "A dog"})
-                    assert r2.status_code == 200
-
-                    # Third request should be rate limited
-                    r3 = await client.post("/v1/prompts/enhance", json={"prompt": "A bird"})
-                    assert r3.status_code == 429
-                    body = r3.json()
-                    assert body["error"]["code"] == "rate_limit_exceeded"
-                    assert "x-correlation-id" in r3.headers
-                    # NFR47: Retry-After header must be present on 429 responses
-                    assert "Retry-After" in r3.headers
-                    assert r3.headers["Retry-After"] == "60"
 
 
 # ─── HTTP 405 Method Not Allowed with Allow Header (NFR22) ──────────────────
@@ -914,6 +936,17 @@ class TestNotFoundFullStackIntegration:
         assert "x-correlation-id" in response.headers
         assert response_body["error"]["correlation_id"] == response.headers["x-correlation-id"]
 
+    @pytest.mark.asyncio
+    async def test_unversioned_prompt_enhance_returns_404(self, integration_client):
+        response = await integration_client.post(
+            "/prompts/enhance",
+            json={"prompt": "A cat"},
+        )
+
+        assert response.status_code == 404
+        body = response.json()
+        assert body["error"]["code"] == "not_found"
+
 
 # ─── Readiness Check Returning 503 (NFR47) ───────────────────────────────────
 
@@ -931,7 +964,7 @@ class TestReadinessCheckReturning503FullStackIntegration:
     operation (for example, the llama.cpp server crashes or the Stable
     Diffusion pipeline encounters a fatal error).
 
-    The ``Retry-After`` header is required by NFR47 of the v5.0.0
+    The ``Retry-After`` header is required by NFR47 of the v5.2.0
     specification to enable orchestrators and monitoring tools to
     implement intelligent back-off when the service reports not-ready.
     """
@@ -940,14 +973,14 @@ class TestReadinessCheckReturning503FullStackIntegration:
     async def test_readiness_returns_503_when_image_generation_service_unhealthy(
         self,
         integration_client,
-        mock_image_generation_service,
+        mock_of_image_generation_service,
     ):
         """When the image generation service reports unhealthy, the
         readiness endpoint returns HTTP 503 with ``status: not_ready``,
         the ``image_generation`` check marked as ``unavailable``, a
         ``Retry-After`` header, and ``Cache-Control: no-store, no-cache``
         to prevent intermediate proxies from caching stale health data."""
-        mock_image_generation_service.check_health.return_value = False
+        mock_of_image_generation_service.check_health.return_value = False
 
         response = await integration_client.get("/health/ready")
 
@@ -955,7 +988,7 @@ class TestReadinessCheckReturning503FullStackIntegration:
         response_body = response.json()
         assert response_body["status"] == "not_ready"
         assert response_body["checks"]["image_generation"] == "unavailable"
-        assert response_body["checks"]["language_model"] == "ok"
+        assert response_body["checks"]["large_language_model"] == "ok"
 
         # NFR47: Retry-After header must be present on 503 responses.
         assert "Retry-After" in response.headers
@@ -969,22 +1002,22 @@ class TestReadinessCheckReturning503FullStackIntegration:
         assert "x-correlation-id" in response.headers
 
     @pytest.mark.asyncio
-    async def test_readiness_returns_503_when_language_model_service_unhealthy(
+    async def test_readiness_returns_503_when_large_language_model_service_unhealthy(
         self,
         integration_client,
-        mock_language_model_service,
+        mock_of_large_language_model_service,
     ):
-        """When the language model service reports unhealthy, the
-        readiness endpoint returns HTTP 503 with the ``language_model``
+        """When the large language model service reports unhealthy, the
+        readiness endpoint returns HTTP 503 with the ``large_language_model``
         check marked as ``unavailable`` and a ``Retry-After`` header."""
-        mock_language_model_service.check_health.return_value = False
+        mock_of_large_language_model_service.check_health.return_value = False
 
         response = await integration_client.get("/health/ready")
 
         assert response.status_code == 503
         response_body = response.json()
         assert response_body["status"] == "not_ready"
-        assert response_body["checks"]["language_model"] == "unavailable"
+        assert response_body["checks"]["large_language_model"] == "unavailable"
         assert response_body["checks"]["image_generation"] == "ok"
         assert "Retry-After" in response.headers
 
@@ -992,21 +1025,21 @@ class TestReadinessCheckReturning503FullStackIntegration:
     async def test_readiness_returns_503_when_both_services_unhealthy(
         self,
         integration_client,
-        mock_language_model_service,
-        mock_image_generation_service,
+        mock_of_large_language_model_service,
+        mock_of_image_generation_service,
     ):
         """When both backend services are unhealthy simultaneously, the
         readiness endpoint returns HTTP 503 with both checks marked as
         ``unavailable``.  This simulates a complete backend outage."""
-        mock_language_model_service.check_health.return_value = False
-        mock_image_generation_service.check_health.return_value = False
+        mock_of_large_language_model_service.check_health.return_value = False
+        mock_of_image_generation_service.check_health.return_value = False
 
         response = await integration_client.get("/health/ready")
 
         assert response.status_code == 503
         response_body = response.json()
         assert response_body["status"] == "not_ready"
-        assert response_body["checks"]["language_model"] == "unavailable"
+        assert response_body["checks"]["large_language_model"] == "unavailable"
         assert response_body["checks"]["image_generation"] == "unavailable"
         assert "Retry-After" in response.headers
 
@@ -1035,8 +1068,8 @@ class TestPayloadTooLargeFullStackIntegration:
     @pytest.mark.asyncio
     async def test_oversized_payload_returns_413_with_payload_too_large_error_code(
         self,
-        mock_language_model_service,
-        mock_image_generation_service,
+        mock_of_large_language_model_service,
+        mock_of_image_generation_service,
     ):
         """An HTTP POST whose body exceeds the configured maximum payload
         size is rejected with HTTP 413 and a structured JSON error body
@@ -1048,13 +1081,13 @@ class TestPayloadTooLargeFullStackIntegration:
         middleware stack."""
         with (
             patch("configuration.ApplicationConfiguration") as mock_configuration_class,
-            _patched_services(mock_language_model_service, mock_image_generation_service),
+            _patched_services(mock_of_large_language_model_service, mock_of_image_generation_service),
         ):
             configuration_instance = mock_configuration_class.return_value
             _apply_default_configuration_attributes(configuration_instance)
             # Set a deliberately small payload limit so that a normal-length
             # JSON request body exceeds the threshold.
-            configuration_instance.maximum_request_payload_bytes = 100
+            configuration_instance.maximum_number_of_bytes_of_request_payload = 100
 
             fastapi_application = application.server_factory.create_application()
             async with fastapi_application.router.lifespan_context(
@@ -1083,19 +1116,19 @@ class TestPayloadTooLargeFullStackIntegration:
     @pytest.mark.asyncio
     async def test_service_layer_not_invoked_when_payload_rejected(
         self,
-        mock_language_model_service,
-        mock_image_generation_service,
+        mock_of_large_language_model_service,
+        mock_of_image_generation_service,
     ):
         """When the payload size limit middleware rejects a request, the
         service layer must not be invoked — the rejection occurs before
         the request body reaches the application layer."""
         with (
             patch("configuration.ApplicationConfiguration") as mock_configuration_class,
-            _patched_services(mock_language_model_service, mock_image_generation_service),
+            _patched_services(mock_of_large_language_model_service, mock_of_image_generation_service),
         ):
             configuration_instance = mock_configuration_class.return_value
             _apply_default_configuration_attributes(configuration_instance)
-            configuration_instance.maximum_request_payload_bytes = 100
+            configuration_instance.maximum_number_of_bytes_of_request_payload = 100
 
             fastapi_application = application.server_factory.create_application()
             async with fastapi_application.router.lifespan_context(
@@ -1114,8 +1147,8 @@ class TestPayloadTooLargeFullStackIntegration:
                         headers={"Content-Type": "application/json"},
                     )
 
-                    # The language model service must not have been called.
-                    mock_language_model_service.enhance_prompt.assert_not_awaited()
+                    # The large language model service must not have been called.
+                    mock_of_large_language_model_service.enhance_prompt.assert_not_awaited()
 
 
 class TestUnsupportedMediaTypeFullStackIntegration:
@@ -1193,7 +1226,7 @@ class TestRequestTimeoutFullStackIntegration:
     and the structured error code ``request_timeout`` (NFR48).
 
     These tests use a deliberately short timeout (50 milliseconds) and a
-    mock language model service that blocks for 10 seconds, ensuring the
+    mock large language model service that blocks for 10 seconds, ensuring the
     timeout fires deterministically.  The ``asyncio.wait_for`` mechanism
     cancels the blocked coroutine promptly, so the test completes in
     approximately 50 ms rather than 10 seconds.
@@ -1202,14 +1235,14 @@ class TestRequestTimeoutFullStackIntegration:
     @pytest.mark.asyncio
     async def test_request_exceeding_timeout_returns_504_with_request_timeout_error_code(
         self,
-        mock_language_model_service,
-        mock_image_generation_service,
+        mock_of_large_language_model_service,
+        mock_of_image_generation_service,
     ):
         """A request whose processing time exceeds the configured
         end-to-end timeout ceiling receives HTTP 504 with the
         ``request_timeout`` error code and a correlation ID.
 
-        The mock language model service is configured to block for 10
+        The mock large language model service is configured to block for 10
         seconds, but the timeout is set to 50 milliseconds, ensuring
         the timeout fires before the service completes."""
 
@@ -1219,13 +1252,13 @@ class TestRequestTimeoutFullStackIntegration:
             await asyncio.sleep(10.0)
             return "This response will never be sent"
 
-        mock_language_model_service.enhance_prompt = AsyncMock(
+        mock_of_large_language_model_service.enhance_prompt = AsyncMock(
             side_effect=simulate_slow_prompt_enhancement,
         )
 
         with (
             patch("configuration.ApplicationConfiguration") as mock_configuration_class,
-            _patched_services(mock_language_model_service, mock_image_generation_service),
+            _patched_services(mock_of_large_language_model_service, mock_of_image_generation_service),
         ):
             configuration_instance = mock_configuration_class.return_value
             _apply_default_configuration_attributes(configuration_instance)
@@ -1259,15 +1292,10 @@ class TestRequestTimeoutFullStackIntegration:
 
 class TestAdmissionControlRejectionFullStackIntegration:
     """
-    Full-stack integration tests verifying that the semaphore-based
+    Full-stack integration tests verifying that the concurrency-limiting
     admission controller (NFR44) correctly rejects overflow image
     generation requests with HTTP 429 and the error code ``service_busy``
-    when the maximum concurrency limit has been reached.
-
-    These tests are distinct from the IP-based rate limiting tests
-    (``TestRateLimiting``): admission control limits the *total* number of
-    concurrent image generation operations across all clients, whilst rate
-    limiting restricts the request *frequency* from a single IP address.
+    when the maximum number of concurrent operations has been reached.
 
     The test strategy uses two synchronisation primitives:
 
@@ -1284,10 +1312,10 @@ class TestAdmissionControlRejectionFullStackIntegration:
     @pytest.mark.asyncio
     async def test_concurrent_generation_beyond_limit_returns_429_service_busy(
         self,
-        mock_language_model_service,
-        mock_image_generation_service,
+        mock_of_large_language_model_service,
+        mock_of_image_generation_service,
     ):
-        """When the admission control semaphore is fully occupied by an
+        """When the admission control concurrency limiter is fully occupied by an
         active image generation operation, a second concurrent request
         receives HTTP 429 with the ``service_busy`` error code, a
         ``Retry-After`` header, and a correlation ID.
@@ -1299,7 +1327,7 @@ class TestAdmissionControlRejectionFullStackIntegration:
 
         mock_generation_result = application.services.image_generation_service.ImageGenerationResult(
             base64_encoded_images=["base64encodedimage"],
-            content_safety_flagged_indices=[],
+            indices_flagged_by_content_safety_checker=[],
         )
 
         async def blocking_generate_images(**kwargs):
@@ -1310,19 +1338,19 @@ class TestAdmissionControlRejectionFullStackIntegration:
             await generation_release_event.wait()
             return mock_generation_result
 
-        mock_image_generation_service.generate_images = AsyncMock(
+        mock_of_image_generation_service.generate_images = AsyncMock(
             side_effect=blocking_generate_images,
         )
 
         with (
             patch("configuration.ApplicationConfiguration") as mock_configuration_class,
-            _patched_services(mock_language_model_service, mock_image_generation_service),
+            _patched_services(mock_of_large_language_model_service, mock_of_image_generation_service),
         ):
             configuration_instance = mock_configuration_class.return_value
             _apply_default_configuration_attributes(configuration_instance)
             # Set concurrency to 1 so that a single active operation
             # fully occupies the admission controller.
-            configuration_instance.image_generation_maximum_concurrency = 1
+            configuration_instance.maximum_number_of_concurrent_operations_of_image_generation = 1
 
             fastapi_application = application.server_factory.create_application()
             async with fastapi_application.router.lifespan_context(
@@ -1379,29 +1407,23 @@ class TestAdmissionControlRejectionFullStackIntegration:
                     assert first_response.status_code == 200
 
     @pytest.mark.asyncio
-    async def test_service_busy_error_code_is_distinct_from_rate_limit_exceeded(
+    async def test_service_busy_error_code(
         self,
-        mock_language_model_service,
-        mock_image_generation_service,
+        mock_of_large_language_model_service,
+        mock_of_image_generation_service,
     ):
-        """The admission control rejection error code (``service_busy``)
-        must be distinct from the IP-based rate limiting error code
-        (``rate_limit_exceeded``).  Both produce HTTP 429 but represent
-        fundamentally different rejection reasons:
+        """The admission control rejection must use the ``service_busy``
+        error code when the GPU/CPU inference pipeline is at maximum
+        concurrency across all clients.
 
-        - ``service_busy``: the GPU/CPU inference pipeline is at maximum
-          concurrency across all clients.
-        - ``rate_limit_exceeded``: a single IP address has exceeded the
-          configured request frequency threshold.
-
-        This test verifies the distinction by triggering admission
-        control rejection and confirming the error code."""
+        This test verifies the error code by triggering admission
+        control rejection and confirming the response."""
         generation_entered_event = asyncio.Event()
         generation_release_event = asyncio.Event()
 
         mock_generation_result = application.services.image_generation_service.ImageGenerationResult(
             base64_encoded_images=["base64encodedimage"],
-            content_safety_flagged_indices=[],
+            indices_flagged_by_content_safety_checker=[],
         )
 
         async def blocking_generate_images(**kwargs):
@@ -1409,17 +1431,17 @@ class TestAdmissionControlRejectionFullStackIntegration:
             await generation_release_event.wait()
             return mock_generation_result
 
-        mock_image_generation_service.generate_images = AsyncMock(
+        mock_of_image_generation_service.generate_images = AsyncMock(
             side_effect=blocking_generate_images,
         )
 
         with (
             patch("configuration.ApplicationConfiguration") as mock_configuration_class,
-            _patched_services(mock_language_model_service, mock_image_generation_service),
+            _patched_services(mock_of_large_language_model_service, mock_of_image_generation_service),
         ):
             configuration_instance = mock_configuration_class.return_value
             _apply_default_configuration_attributes(configuration_instance)
-            configuration_instance.image_generation_maximum_concurrency = 1
+            configuration_instance.maximum_number_of_concurrent_operations_of_image_generation = 1
 
             fastapi_application = application.server_factory.create_application()
             async with fastapi_application.router.lifespan_context(
@@ -1447,11 +1469,8 @@ class TestAdmissionControlRejectionFullStackIntegration:
                         json={"prompt": "Rejected request"},
                     )
 
-                    # The error code must be "service_busy", NOT
-                    # "rate_limit_exceeded".
                     rejected_response_body = rejected_response.json()
                     assert rejected_response_body["error"]["code"] == "service_busy"
-                    assert rejected_response_body["error"]["code"] != "rate_limit_exceeded"
 
                     generation_release_event.set()
                     await first_request_task

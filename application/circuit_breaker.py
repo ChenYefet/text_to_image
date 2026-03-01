@@ -6,7 +6,7 @@ Implements the circuit breaker pattern (described by Michael Nygard in
 full timeout duration when an upstream dependency is consistently
 failing.  Without a circuit breaker, every request with
 ``use_enhancer=true`` would block for the entire
-``timeout_for_language_model_requests_in_seconds`` before failing with
+``timeout_for_requests_to_large_language_model_in_seconds`` before failing with
 HTTP 502 — wasting both server resources and client patience.
 
 State machine
@@ -19,20 +19,20 @@ The circuit breaker operates in three states::
     HALF_OPEN ──(probe fails)──────────────▸  OPEN
 
 - **CLOSED** (normal operation): requests pass through to the upstream
-  service.  Each failure increments a consecutive failure counter.  When
+  service.  Each failure increments a counter of consecutive failures.  When
   the counter reaches ``failure_threshold``, the circuit transitions to
   OPEN.  Any success resets the counter to zero.
 
 - **OPEN** (fail-fast): all requests are rejected immediately with
-  ``LanguageModelServiceUnavailableError`` without attempting to contact
-  the upstream service.  After ``recovery_timeout_seconds`` elapse, the
+  ``LargeLanguageModelServiceUnavailableError`` without attempting to contact
+  the upstream service.  After ``timeout_for_recovery_in_seconds`` elapse, the
   circuit transitions to HALF_OPEN.
 
 - **HALF_OPEN** (probing): the circuit allows a single request through
   to test whether the upstream has recovered.  If the request succeeds,
-  the circuit transitions back to CLOSED and the failure counter is
-  reset.  If the request fails, the circuit transitions back to OPEN
-  and the recovery timer restarts.
+  the circuit transitions back to CLOSED and the counter of consecutive
+  failures is reset.  If the request fails, the circuit transitions
+  back to OPEN and the recovery timer restarts.
 
 Thread safety
 -------------
@@ -46,14 +46,13 @@ Three parameters control the circuit breaker behaviour:
 
 - ``failure_threshold``: number of consecutive failures required to open
   the circuit (default 5).
-- ``recovery_timeout_seconds``: how long the circuit remains OPEN before
+- ``timeout_for_recovery_in_seconds``: how long the circuit remains OPEN before
   transitioning to HALF_OPEN for a probe attempt (default 30.0).
 - ``name``: a human-readable identifier for the circuit, included in
   log events for operational visibility (default ``"unnamed"``)
 
 All parameters are exposed as configuration variables with the prefix
-``TEXT_TO_IMAGE_CIRCUIT_BREAKER_`` for runtime tuning without code
-changes.
+``TEXT_TO_IMAGE_`` for runtime tuning without code changes.
 """
 
 import asyncio
@@ -90,8 +89,8 @@ class CircuitBreaker:
 
         circuit_breaker = CircuitBreaker(
             failure_threshold=5,
-            recovery_timeout_seconds=30.0,
-            name="language_model",
+            timeout_for_recovery_in_seconds=30.0,
+            name="large_language_model",
         )
 
         # Before making an upstream call:
@@ -112,7 +111,7 @@ class CircuitBreaker:
     def __init__(
         self,
         failure_threshold: int = 5,
-        recovery_timeout_seconds: float = 30.0,
+        timeout_for_recovery_in_seconds: float = 30.0,
         name: str = "unnamed",
     ) -> None:
         """
@@ -124,7 +123,7 @@ class CircuitBreaker:
                 to OPEN.  A value of 1 opens the circuit on the very
                 first failure.  A higher value tolerates transient
                 errors before triggering fail-fast behaviour.
-            recovery_timeout_seconds: The duration in seconds that the
+            timeout_for_recovery_in_seconds: The duration in seconds that the
                 circuit remains in the OPEN state before transitioning
                 to HALF_OPEN for a probe attempt.  During this period,
                 all requests are rejected immediately.
@@ -134,13 +133,14 @@ class CircuitBreaker:
                 circuit breakers are active.
         """
         self._failure_threshold = failure_threshold
-        self._recovery_timeout_seconds = recovery_timeout_seconds
+        self._timeout_for_recovery_in_seconds = timeout_for_recovery_in_seconds
         self._name = name
 
         self._state = CircuitState.CLOSED
-        self._consecutive_failure_count: int = 0
-        self._last_failure_timestamp: float = 0.0
-        self._state_transition_lock = asyncio.Lock()
+        self._number_of_consecutive_failures: int = 0
+        self._timestamp_of_last_failure: float = 0.0
+        self._probe_in_progress: bool = False
+        self._lock_for_state_transitions = asyncio.Lock()
 
     @property
     def state(self) -> CircuitState:
@@ -148,9 +148,9 @@ class CircuitBreaker:
         return self._state
 
     @property
-    def consecutive_failure_count(self) -> int:
-        """Return the current count of consecutive failures."""
-        return self._consecutive_failure_count
+    def number_of_consecutive_failures(self) -> int:
+        """Return the current number of consecutive failures."""
+        return self._number_of_consecutive_failures
 
     async def ensure_circuit_is_not_open(self) -> None:
         """
@@ -162,48 +162,56 @@ class CircuitBreaker:
         - If the circuit is CLOSED, the method returns immediately
           (the request may proceed).
         - If the circuit is OPEN and the recovery timeout has elapsed,
-          the circuit transitions to HALF_OPEN and the method returns
-          (the request is a probe attempt).
+          the circuit transitions to HALF_OPEN, marks a probe as in
+          progress, and the method returns (the request is the probe).
         - If the circuit is OPEN and the recovery timeout has not yet
           elapsed, ``CircuitOpenError`` is raised (fail-fast).
-        - If the circuit is HALF_OPEN, the method returns immediately
-          (another probe is already in progress; allowing concurrent
-          probes avoids head-of-line blocking at the cost of a small
-          number of additional upstream requests during recovery).
+        - If the circuit is HALF_OPEN and a probe is already in
+          progress, ``CircuitOpenError`` is raised (only one probe
+          request is permitted at a time per the specification).
 
         Raises:
             CircuitOpenError: When the circuit is OPEN and the recovery
-                timeout has not elapsed.
+                timeout has not elapsed, or when the circuit is
+                HALF_OPEN and a probe is already in progress.
         """
-        async with self._state_transition_lock:
+        async with self._lock_for_state_transitions:
             if self._state == CircuitState.CLOSED:
                 return
 
             if self._state == CircuitState.HALF_OPEN:
-                # A probe is already in progress.  Allow this request
-                # through as well to avoid unnecessary blocking.
-                return
+                # Only one probe request is permitted in the HALF_OPEN
+                # state.  If a probe is already in progress, reject
+                # this request with the same fail-fast behaviour as
+                # the OPEN state.
+                raise CircuitOpenError(
+                    circuit_name=self._name,
+                    remaining_number_of_seconds_until_recovery=0.0,
+                )
 
             # The circuit is OPEN.  Check whether the recovery timeout
             # has elapsed since the last failure.
-            elapsed_seconds_since_last_failure = time.monotonic() - self._last_failure_timestamp
+            elapsed_number_of_seconds_since_last_failure = time.monotonic() - self._timestamp_of_last_failure
 
-            if elapsed_seconds_since_last_failure >= self._recovery_timeout_seconds:
+            if elapsed_number_of_seconds_since_last_failure >= self._timeout_for_recovery_in_seconds:
                 # The recovery timeout has elapsed.  Transition to
-                # HALF_OPEN to allow a probe request through.
+                # HALF_OPEN to allow a single probe request through.
                 self._state = CircuitState.HALF_OPEN
+                self._probe_in_progress = True
                 logger.info(
                     "circuit_breaker_half_open",
                     circuit_name=self._name,
-                    elapsed_seconds=round(elapsed_seconds_since_last_failure, 1),
+                    elapsed_number_of_seconds=round(elapsed_number_of_seconds_since_last_failure, 1),
                 )
                 return
 
             # The recovery timeout has not elapsed.  Reject the request.
-            remaining_seconds = self._recovery_timeout_seconds - elapsed_seconds_since_last_failure
+            remaining_number_of_seconds = (
+                self._timeout_for_recovery_in_seconds - elapsed_number_of_seconds_since_last_failure
+            )
             raise CircuitOpenError(
                 circuit_name=self._name,
-                remaining_seconds_until_recovery=remaining_seconds,
+                remaining_number_of_seconds_until_recovery=remaining_number_of_seconds,
             )
 
     async def record_success(self) -> None:
@@ -212,13 +220,15 @@ class CircuitBreaker:
 
         If the circuit is in the HALF_OPEN state (a probe succeeded),
         this transitions the circuit back to CLOSED.  In all states,
-        the consecutive failure counter is reset to zero.
+        the counter of consecutive failures is reset to zero and the
+        probe-in-progress flag is cleared.
         """
-        async with self._state_transition_lock:
+        async with self._lock_for_state_transitions:
             previous_state = self._state
 
-            self._consecutive_failure_count = 0
+            self._number_of_consecutive_failures = 0
             self._state = CircuitState.CLOSED
+            self._probe_in_progress = False
 
             if previous_state == CircuitState.HALF_OPEN:
                 logger.info(
@@ -231,34 +241,36 @@ class CircuitBreaker:
         """
         Record a failed upstream call.
 
-        Increments the consecutive failure counter.  If the counter
+        Increments the counter of consecutive failures.  If the counter
         reaches the configured threshold and the circuit is currently
         CLOSED, the circuit transitions to OPEN.  If the circuit is
-        HALF_OPEN (a probe failed), it transitions back to OPEN.
+        HALF_OPEN (a probe failed), it transitions back to OPEN and
+        the probe-in-progress flag is cleared.
         """
-        async with self._state_transition_lock:
-            self._consecutive_failure_count += 1
-            self._last_failure_timestamp = time.monotonic()
+        async with self._lock_for_state_transitions:
+            self._number_of_consecutive_failures += 1
+            self._timestamp_of_last_failure = time.monotonic()
 
             if self._state == CircuitState.HALF_OPEN:
                 # The probe failed.  Transition back to OPEN and
                 # restart the recovery timer.
                 self._state = CircuitState.OPEN
+                self._probe_in_progress = False
                 logger.warning(
                     "circuit_breaker_reopened",
                     circuit_name=self._name,
                     reason="probe_failed",
-                    consecutive_failures=self._consecutive_failure_count,
+                    number_of_consecutive_failures=self._number_of_consecutive_failures,
                 )
                 return
 
-            if self._state == CircuitState.CLOSED and self._consecutive_failure_count >= self._failure_threshold:
+            if self._state == CircuitState.CLOSED and self._number_of_consecutive_failures >= self._failure_threshold:
                 self._state = CircuitState.OPEN
                 logger.warning(
                     "circuit_breaker_opened",
                     circuit_name=self._name,
-                    consecutive_failures=self._consecutive_failure_count,
-                    recovery_timeout_seconds=self._recovery_timeout_seconds,
+                    number_of_consecutive_failures=self._number_of_consecutive_failures,
+                    timeout_for_recovery_in_seconds=self._timeout_for_recovery_in_seconds,
                 )
 
 
@@ -274,7 +286,7 @@ class CircuitOpenError(Exception):
     Attributes:
         circuit_name: The human-readable name of the circuit breaker
             that rejected the request.
-        remaining_seconds_until_recovery: Approximate number of seconds
+        remaining_number_of_seconds_until_recovery: Approximate number of seconds
             remaining until the circuit transitions to HALF_OPEN and
             allows a probe request.
     """
@@ -282,12 +294,13 @@ class CircuitOpenError(Exception):
     def __init__(
         self,
         circuit_name: str,
-        remaining_seconds_until_recovery: float,
+        remaining_number_of_seconds_until_recovery: float,
     ) -> None:
         self.circuit_name = circuit_name
-        self.remaining_seconds_until_recovery = remaining_seconds_until_recovery
+        self.remaining_number_of_seconds_until_recovery = remaining_number_of_seconds_until_recovery
         super().__init__(
-            f"Circuit breaker '{circuit_name}' is open. "
-            f"The upstream service has been consistently failing. "
-            f"Recovery probe in {remaining_seconds_until_recovery:.1f} seconds."
+            f"Circuit breaker '{circuit_name}' is open."
+            " The upstream service has been consistently failing."
+            f" Recovery probe in {remaining_number_of_seconds_until_recovery:.1f}"
+            " seconds."
         )
