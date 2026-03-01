@@ -101,6 +101,13 @@ The search must cover all file types without exception: .py, .yaml, .yml, .env, 
 
 A rename is not complete until all five case-variant searches return zero results for the old name. If any search returns a match, update that occurrence before proceeding. If the rename affects any module that contributes to the OpenAPI schema, regenerate openapi.yaml before considering the rename complete.
 
+SPECIFICATION COUNT AND CHANGELOG INTEGRITY
+
+When correcting a count in the specification (such as the number of logging events, the number of requirements, or any other enumerated total):
+
+1. Never infer which version introduced an item based on semantic reasoning about its description or its relationship to other items. Always verify against the git history (e.g. `git log -S "<item_name>" -- "*.py"` to find when it was implemented, and `git log -S "<item_name>" -- "*.md"` to find when it was added to the specification).
+2. After determining the correct count, perform a spec-wide search for every instance of the old count that appears in the context of the thing being counted (e.g. search for `\b44\b` when correcting a logging event count from 44 to 45). Verify each match to determine whether it refers to the count being corrected or to something else (such as a requirement number), and update all stale instances.
+
 SPECIFICATION REQUIREMENTS
 
 The specification is a purely prescriptive document that defines the target state of the system. It must never comment on what is or is not currently implemented. Every requirement, stage, and configuration example shall be written as a normative statement of what the system shall do, not annotated with implementation status.
