@@ -808,6 +808,38 @@ class TestCorsMiddleware:
         # Default config has empty cors_allowed_origins, so no CORS headers
         assert "access-control-allow-origin" not in response.headers
 
+    @pytest.mark.asyncio
+    async def test_cors_headers_on_actual_post_request(self, cors_client):
+        """When a real POST request (not a preflight OPTIONS) includes an
+        allowed Origin header, the response must include the
+        Access-Control-Allow-Origin header matching that origin."""
+        response = await cors_client.post(
+            "/v1/prompts/enhance",
+            json={"prompt": "A cat"},
+            headers={
+                "Origin": "http://localhost:3000",
+                "Content-Type": "application/json",
+            },
+        )
+
+        assert response.headers["access-control-allow-origin"] == "http://localhost:3000"
+
+    @pytest.mark.asyncio
+    async def test_cors_exposes_correlation_id_header(self, cors_client):
+        """The CORS configuration must expose the X-Correlation-ID header
+        so that browser-based clients can read it from the response."""
+        response = await cors_client.post(
+            "/v1/prompts/enhance",
+            json={"prompt": "A cat"},
+            headers={
+                "Origin": "http://localhost:3000",
+                "Content-Type": "application/json",
+            },
+        )
+
+        exposed_headers = response.headers.get("access-control-expose-headers", "")
+        assert "x-correlation-id" in exposed_headers.lower()
+
 
 # ─── Concurrency ─────────────────────────────────────────────────────────────
 
@@ -1474,3 +1506,77 @@ class TestAdmissionControlRejectionFullStackIntegration:
 
                     generation_release_event.set()
                     await first_request_task
+
+
+# ─── OpenAPI Schema Customisation ────────────────────────────────────────────
+
+
+class TestCustomiseOpenApiSchema:
+    """Unit tests for the ``_customise_openapi_schema`` function in
+    ``server_factory.py``, which removes phantom 422 responses and adds
+    global error responses to the generated OpenAPI schema."""
+
+    def test_phantom_422_responses_are_removed(
+        self, mock_of_large_language_model_service, mock_of_image_generation_service
+    ):
+        """The customised schema must not contain any 422 response entries,
+        because all validation errors are intercepted and returned as 400."""
+        with (
+            patch("configuration.ApplicationConfiguration") as mock_configuration_class,
+            _patched_services(mock_of_large_language_model_service, mock_of_image_generation_service),
+        ):
+            configuration_instance = mock_configuration_class.return_value
+            _apply_default_configuration_attributes(configuration_instance)
+
+            test_application = application.server_factory.create_application()
+            schema = test_application.openapi()
+
+            for path, path_item in schema.get("paths", {}).items():
+                for method, operation in path_item.items():
+                    if isinstance(operation, dict) and "responses" in operation:
+                        assert "422" not in operation["responses"], (
+                            f"Phantom 422 response found in {method.upper()} {path}"
+                        )
+
+    def test_unused_validation_error_schemas_are_removed(
+        self, mock_of_large_language_model_service, mock_of_image_generation_service
+    ):
+        """The HTTPValidationError and ValidationError component schemas
+        must be removed because they are no longer referenced after the
+        422 responses are removed."""
+        with (
+            patch("configuration.ApplicationConfiguration") as mock_configuration_class,
+            _patched_services(mock_of_large_language_model_service, mock_of_image_generation_service),
+        ):
+            configuration_instance = mock_configuration_class.return_value
+            _apply_default_configuration_attributes(configuration_instance)
+
+            test_application = application.server_factory.create_application()
+            schema = test_application.openapi()
+
+            component_schemas = schema.get("components", {}).get("schemas", {})
+            assert "HTTPValidationError" not in component_schemas
+            assert "ValidationError" not in component_schemas
+
+    def test_global_error_responses_are_added(
+        self, mock_of_large_language_model_service, mock_of_image_generation_service
+    ):
+        """Every path operation must include 404, 405, and 500 global error
+        responses added by the customisation function."""
+        with (
+            patch("configuration.ApplicationConfiguration") as mock_configuration_class,
+            _patched_services(mock_of_large_language_model_service, mock_of_image_generation_service),
+        ):
+            configuration_instance = mock_configuration_class.return_value
+            _apply_default_configuration_attributes(configuration_instance)
+
+            test_application = application.server_factory.create_application()
+            schema = test_application.openapi()
+
+            for path, path_item in schema.get("paths", {}).items():
+                for method, operation in path_item.items():
+                    if isinstance(operation, dict) and "responses" in operation:
+                        for expected_status_code in ("404", "405", "500"):
+                            assert expected_status_code in operation["responses"], (
+                                f"Missing {expected_status_code} response in {method.upper()} {path}"
+                            )

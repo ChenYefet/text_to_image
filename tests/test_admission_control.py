@@ -249,6 +249,49 @@ class TestAcquireOrRejectExceptionSafety:
             assert controller.number_of_active_operations == 1
 
 
+class TestAdmissionControllerCounterIntegrity:
+    """Verify that the active operations counter maintains integrity under edge cases."""
+
+    async def test_counter_never_goes_below_zero(self) -> None:
+        """
+        After a normal acquire-release cycle, the counter must be exactly
+        zero.  Multiple sequential acquire-release cycles must not cause
+        the counter to drift below zero through accumulation errors.
+        """
+        controller = application.admission_control.AdmissionControllerForImageGeneration(
+            maximum_number_of_concurrent_operations=1,
+        )
+
+        for _ in range(10):
+            async with controller.acquire_or_reject():
+                assert controller.number_of_active_operations == 1
+            assert controller.number_of_active_operations == 0
+
+        # Final invariant: exactly zero.
+        assert controller.number_of_active_operations == 0
+
+    async def test_counter_correct_after_mixed_successes_and_exceptions(self) -> None:
+        """
+        Alternating between successful operations and operations that raise
+        exceptions must leave the counter at exactly zero after all operations
+        complete.
+        """
+        controller = application.admission_control.AdmissionControllerForImageGeneration(
+            maximum_number_of_concurrent_operations=1,
+        )
+
+        for iteration in range(6):
+            if iteration % 2 == 0:
+                async with controller.acquire_or_reject():
+                    pass
+            else:
+                with pytest.raises(ValueError):
+                    async with controller.acquire_or_reject():
+                        raise ValueError("simulated failure")
+
+        assert controller.number_of_active_operations == 0
+
+
 class TestAdmissionControllerProperties:
     """Verify the read-only property accessors used for operational monitoring."""
 

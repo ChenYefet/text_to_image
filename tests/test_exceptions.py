@@ -10,6 +10,7 @@ class TestServiceErrorBase:
             application.exceptions.ImageGenerationServiceUnavailableError,
             application.exceptions.PromptEnhancementError,
             application.exceptions.ImageGenerationError,
+            application.exceptions.ServiceBusyError,
         ):
             assert issubclass(exception_class, application.exceptions.ServiceError)
 
@@ -42,3 +43,15 @@ class TestImageGenerationError:
     def test_default_message(self):
         exception = application.exceptions.ImageGenerationError()
         assert exception.detail == "Image generation failed."
+
+
+class TestServiceBusyError:
+    def test_default_message(self):
+        exception = application.exceptions.ServiceBusyError()
+        assert "at capacity" in exception.detail
+        assert "Retry-After" in exception.detail
+
+    def test_custom_message(self):
+        exception = application.exceptions.ServiceBusyError(detail="Custom busy message")
+        assert exception.detail == "Custom busy message"
+        assert str(exception) == "Custom busy message"

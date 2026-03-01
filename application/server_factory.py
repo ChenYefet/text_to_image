@@ -8,6 +8,7 @@ makes the application straightforward to test and re-create.
 """
 
 import collections.abc
+import concurrent.futures
 import contextlib
 import copy
 
@@ -90,6 +91,21 @@ def create_application() -> fastapi.FastAPI:
             )
         )
 
+        # ── Custom thread pool executor (spec §14) ────────────────────
+        #
+        # The specification mandates that the default thread pool executor
+        # be sized to match the configured concurrency limit.  This
+        # executor is used for all CPU-bound operations: Stable Diffusion
+        # inference and image encoding (PIL → PNG → base64).  Sizing the
+        # pool to the concurrency limit ensures that the number of
+        # concurrent blocking threads never exceeds the admission control
+        # boundary, preventing unnecessary memory consumption and
+        # preserving the sizing-to-concurrency safety property.
+        thread_pool_executor_for_inference = concurrent.futures.ThreadPoolExecutor(
+            max_workers=application_configuration.maximum_number_of_concurrent_operations_of_image_generation,
+            thread_name_prefix="inference",
+        )
+
         # FR49 — Startup Model File Validation
         #
         # The specification requires the service to validate model file
@@ -113,6 +129,7 @@ def create_application() -> fastapi.FastAPI:
             instance_of_image_generation_service = (
                 application.services.image_generation_service.ImageGenerationService.load_pipeline(
                     model_id=(application_configuration.id_of_stable_diffusion_model),
+                    thread_pool_executor_for_inference=thread_pool_executor_for_inference,
                     model_revision=(application_configuration.revision_of_stable_diffusion_model),
                     device_preference=(application_configuration.stable_diffusion_device),
                     enable_safety_checker=(application_configuration.safety_checker_for_stable_diffusion),
@@ -202,6 +219,7 @@ def create_application() -> fastapi.FastAPI:
         await instance_of_large_language_model_service.close()
         if instance_of_image_generation_service is not None:
             await instance_of_image_generation_service.close()
+        thread_pool_executor_for_inference.shutdown(wait=True)
         logger.info("services_shutdown_complete")
 
     fastapi_application = fastapi.FastAPI(

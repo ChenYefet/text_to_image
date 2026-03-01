@@ -4280,15 +4280,12 @@ The Text-to-Image API Service shall be packaged as a container image using a mul
 **Stage 1: Builder**
 
 - **Base image:** `python:3.12-slim` (or later 3.12.x patch release)
-- **Purpose:** Install Python dependencies into an isolated directory
-- **Environment variables:**
-  - `PYTHONDONTWRITEBYTECODE=1` — Prevents Python from writing `.pyc` bytecode files to disk, reducing image layer size and eliminating stale bytecode artefacts
-  - `PYTHONUNBUFFERED=1` — Forces Python's stdout and stderr streams to be unbuffered, ensuring that structured log output ([NFR10](#structured-logging)) is emitted immediately to the container runtime's log driver without delay or loss. Without this setting, Python buffers stdout by default when it detects a non-interactive terminal (as in containers), which can delay log delivery by seconds or cause log entries to be lost entirely on container crash
+- **Purpose:** Install Python dependencies into a virtual environment
 - **Steps:**
-  1. Set the working directory to `/application`
-  2. Copy `requirements.txt` into the builder stage
-  3. Install dependencies into `/application/dependencies` using `pip install --no-cache-dir --target=/application/dependencies -r requirements.txt`
-  4. Copy the application source code into `/application/source`
+  1. Create a virtual environment at `/opt/venv` using `python -m venv /opt/venv`
+  2. Set `PATH="/opt/venv/bin:$PATH"` so that subsequent `pip` and `python` commands use the virtual environment
+  3. Copy `requirements.txt` into the builder stage
+  4. Install dependencies using `pip install --no-cache-dir -r requirements.txt`
 
 **Stage 2: Runtime**
 
@@ -4297,15 +4294,18 @@ The Text-to-Image API Service shall be packaged as a container image using a mul
 - **Environment variables:**
   - `HF_HOME=/home/service_user/.cache/huggingface` — Explicitly sets the Hugging Face cache directory to a path under the non-root user's home directory. This ensures that the cache location is deterministic rather than relying on the implicit default (`~/.cache/huggingface`), and aligns the Dockerfile with the volume mount path used in the [reference docker-compose](#reference-docker-compose-for-multi-instance-evaluation) (`stable-diffusion-cache:/home/service_user/.cache/huggingface`) and the Kubernetes [PersistentVolumeClaim](#persistentvolumeclaims) mount path (`/home/service_user/.cache/huggingface`)
 - **Steps:**
-  1. Install runtime system dependencies: `libgl1-mesa-glx`, `libglib2.0-0` (required by Pillow and OpenCV if used)
-  2. Create a non-root user: `useradd --create-home --shell /bin/bash service_user`
-  3. Copy `/application/dependencies` from the builder stage to `/home/service_user/dependencies`
-  4. Copy `/application/source` from the builder stage to `/home/service_user/application`
-  5. Set `PYTHONPATH` to include `/home/service_user/dependencies`
-  6. Switch to the non-root user: `USER service_user`
-  7. Set the working directory to `/home/service_user/application`
-  8. Expose port 8000
-  9. Define the default command: `uvicorn main:fastapi_application --host 0.0.0.0 --port 8000`
+  1. Copy the virtual environment from the builder stage: `COPY --from=builder /opt/venv /opt/venv`
+  2. Set `PATH="/opt/venv/bin:$PATH"` so that `python` and `uvicorn` resolve to the virtual environment
+  3. Set `PYTHONUNBUFFERED=1` — forces Python's stdout and stderr streams to be unbuffered, ensuring that structured log output ([NFR10](#structured-logging)) is emitted immediately to the container runtime's log driver without delay or loss
+  4. Set `PYTHONDONTWRITEBYTECODE=1` — prevents Python from writing `.pyc` bytecode files to disk, reducing image layer size and eliminating stale bytecode artefacts
+  5. Install `curl` for container health checks (smaller and faster than a Python one-liner for the `HEALTHCHECK` command)
+  6. Create a non-root user: `useradd --create-home --shell /bin/bash service_user`
+  7. Create the Hugging Face cache directory and assign ownership to `service_user`
+  8. Set the working directory to `/home/service_user/application`
+  9. Copy the application source code (`main.py`, `configuration.py`, `application/`) into the working directory with `service_user` ownership
+  10. Switch to the non-root user: `USER service_user`
+  11. Expose port 8000
+  12. Define the default command: `uvicorn main:fastapi_application --host 0.0.0.0 --port 8000 --timeout-graceful-shutdown 60`
 
 **Rationale:** Multi-stage builds minimise the final image size by excluding build tools. Running as a non-root user adheres to the principle of least privilege and prevents container escape escalation. This approach supports horizontal scaling by ensuring that every container instance is identical and stateless, enabling Kubernetes to schedule pods freely across nodes without configuration drift.
 

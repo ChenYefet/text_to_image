@@ -79,7 +79,7 @@ ENV PYTHONDONTWRITEBYTECODE=1
 # HuggingFace downloads models to a cache directory.  We set it explicitly
 # so it's easy to mount as a volume (avoids re-downloading ~4 GB every
 # time the container restarts).
-ENV HF_HOME=/data/huggingface
+ENV HF_HOME=/home/service_user/.cache/huggingface
 
 # Install curl for container health checks.  The HEALTHCHECK command
 # below uses curl rather than a Python one-liner to avoid starting a
@@ -91,22 +91,22 @@ RUN apt-get update \
 
 # Create a non-root user.  Running as root inside a container is a
 # security risk — if an attacker escapes the app, they'd have root on
-# the host.  This user has no password and no home directory.
-RUN useradd --create-home --shell /bin/bash appuser
+# the host.  This user has a home directory for the HuggingFace cache.
+RUN useradd --create-home --shell /bin/bash service_user
 
 # Create the HuggingFace cache directory and give our user ownership.
-RUN mkdir -p /data/huggingface && chown appuser:appuser /data/huggingface
+RUN mkdir -p /home/service_user/.cache/huggingface && chown service_user:service_user /home/service_user/.cache/huggingface
 
 # Set the working directory.  All subsequent COPY and RUN commands, and
 # the final CMD, run relative to this path.
-WORKDIR /app
+WORKDIR /home/service_user/application
 
 # Copy the application source code into the image.
-COPY --chown=appuser:appuser main.py configuration.py ./
-COPY --chown=appuser:appuser application/ ./application/
+COPY --chown=service_user:service_user main.py configuration.py ./
+COPY --chown=service_user:service_user application/ ./application/
 
 # Switch to the non-root user for all subsequent commands.
-USER appuser
+USER service_user
 
 # Expose port 8000.  This is documentation — it tells anyone reading the
 # Dockerfile (or tools like docker-compose) which port the app listens on.

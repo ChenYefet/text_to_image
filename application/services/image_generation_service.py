@@ -44,6 +44,8 @@ first-call overhead.
 
 import asyncio
 import base64
+import concurrent.futures
+import functools
 import gc
 import io
 import time
@@ -75,8 +77,8 @@ class ImageGenerationService:
     In-process image generation service backed by a ``diffusers``
     ``StableDiffusionPipeline``.
 
-    Inference calls are dispatched to a background thread via
-    ``asyncio.to_thread`` so the async event loop is never blocked by
+    Inference calls are dispatched to a background thread via a custom
+    ``ThreadPoolExecutor`` so the async event loop is never blocked by
     the synchronous PyTorch forward pass.
 
     Concurrency control is handled externally by the
@@ -99,6 +101,7 @@ class ImageGenerationService:
         self,
         pipeline: diffusers.StableDiffusionPipeline,
         device: torch.device,
+        thread_pool_executor_for_inference: concurrent.futures.ThreadPoolExecutor,
         number_of_inference_steps: int = 20,
         guidance_scale: float = 7.0,
         inference_timeout_per_baseline_unit_in_seconds: float = (
@@ -117,6 +120,10 @@ class ImageGenerationService:
                 for inference.
             device: The ``torch.device`` that the pipeline has been moved
                 to (e.g. ``torch.device("cuda")`` or ``torch.device("cpu")``).
+            thread_pool_executor_for_inference: A ``ThreadPoolExecutor``
+                sized to match the configured concurrency limit.  All
+                CPU-bound operations (inference and image encoding) are
+                dispatched to this executor to prevent event loop starvation.
             number_of_inference_steps: Number of denoising steps per image.
                 More steps generally produce higher quality output at the
                 cost of increased latency.
@@ -130,6 +137,7 @@ class ImageGenerationService:
         """
         self._pipeline = pipeline
         self._device = device
+        self._thread_pool_executor_for_inference = thread_pool_executor_for_inference
         self._number_of_inference_steps = number_of_inference_steps
         self._guidance_scale = guidance_scale
         self._inference_timeout_per_baseline_unit_in_seconds = inference_timeout_per_baseline_unit_in_seconds
@@ -162,6 +170,7 @@ class ImageGenerationService:
     def load_pipeline(
         cls,
         model_id: str,
+        thread_pool_executor_for_inference: concurrent.futures.ThreadPoolExecutor,
         model_revision: str = "main",
         device_preference: str = "auto",
         enable_safety_checker: bool = True,
@@ -183,6 +192,9 @@ class ImageGenerationService:
             model_id: A HuggingFace model ID (e.g.
                 ``"stable-diffusion-v1-5/stable-diffusion-v1-5"``) or a
                 local filesystem path to a pre-downloaded model.
+            thread_pool_executor_for_inference: A ``ThreadPoolExecutor``
+                sized to match the configured concurrency limit.  Passed
+                through to the ``ImageGenerationService`` constructor.
             model_revision: The HuggingFace model revision identifier — a
                 specific commit hash or branch name.  Pinning to a commit
                 hash ensures identical model weights across all deployments.
@@ -243,6 +255,7 @@ class ImageGenerationService:
         return cls(
             pipeline=pipeline,
             device=device,
+            thread_pool_executor_for_inference=thread_pool_executor_for_inference,
             number_of_inference_steps=number_of_inference_steps,
             guidance_scale=guidance_scale,
             inference_timeout_per_baseline_unit_in_seconds=inference_timeout_per_baseline_unit_in_seconds,
@@ -283,15 +296,19 @@ class ImageGenerationService:
         try:
             random_number_generator = torch.Generator(device="cpu").manual_seed(0)
 
-            warmup_result: object = await asyncio.to_thread(
-                self._pipeline,  # type: ignore[arg-type]
-                prompt="warmup",
-                width=64,
-                height=64,
-                num_images_per_prompt=1,
-                num_inference_steps=1,
-                guidance_scale=1.0,
-                generator=random_number_generator,
+            event_loop = asyncio.get_running_loop()
+            warmup_result: object = await event_loop.run_in_executor(
+                self._thread_pool_executor_for_inference,
+                functools.partial(  # type: ignore[misc, operator, arg-type]
+                    self._pipeline,  # type: ignore[arg-type]
+                    prompt="warmup",
+                    width=64,
+                    height=64,
+                    num_images_per_prompt=1,
+                    num_inference_steps=1,
+                    guidance_scale=1.0,
+                    generator=random_number_generator,
+                ),
             )
 
             # Discard the output immediately to free memory.
@@ -367,8 +384,8 @@ class ImageGenerationService:
         """
         Generate images from a text prompt using the loaded pipeline.
 
-        The inference is dispatched to a background thread via
-        ``asyncio.to_thread`` to avoid blocking the async event loop.
+        The inference is dispatched to a background thread via the custom
+        ``ThreadPoolExecutor`` to avoid blocking the async event loop.
         A per-request timeout is computed based on the image count,
         resolution, and device type.
 
@@ -411,9 +428,12 @@ class ImageGenerationService:
         # Record the start time for first-inference warmup measurement.
         inference_start_time = time.monotonic()
 
+        event_loop = asyncio.get_running_loop()
+
         try:
             output_from_inference = await asyncio.wait_for(
-                asyncio.to_thread(
+                event_loop.run_in_executor(
+                    self._thread_pool_executor_for_inference,
                     self._run_inference,
                     prompt,
                     image_width,
@@ -500,18 +520,15 @@ class ImageGenerationService:
 
         # ── Encode images to base64 PNG ───────────────────────────────────
         #
-        # Each non-flagged image is encoded as a PNG and then base64-encoded
-        # using the standard alphabet (RFC 4648 §4).  Flagged images are
-        # replaced with ``None`` to indicate content policy filtering.
-        base64_encoded_images: list[str | None] = []
-        for index, individual_output_image in enumerate(output_images_from_pipeline):
-            if index in frozenset_of_indices_flagged_by_content_safety_checker:
-                base64_encoded_images.append(None)
-            else:
-                image_byte_buffer = io.BytesIO()
-                individual_output_image.save(image_byte_buffer, format="PNG")
-                encoded_image = base64.b64encode(image_byte_buffer.getvalue()).decode("utf-8")
-                base64_encoded_images.append(encoded_image)
+        # Image encoding (PIL image → PNG bytes → base64 string) is
+        # CPU-bound and must be delegated to the thread pool executor to
+        # prevent event loop starvation (spec §14).
+        base64_encoded_images: list[str | None] = await event_loop.run_in_executor(
+            self._thread_pool_executor_for_inference,
+            self._encode_images_to_base64,  # type: ignore[arg-type]
+            output_images_from_pipeline,
+            frozenset_of_indices_flagged_by_content_safety_checker,
+        )
 
         # ── Mandatory post-inference memory cleanup (spec §15) ────────────
         #
@@ -547,8 +564,8 @@ class ImageGenerationService:
         Execute the synchronous pipeline call.
 
         This method is intended to be run in a background thread via
-        ``asyncio.to_thread`` to prevent the synchronous PyTorch forward
-        pass from blocking the async event loop.
+        the custom ``ThreadPoolExecutor`` to prevent the synchronous
+        PyTorch forward pass from blocking the async event loop.
 
         Uses a ``torch.Generator`` seeded with the provided seed value
         to enable reproducible image generation.  Seed 0 is a valid
@@ -596,6 +613,44 @@ class ImageGenerationService:
             images=all_images,
             nsfw_content_detected=all_nsfw_flags,
         )
+
+    @staticmethod
+    def _encode_images_to_base64(
+        output_images: list,
+        indices_flagged_by_content_safety_checker: frozenset[int],
+    ) -> list[str | None]:
+        """
+        Encode PIL images to base64-encoded PNG strings.
+
+        This method is CPU-bound and is intended to be dispatched to the
+        custom ``ThreadPoolExecutor`` via ``run_in_executor`` to prevent
+        event loop starvation during large batch responses (spec §14).
+
+        Each non-flagged image is encoded as a PNG and then base64-encoded
+        using the standard alphabet (RFC 4648 §4).  Flagged images are
+        replaced with ``None`` to indicate content policy filtering.
+
+        Args:
+            output_images: A list of PIL ``Image`` objects produced by the
+                Stable Diffusion pipeline.
+            indices_flagged_by_content_safety_checker: A frozenset of
+                zero-based indices identifying images that were flagged
+                by the content safety checker.
+
+        Returns:
+            A list of base64-encoded PNG strings, with ``None`` for
+            content-safety-filtered images.
+        """
+        base64_encoded_images: list[str | None] = []
+        for index, individual_output_image in enumerate(output_images):
+            if index in indices_flagged_by_content_safety_checker:
+                base64_encoded_images.append(None)
+            else:
+                image_byte_buffer = io.BytesIO()
+                individual_output_image.save(image_byte_buffer, format="PNG")
+                encoded_image = base64.b64encode(image_byte_buffer.getvalue()).decode("utf-8")
+                base64_encoded_images.append(encoded_image)
+        return base64_encoded_images
 
     def _cleanup_after_inference(self) -> None:
         """

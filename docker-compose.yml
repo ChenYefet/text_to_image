@@ -53,9 +53,9 @@ services:
 
     # Volumes persist data outside the container.  Without this, the ~4 GB
     # Stable Diffusion model would be re-downloaded every time you recreate
-    # the container.  The "huggingface-cache" volume stores it permanently.
+    # the container.  The "stable-diffusion-cache" volume stores it permanently.
     volumes:
-      - huggingface-cache:/data/huggingface
+      - stable-diffusion-cache:/home/service_user/.cache/huggingface
 
     # Give the container access to all NVIDIA GPUs on the host.
     # Requires the NVIDIA Container Toolkit to be installed:
@@ -109,10 +109,10 @@ services:
     # The /health endpoint is built into the llama.cpp server binary.
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8080/health || exit 1"]
-      interval: 15s
+      interval: 10s
       timeout: 5s
       start_period: 60s
-      retries: 3
+      retries: 30
 
     # Mount your GGUF model file into the container.
     #
@@ -133,8 +133,8 @@ services:
 # Named volumes — Docker manages these automatically.  Data persists even if
 # you destroy and recreate the containers.
 #
-#   To see where Docker stores them:  docker volume inspect text_to_image_huggingface-cache
+#   To see where Docker stores them:  docker volume inspect text_to_image_stable-diffusion-cache
 #   To delete them:                   docker compose down --volumes
 # =============================================================================
 volumes:
-  huggingface-cache:
+  stable-diffusion-cache:

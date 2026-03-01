@@ -1,5 +1,6 @@
 """Tests for application/services/image_generation_service.py."""
 
+import concurrent.futures
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -16,13 +17,19 @@ def _create_test_image(width=64, height=64):
 
 
 def _build_image_generation_service_with_mock_pipeline(device_type="cpu"):
-    """Create an ImageGenerationService with a mocked pipeline."""
+    """Create an ImageGenerationService with a mocked pipeline and a
+    single-worker ThreadPoolExecutor for test isolation."""
     mock_pipeline = MagicMock()
     mock_device = MagicMock()
     mock_device.type = device_type
+    thread_pool_executor = concurrent.futures.ThreadPoolExecutor(
+        max_workers=1,
+        thread_name_prefix="test-inference",
+    )
     return application.services.image_generation_service.ImageGenerationService(
         pipeline=mock_pipeline,
         device=mock_device,
+        thread_pool_executor_for_inference=thread_pool_executor,
     )
 
 
@@ -364,8 +371,10 @@ class TestLoadPipeline:
         mock_pipeline.to.return_value = mock_pipeline
         mock_diffusers.StableDiffusionPipeline.from_pretrained.return_value = mock_pipeline
 
+        thread_pool_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         application.services.image_generation_service.ImageGenerationService.load_pipeline(
             model_id="test-model",
+            thread_pool_executor_for_inference=thread_pool_executor,
             device_preference="cpu",
         )
 
@@ -385,8 +394,10 @@ class TestLoadPipeline:
         mock_pipeline.to.return_value = mock_pipeline
         mock_diffusers.StableDiffusionPipeline.from_pretrained.return_value = mock_pipeline
 
+        thread_pool_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         application.services.image_generation_service.ImageGenerationService.load_pipeline(
             model_id="test-model",
+            thread_pool_executor_for_inference=thread_pool_executor,
             device_preference="cpu",
             enable_safety_checker=False,
         )
@@ -412,8 +423,10 @@ class TestLoadPipeline:
         mock_pipeline.to.return_value = mock_pipeline
         mock_diffusers.StableDiffusionPipeline.from_pretrained.return_value = mock_pipeline
 
+        thread_pool_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         application.services.image_generation_service.ImageGenerationService.load_pipeline(
             model_id="test-model",
+            thread_pool_executor_for_inference=thread_pool_executor,
             model_revision="abc123def456",
             device_preference="cpu",
         )

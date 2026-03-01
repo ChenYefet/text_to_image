@@ -384,6 +384,59 @@ class TestCircuitBreakerTimingEdgeCases:
         assert breaker.number_of_consecutive_failures == 3
 
 
+class TestCircuitBreakerConcurrentAccess:
+    """Verify that the circuit breaker handles concurrent state mutations safely."""
+
+    @pytest.mark.asyncio
+    async def test_concurrent_failures_do_not_corrupt_counter(self) -> None:
+        """
+        When multiple coroutines record failures concurrently, the final
+        failure count must equal the total number of recorded failures.
+        The asyncio.Lock inside the circuit breaker prevents lost updates.
+        """
+        breaker = application.circuit_breaker.CircuitBreaker(
+            failure_threshold=100,
+            timeout_for_recovery_in_seconds=60.0,
+        )
+
+        number_of_concurrent_tasks = 20
+
+        async def record_one_failure() -> None:
+            await breaker.record_failure()
+
+        await asyncio.gather(*[record_one_failure() for _ in range(number_of_concurrent_tasks)])
+
+        assert breaker.number_of_consecutive_failures == number_of_concurrent_tasks
+
+    @pytest.mark.asyncio
+    async def test_concurrent_success_and_failure_do_not_deadlock(self) -> None:
+        """
+        Interleaving record_success and record_failure calls concurrently
+        must not deadlock the circuit breaker's internal lock.
+        """
+        breaker = application.circuit_breaker.CircuitBreaker(
+            failure_threshold=100,
+            timeout_for_recovery_in_seconds=60.0,
+        )
+
+        async def alternate_success_and_failure(index: int) -> None:
+            if index % 2 == 0:
+                await breaker.record_failure()
+            else:
+                await breaker.record_success()
+
+        await asyncio.gather(*[alternate_success_and_failure(i) for i in range(20)])
+
+        # The circuit should be in a valid state (not deadlocked).
+        # The exact counter value depends on scheduling order, but the
+        # state must be one of the three valid states.
+        assert breaker.state in {
+            application.circuit_breaker.CircuitState.CLOSED,
+            application.circuit_breaker.CircuitState.OPEN,
+            application.circuit_breaker.CircuitState.HALF_OPEN,
+        }
+
+
 class TestCircuitOpenError:
     """Verify the CircuitOpenError exception attributes and message."""
 

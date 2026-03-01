@@ -1,4 +1,4 @@
-.PHONY: run test lint format format-check typecheck audit coverage ci clean docker-build docker-up docker-down
+.PHONY: run test lint format format-check typecheck audit coverage contract continuous-integration clean docker-build docker-up docker-down
 
 run:
 	uvicorn main:fastapi_application --host 127.0.0.1 --port 8000 --reload
@@ -24,7 +24,10 @@ audit:
 coverage:
 	pytest --cov=application --cov-report=term-missing --cov-fail-under=80
 
-ci: lint format-check typecheck audit coverage
+contract:
+	pytest tests/test_openapi_contract.py -v --no-header
+
+continuous-integration: lint format-check typecheck audit coverage contract
 
 docker-build:
 	docker compose build
