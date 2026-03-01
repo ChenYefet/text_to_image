@@ -133,6 +133,10 @@ README.md must contain, at minimum:
 - Environment prerequisites
 - Example commands
 
+COMMIT MESSAGE REQUIREMENTS
+
+Commit messages must describe the changes in terms of the specification and the codebase. They must never reference external documents such as audit reports, review feedback, or third-party assessments. The motivation for a change is the specification requirement it satisfies or the defect it corrects — not the external document that identified it.
+
 MARKDOWN ANCHOR LINK REQUIREMENTS
 
 Every internal anchor reference in all markdown files (`.md`) must correspond to a markdown heading with a valid anchor. When adding cross-references anywhere in the codebase's markdown documentation, verify the target heading exists before committing. A markdown link checker (such as markdown-link-check) may be used to validate all references before submission. Dead anchor links in any markdown file violate clarity requirements and must be caught during review.
