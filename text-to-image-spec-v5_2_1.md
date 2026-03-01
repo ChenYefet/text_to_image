@@ -1,10 +1,10 @@
 # Technical Specification: Text-to-Image Generation Service with Prompt Enhancement
 
-**Document Version:** 5.2.0
+**Document Version:** 5.2.1
 **Status:** Final — Panel Review Ready
 **Target Audience:** Senior Engineering Panel, Implementation Teams
 **Specification Authority:** Principal Technical Specification Authority
-**Date:** 25 February 2026
+**Date:** 1 March 2026
 
 ---
 
@@ -74,7 +74,7 @@ The service architecture prioritises horizontal scalability, operational observa
 
 This specification is designed for evaluation by a hiring panel assessing a candidate's ability to design, document, implement, deploy, and operate distributed systems with components for machine learning inference. Every requirement includes an explicit intent, a detailed test procedure with step-by-step instructions executable by an independent reviewer without deep domain knowledge, and measurable success criteria.
 
-**Scope calibration advisory:** This specification is titled "Junior Full Stack Exercise" but defines a system of enterprise-grade complexity: 49 individually testable requirements, chaos-engineering-style fault injection under concurrent load, k6 load testing with statistical analysis, a taxonomy of 44 logging event types, continuous integration and deployment with coverage enforcement, and references for Kubernetes production deployments. Evaluators should calibrate expectations accordingly. A candidate is not expected to implement every requirement to production quality; the specification is intentionally aspirational to expose design thinking and prioritisation skill. Evaluators may define a "minimum viable subset" (for example, [FR25](#capability-for-prompt-enhancement)–[FR29](#handling-of-the-image-size-parameter) and [NFR1](#latency-of-prompt-enhancement-under-concurrent-load)–[NFR3](#latency-of-validation-responses)) and treat additional requirements as stretch goals.
+**Scope calibration advisory:** This specification is titled "Junior Full Stack Exercise" but defines a system of enterprise-grade complexity: 50 individually testable requirements, chaos-engineering-style fault injection under concurrent load, k6 load testing with statistical analysis, a taxonomy of 45 logging event types, continuous integration and deployment with coverage enforcement, and references for Kubernetes production deployments. Evaluators should calibrate expectations accordingly. A candidate is not expected to implement every requirement to production quality; the specification is intentionally aspirational to expose design thinking and prioritisation skill. Evaluators may define a "minimum viable subset" (for example, [FR25](#capability-for-prompt-enhancement)–[FR29](#handling-of-the-image-size-parameter) and [NFR1](#latency-of-prompt-enhancement-under-concurrent-load)–[NFR3](#latency-of-validation-responses)) and treat additional requirements as stretch goals.
 
 ### Key Architectural Characteristics
 
@@ -105,7 +105,7 @@ This specification follows a layered structure designed to serve multiple audien
 
 ## Scope of the Minimum Viable Implementation
 
-This section defines the minimum set of requirements that constitute a passing implementation for hiring evaluation purposes. The full specification (49 requirements) is intentionally aspirational; candidates are not expected to implement every requirement. This section provides evaluators with a consistent, objective baseline for assessment and provides candidates with a clear target.
+This section defines the minimum set of requirements that constitute a passing implementation for hiring evaluation purposes. The full specification (50 requirements) is intentionally aspirational; candidates are not expected to implement every requirement. This section provides evaluators with a consistent, objective baseline for assessment and provides candidates with a clear target.
 
 ### Passing Submission Requirements
 
@@ -836,7 +836,7 @@ The non-functional requirements are specified before functional requirements bec
     - The maximum latency across all requests is ≤ 60 seconds
     - No request returns a non-JSON response body
 
-**Mixed-workload concurrency advisory:** The latency targets above assume that prompt enhancement requests are the only compute-intensive workload executing during the test period. On CPU-only hardware, a concurrent image generation request (which typically saturates all available CPU cores for 30–60 seconds per image) will introduce significant CPU contention that may degrade llama.cpp response times to the point of exceeding the 120-second upstream timeout (`TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_TO_LARGE_LANGUAGE_MODEL_IN_SECONDS`). This is an inherent limitation of CPU-only deployments where both inference backends share the same physical compute resources. The [NFR1](#latency-of-prompt-enhancement-under-concurrent-load) load test (RO7) is intentionally scoped to prompt-enhancement-only traffic to provide a stable, reproducible performance baseline. Operators observing prompt enhancement timeouts during concurrent image generation should consider: (a) deploying llama.cpp on a separate machine or container with dedicated CPU resources; (b) increasing `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_TO_LARGE_LANGUAGE_MODEL_IN_SECONDS` to accommodate contention-induced latency; (c) using admission control ([NFR44](#concurrency-control-for-image-generation), default concurrency 1) to serialise image generation requests and limit sustained CPU pressure; or (d) enabling GPU-accelerated execution for llama.cpp via the `--gpu-layers` flag (see [llama.cpp Integration](#llamacpp-integration)), which moves prompt enhancement inference off the CPU and eliminates contention with CPU-bound image generation.
+**Mixed-workload concurrency advisory:** The latency targets above assume that prompt enhancement requests are the only compute-intensive workload executing during the test period. On CPU-only hardware, a concurrent image generation request (which typically saturates all available CPU cores for 30–60 seconds per image) will introduce significant CPU contention that may degrade llama.cpp response times to the point of exceeding the 120-second upstream timeout (`TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_TO_LARGE_LANGUAGE_MODEL_IN_SECONDS`). This is an inherent limitation of CPU-only deployments where both inference backends share the same physical compute resources. The [NFR1](#latency-of-prompt-enhancement-under-concurrent-load) load test (RO7) is intentionally scoped to prompt-enhancement-only traffic to provide a stable, reproducible performance baseline. Operators observing prompt enhancement timeouts during concurrent image generation should consider: (a) deploying llama.cpp on a separate machine or container with dedicated CPU resources; (b) increasing `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_TO_LARGE_LANGUAGE_MODEL_IN_SECONDS` to accommodate contention-induced latency; (c) using admission control ([NFR44](#concurrency-control-for-image-generation), default concurrency 1) to serialise image generation requests and limit sustained CPU pressure; or (d) enabling GPU-accelerated execution for llama.cpp via the `--gpu-layers` flag (see [llama.cpp Integration](#llamacpp-integration)), which moves prompt enhancement inference off the CPU and eliminates CPU contention with image generation.
 
 ##### Latency of image generation (single image, 512×512)
 
@@ -1167,7 +1167,7 @@ The non-functional requirements are specified before functional requirements bec
 
 44. The service shall enforce a configurable maximum number of concurrent operations for inference during image generation. When the number of in-flight image generation requests equals the configured limit, subsequent image generation requests shall be rejected immediately with HTTP 429 and a response for structured errors conforming to the Schema for Error Responses, without queuing or waiting.
 
-**Intent:** To prevent resource exhaustion caused by concurrent CPU-bound image generation operations competing for the same cores and memory. A single 512×512 image generation on CPU consumes all available cores for 30–60 seconds; concurrent generations cause cascading timeouts and potential out-of-memory conditions. This admission control mechanism provides explicit backpressure to clients, enabling them to implement retry-with-backoff logic, and protects service stability under burst traffic.
+**Intent:** To prevent resource exhaustion caused by concurrent image generation operations competing for the same compute and memory resources. On CPU, a single 512×512 image generation consumes all available cores for 30–60 seconds; on GPU, each concurrent generation occupies approximately 3.5 GB of VRAM per pipeline instance at `float16` precision. In both cases, unbounded concurrent generations cause cascading timeouts and potential out-of-memory conditions. This admission control mechanism provides explicit backpressure to clients, enabling them to implement retry-with-backoff logic, and protects service stability under burst traffic.
 
 **Preconditions:**
 
@@ -3472,14 +3472,14 @@ The following operations execute directly on the `asyncio` event loop and must n
 
 **Thread pool executor operations (blocking):**
 
-The following operations are CPU-bound and synchronous. They **must** be delegated to a thread pool executor via `asyncio.run_in_executor` (or equivalent) to prevent event loop starvation:
+The following operations are synchronous and blocking. They **must** be delegated to a thread pool executor via `asyncio.run_in_executor` (or equivalent) to prevent event loop starvation:
 
-- Stable Diffusion pipeline inference (`StableDiffusionPipeline.__call__`)
-- Image encoding (PIL image to PNG bytes to base64 string) for large batch responses
+- Stable Diffusion pipeline inference (`StableDiffusionPipeline.__call__`) — CPU-bound on CPU devices; GPU-bound on CUDA devices but still blocking the calling thread while waiting for the GPU to complete
+- Image encoding (PIL image to PNG bytes to base64 string) for large batch responses — CPU-bound on all devices (Pillow has no GPU encoding backend)
 
 **Thread pool sizing:**
 
-The default thread pool executor shall be sized to match `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION` (default: 1). With the default concurrency of 1, a single worker thread suffices. Increasing the concurrency limit requires a proportionally sized thread pool to avoid deadlocking inference tasks waiting for executor capacity.
+A dedicated `ThreadPoolExecutor` shall be created and sized to match `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION` (default: 1). This executor shall be used exclusively for synchronous blocking operations — inference and image encoding — and shall be injected into `ImageGenerationService` as a constructor dependency. Using a dedicated executor — rather than sizing the asyncio event loop's default executor — isolates inference threads from any other asynchronous work that may use the default executor, preventing contention. With the default concurrency of 1, a single worker thread suffices. Increasing the concurrency limit requires a proportionally sized thread pool to avoid deadlocking inference tasks waiting for executor capacity.
 
 **Uvicorn worker model:**
 
@@ -3860,7 +3860,7 @@ The service does not warn the client when a prompt (original or enhanced) exceed
 
 **Non-English and multilingual prompt advisory:** The prompt enhancement and image generation pipeline is optimised for English-language input. Non-English prompts (for example, CJK characters, Arabic, Devanagari, or other non-Latin scripts) may experience degradation at two levels: (a) the llama.cpp large language model's enhancement quality depends on the model's multilingual training data — instruction-tuned models such as Llama 2 Chat are predominantly trained on English text, and enhancement output for non-English prompts may be less coherent, may switch to English, or may produce mixed-language results; (b) the CLIP text encoder used by Stable Diffusion v1.5 was trained primarily on English captions, and non-English tokens may be mapped to semantically imprecise embeddings, reducing the correspondence between the prompt and the generated image. The service transmits all valid UTF-8 prompts faithfully to both inference engines per [NFR17](#sanitisation-of-prompt-content) (Sanitisation of Prompt Content) and does not reject or modify prompts based on language. Enhancement quality and image relevance degradation for non-English input is a model-level limitation, not a service-level defect. Operators serving multilingual users should evaluate models with stronger multilingual support (for example, multilingual CLIP variants or multilingual instruction-tuned large language models) as described in [future extensibility pathways 2 (Additional image models) and 3 (Additional prompt enhancement models)](#future-extensibility-pathways).
 
-**Inference timeout advisory:** The `TEXT_TO_IMAGE_INFERENCE_TIMEOUT_BY_STABLE_DIFFUSION_PER_BASELINE_UNIT_IN_SECONDS` configuration variable specifies the per-image timeout used to derive a per-request timeout ceiling. Enforcing this timeout against a synchronous, CPU-bound, blocking Python call requires the pipeline to run inside a thread pool executor (`asyncio.run_in_executor`) so that `asyncio.wait_for` can cancel the future if the deadline elapses. Without this pattern, the timeout has no effect on a blocking pipeline call, and the end-to-end ceiling enforced by [NFR48](#timeout-for-end-to-end-requests) (`TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS`) will serve as the effective limit. The `stable_diffusion_inference_timeout` logging event (see Logging and Observability section) shall be emitted whenever this per-request ceiling is exceeded, regardless of whether the timeout is enforced by the per-image mechanism or the end-to-end mechanism.
+**Inference timeout advisory:** The `TEXT_TO_IMAGE_INFERENCE_TIMEOUT_BY_STABLE_DIFFUSION_PER_BASELINE_UNIT_IN_SECONDS` configuration variable specifies the per-image timeout used to derive a per-request timeout ceiling. Enforcing this timeout against a synchronous, blocking Python call (CPU-bound on CPU devices, GPU-bound on CUDA devices but still blocking the calling thread) requires the pipeline to run inside a thread pool executor (`asyncio.run_in_executor`) so that `asyncio.wait_for` can cancel the future if the deadline elapses. Without this pattern, the timeout has no effect on a blocking pipeline call, and the end-to-end ceiling enforced by [NFR48](#timeout-for-end-to-end-requests) (`TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS`) will serve as the effective limit. The `stable_diffusion_inference_timeout` logging event (see Logging and Observability section) shall be emitted whenever this per-request ceiling is exceeded, regardless of whether the timeout is enforced by the per-image mechanism or the end-to-end mechanism.
 
 **First-inference warm-up advisory:** The first image generation request after model loading is typically 20–50% slower than subsequent requests due to PyTorch's internal JIT compilation, memory allocation patterns, and CPU cache warming. Implementations should log this warm-up latency using the `first_warmup_of_inference_of_stable_diffusion` logging event. Evaluators should exclude the first inference from latency measurements when assessing [NFR2](#latency-of-image-generation-single-image-512512) compliance, or account for the warm-up overhead in their assessment. Implementations may optionally perform a single warm-up inference during startup (before reporting readiness via `GET /health/ready`) to absorb this overhead, but this is not required.
 
@@ -3925,6 +3925,22 @@ Stable Diffusion inference with PyTorch allocates intermediate tensors (latent r
 11. Timeout for end-to-end requests violations (total processing time exceeding `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS`) are detected by timeout middleware and mapped to HTTP 504 with `request_timeout`.
 12. All other exceptions are caught by the global exception handler middleware and mapped to HTTP 500 with `internal_server_error`.
 
+### Advisory on the Absence of Server-Side Retry
+
+The service does not retry failed upstream calls to llama.cpp or Stable Diffusion. When an upstream call fails — whether due to a connection refusal, a timeout, an HTTP error, or a circuit breaker rejection — the service maps the failure to an HTTP error response immediately and delegates retry responsibility to the client. This is a deliberate design decision, not an omission, and is motivated by the following considerations:
+
+1. **Latency amplification under tight timeout budgets.** The upstream timeout for llama.cpp is configurable with a default of 120 seconds ([NFR6](#enforcement-of-upstream-timeouts)). The end-to-end request timeout is configurable with a default of 300 seconds ([NFR48](#timeout-for-end-to-end-requests)). A single retry on a timeout failure would double the worst-case upstream latency to 240 seconds, leaving only 60 seconds of headroom for all remaining processing (image generation, middleware, serialisation). For image generation via Stable Diffusion, the timeout scales with the number of images requested and the resolution, making the budget even tighter.
+
+2. **Resource occupation under constrained concurrency.** The default concurrency limit for image generation is 1 ([NFR44](#concurrency-control-for-image-generation)). A retry holds the inference slot longer, blocking all other clients. Every second spent retrying is a second during which an incoming request receives HTTP 429.
+
+3. **Retry storm risk from layered retry.** The [Error Classification](#error-classification) table already prescribes client-side exponential backoff for all transient error codes (429, 500, 502, 503, 504), and [NFR47](#retry-after-header-on-backpressure-and-unavailability-responses) provides server-supplied `Retry-After` headers on HTTP 429 and 503 responses. If the server also retried internally, a struggling upstream would receive amplified load from both layers — the server's internal retries and the client's external retries — producing exactly the retry storm that backpressure mechanisms are designed to prevent.
+
+4. **Circuit breaker design tension.** [NFR50](#circuit-breaker-for-communication-with-the-large-language-model-service) implements a circuit breaker that tracks consecutive failures to the llama.cpp server and transitions to a fail-fast state after a configurable threshold. Server-side retries that mask failures would delay circuit opening by absorbing failures before the circuit breaker observes them, undermining the purpose of the fail-fast mechanism.
+
+5. **Computational cost of retried operations.** Both prompt enhancement (large language model inference) and image generation (diffusion model inference) are computationally expensive operations. Retrying these operations is not comparable to retrying a lightweight database query or cache lookup — each retry consumes significant compute resources on the upstream service.
+
+**Narrow exception considered and deferred:** A scoped retry limited to immediate connection-level failures (connection refused, connection reset, DNS resolution failures — failures that manifest in milliseconds rather than seconds) with at most one retry attempt and near-zero delay would add negligible latency and could recover from momentary network hiccups. This was evaluated and deferred because (a) connection-level failures in the target containerised deployment topology (where llama.cpp runs as a sidecar or adjacent container) are rare, (b) the specification complexity of defining which failure modes are retryable, how retries interact with the circuit breaker failure counter, and how silent retries are observed through structured logging is disproportionate to the benefit, and (c) the decision can be revisited in a future version informed by operational telemetry from real deployments.
+
 ### Matrix for Degradation under Component Failure
 
 The following matrix consolidates the service's behaviour under all component failure state combinations, providing operators with a single reference for failure mode analysis and client timeout configuration. This information is derived from [NFR7](#partial-availability-under-component-failure) (Partial availability under component failure), [FR32](#error-handling-llamacpp-unavailability) (Error handling: llama.cpp unavailability), [FR33](#error-handling-stable-diffusion-failures) (Error handling: Stable Diffusion failures), and [FR37](#readiness-check-endpoint) (Readiness check endpoint).
@@ -3944,7 +3960,7 @@ The following matrix consolidates the service's behaviour under all component fa
 
 ### Client Disconnect During Inference
 
-When a client disconnects (TCP RST, timeout, or cancelled request) during an in-flight image generation operation, the service **may** detect the disconnection and abort inference to conserve resources, but this is not required. The default behaviour (completing inference and discarding the result) is acceptable for correctness. Implementations that wish to optimise resource utilisation should detect client disconnection using ASGI event mechanisms (for example, checking the `receive` channel for a `disconnect` event) and cancel the inference operation by raising a `CancelledError` or equivalent. This is documented as a future optimisation pathway, not a mandatory requirement, because reliably cancelling a CPU-bound synchronous operation mid-execution requires thread interruption mechanisms that are complex and platform-dependent.
+When a client disconnects (TCP RST, timeout, or cancelled request) during an in-flight image generation operation, the service **may** detect the disconnection and abort inference to conserve resources, but this is not required. The default behaviour (completing inference and discarding the result) is acceptable for correctness. Implementations that wish to optimise resource utilisation should detect client disconnection using ASGI event mechanisms (for example, checking the `receive` channel for a `disconnect` event) and cancel the inference operation by raising a `CancelledError` or equivalent. This is documented as a future optimisation pathway, not a mandatory requirement, because reliably cancelling a synchronous blocking operation mid-execution requires thread interruption mechanisms that are complex and platform-dependent (on CPU, thread interruption; on CUDA, context destruction).
 
 No exception shall propagate to the HTTP framework's default error handler, which would produce non-JSON responses.
 
@@ -3986,7 +4002,7 @@ All configuration shall be expressed exclusively as environment variables with f
 | `TEXT_TO_IMAGE_NUMBER_OF_INFERENCE_STEPS_OF_STABLE_DIFFUSION` | Number of diffusion inference steps per image; lower values reduce latency at the cost of output quality | `20` | No |
 | `TEXT_TO_IMAGE_GUIDANCE_SCALE_OF_STABLE_DIFFUSION` | Classifier-free guidance scale; higher values follow the prompt more closely | `7.0` | No |
 | `TEXT_TO_IMAGE_SAFETY_CHECKER_FOR_STABLE_DIFFUSION` | Enable the NSFW safety checker (`true`/`false`); disabling removes content filtering from generated images | `true` | No |
-| `TEXT_TO_IMAGE_INFERENCE_TIMEOUT_BY_STABLE_DIFFUSION_PER_BASELINE_UNIT_IN_SECONDS` | Base timeout (seconds) for generating one 512×512 baseline unit image. The service scales automatically: `base × n_images × (w × h) / (512 × 512)`, with a 30× multiplier applied on CPU. GPU operators can usually leave the default; operators running on CPU without a GPU should increase it. **Implementation advisory:** Enforcing this timeout against a synchronous, CPU-bound, in-process Python call is non-trivial. Unlike a network socket timeout, a `Diffusers` pipeline call running in the main thread cannot be interrupted by a simple `asyncio` cancellation. Correct enforcement requires running the pipeline in a thread pool executor (`asyncio.run_in_executor`) and cancelling the resulting `asyncio.Future` via `asyncio.wait_for`. Implementations that do not use this pattern will observe that the timeout has no effect on a blocking pipeline call, and the timeout for end-to-end requests ([NFR48](#timeout-for-end-to-end-requests) / `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS`) will serve as the effective ceiling instead. This configuration variable is therefore aspirational in the absence of executor-based implementation and is provided primarily to support future GPU deployments where cancellation via CUDA context destruction is feasible. | `60` | No |
+| `TEXT_TO_IMAGE_INFERENCE_TIMEOUT_BY_STABLE_DIFFUSION_PER_BASELINE_UNIT_IN_SECONDS` | Base timeout (seconds) for generating one 512×512 baseline unit image. The service scales automatically: `base × n_images × (w × h) / (512 × 512)`, with a 30× multiplier applied on CPU. GPU operators can usually leave the default; operators running on CPU without a GPU should increase it. **Implementation advisory:** Enforcing this timeout against a synchronous, blocking, in-process Python call is non-trivial. Unlike a network socket timeout, a `Diffusers` pipeline call running in the main thread cannot be interrupted by a simple `asyncio` cancellation. Correct enforcement requires running the pipeline in a thread pool executor (`asyncio.run_in_executor`) and cancelling the resulting `asyncio.Future` via `asyncio.wait_for`. Implementations that do not use this pattern will observe that the timeout has no effect on a blocking pipeline call, and the timeout for end-to-end requests ([NFR48](#timeout-for-end-to-end-requests) / `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS`) will serve as the effective ceiling instead. This configuration variable is therefore aspirational in the absence of executor-based implementation and is provided primarily to support future GPU deployments where cancellation via CUDA context destruction is feasible. | `60` | No |
 | `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION` | Maximum number of operations for inference during image generation permitted to execute concurrently within a single service instance. When this limit is reached, additional image generation requests are rejected immediately with HTTP 429 (`service_busy`). GPU deployments with sufficient VRAM may increase this value. A value of `1` is strongly recommended for CPU-only deployments where a single inference saturates all cores. | `1` | No |
 | `TEXT_TO_IMAGE_RETRY_AFTER_BUSY_IN_SECONDS` | Value (in seconds) of the `Retry-After` response header on HTTP 429 (Too Many Requests) responses. Operators should tune this to reflect the expected image generation duration for their deployment. | `30` | No |
 | `TEXT_TO_IMAGE_RETRY_AFTER_NOT_READY_IN_SECONDS` | Value (in seconds) of the `Retry-After` response header on HTTP 503 (Service Unavailable) responses. Operators should tune this to reflect the expected service initialisation duration. | `10` | No |
@@ -4278,6 +4294,8 @@ The Text-to-Image API Service shall be packaged as a container image using a mul
 
 - **Base image:** `python:3.12-slim` (identical to builder stage base)
 - **Purpose:** Produce the minimal runtime image
+- **Environment variables:**
+  - `HF_HOME=/home/service_user/.cache/huggingface` — Explicitly sets the Hugging Face cache directory to a path under the non-root user's home directory. This ensures that the cache location is deterministic rather than relying on the implicit default (`~/.cache/huggingface`), and aligns the Dockerfile with the volume mount path used in the [reference docker-compose](#reference-docker-compose-for-multi-instance-evaluation) (`stable-diffusion-cache:/home/service_user/.cache/huggingface`) and the Kubernetes [PersistentVolumeClaim](#persistentvolumeclaims) mount path (`/home/service_user/.cache/huggingface`)
 - **Steps:**
   1. Install runtime system dependencies: `libgl1-mesa-glx`, `libglib2.0-0` (required by Pillow and OpenCV if used)
   2. Create a non-root user: `useradd --create-home --shell /bin/bash service_user`
@@ -4665,7 +4683,7 @@ This section defines the complete continuous integration and continuous deployme
 
 ### Repository Structure
 
-The repository shall be organised using the following directory structure:
+The repository shall be organised using the following directory structure. The [normative scope of the directory structure](#normative-scope-of-the-directory-structure) paragraph below the tree distinguishes items that are required for correctness from items that are provided as operational references.
 
 ```
 text-to-image-service/
@@ -4734,6 +4752,14 @@ text-to-image-service/
 ├── openapi.yaml                             # OpenAPI specification document (FR46)
 └── README.md
 ```
+
+#### Normative Scope of the Directory Structure
+
+The items in the directory tree above fall into two categories:
+
+- **Normative items** — application source files (`application/`), unit and integration test files (`tests/unit/`, `tests/integration/`), dependency files (`requirements.in`, `requirements.txt`, `requirements-dev.txt`), the `Dockerfile`, the continuous integration workflow (`.github/workflows/continuous-integration.yml`), `openapi.yaml`, `pyproject.toml`, and `README.md` — **shall** be present in the repository. Their absence constitutes a specification deviation.
+
+- **Reference artefacts** — `nginx.conf`, `docker-compose.yml`, `k8s/`, and `tests/load/` — **should** be present. They are provided as operational templates and release-qualification tooling. Their absence does not affect the correctness, buildability, or testability of the system, but their presence reduces evaluation friction for horizontal scaling verification ([NFR4](#horizontal-scaling-under-concurrent-load)), fault tolerance testing ([NFR9](#fault-tolerance-under-sustained-concurrent-load)), and production deployment.
 
 **Dependency pinning requirement:** The repository shall maintain three dependency files: `requirements.in`, which lists only direct (top-level) application dependencies with minimum version bounds (for example, `fastapi>=0.100.0`); `requirements.txt`, which is generated from `requirements.in` using `pip-compile` (part of the `pip-tools` package) and contains fully pinned versions for every transitive dependency (for example, `fastapi==0.115.0`); and `requirements-dev.txt`, which lists pinned versions of all development dependencies used in the continuous integration pipeline (pytest, pytest-cov, pytest-asyncio, ruff, mypy, pip-audit). Both `requirements.txt` and `requirements-dev.txt` shall be committed to version control. This ensures that every build — whether on a developer's workstation, in continuous integration, or inside a container — installs an identical dependency tree, closing the reproducibility asymmetry with `TEXT_TO_IMAGE_REVISION_OF_STABLE_DIFFUSION_MODEL`, which pins model weights to an exact commit hash. To regenerate the lock file after updating dependencies, run `pip-compile requirements.in --output-file requirements.txt`. The `Dockerfile` shall use `pip install --no-cache-dir -r requirements.txt` to install the pinned set rather than the unpinned bounds. The continuous integration pipeline shall install both files: `pip install -r requirements.txt -r requirements-dev.txt`.
 
@@ -5374,7 +5400,8 @@ This section documents failure modes commonly encountered during initial setup a
 | 4.0.0 | 20 Feb 2026 | Scalability, rigour, and numbering overhaul. See detailed v4.0.0 changelog below. |
 | 5.0.0 | 22 Feb 2026 | Operational completeness, infrastructure maturity, evaluation framework enhancement, and specification ambiguity resolution. See detailed v5.0.0 changelog below. |
 | 5.1.0 | 25 Feb 2026 | Circuit breaker for communication with the large language model service; continuous integration pipeline documentation corrections. See detailed v5.1.0 changelog below. |
-| 5.2.0 | 25 Feb 2026 | Expanded normative logging taxonomy from 32 to 44 events; removed rate limiting from specification scope. See detailed v5.2.0 changelog below. |
+| 5.2.0 | 25 Feb 2026 | Expanded normative logging taxonomy from 32 to 45 events; removed rate limiting from specification scope. See detailed v5.2.0 changelog below. |
+| 5.2.1 | 1 Mar 2026 | Added advisory on the absence of server-side retry; corrected thread pool executor specification from default to dedicated; added `HF_HOME` environment variable to Dockerfile Stage 2; corrected device-agnostic wording from "CPU-bound" to "synchronous and blocking" throughout concurrency architecture; added [normative scope of the directory structure](#normative-scope-of-the-directory-structure) classification distinguishing normative items from reference artefacts. See detailed v5.2.1 changelog below. |
 
 #### v4.0.0 Detailed Changelog
 
@@ -5728,8 +5755,8 @@ This section documents failure modes commonly encountered during initial setup a
 
 **Observability:**
 
-- Expanded the normative logging event taxonomy from 32 to 44 events, adding 12 events across four subsystems: circuit breaker state transitions (`circuit_breaker_opened`, `circuit_breaker_half_open`, `circuit_breaker_closed`, `circuit_breaker_reopened`), large language model defensive handling (`llama_cpp_circuit_breaker_rejected`, `llama_cpp_request_failed`, `llama_cpp_unexpected_streaming_response`, `llama_cpp_response_too_large`), startup lifecycle (`stable_diffusion_startup_warmup_completed`, `stable_diffusion_startup_warmup_failed`), and request processing (`enhanced_prompt_for_generation`, `request_timeout_after_headers_sent`).
-- Updated the scope calibration advisory in the Executive Summary to reference 44 logging event types (previously 32).
+- Expanded the normative logging event taxonomy from 32 to 45 events, adding 13 events across five subsystems: circuit breaker state transitions (`circuit_breaker_opened`, `circuit_breaker_half_open`, `circuit_breaker_closed`, `circuit_breaker_reopened`), large language model defensive handling (`llama_cpp_circuit_breaker_rejected`, `llama_cpp_request_failed`, `llama_cpp_unexpected_streaming_response`, `llama_cpp_response_too_large`), startup lifecycle (`stable_diffusion_startup_warmup_completed`, `stable_diffusion_startup_warmup_failed`), request processing (`enhanced_prompt_for_generation`, `request_timeout_after_headers_sent`), and HTTP error handling (`http_framework_error`).
+- Updated the scope calibration advisory in the Executive Summary to reference 45 logging event types (previously 32).
 
 **Rate limiting:**
 
@@ -5746,6 +5773,31 @@ This section documents failure modes commonly encountered during initial setup a
 - Updated the [System Context and Architecture](#system-context-and-architecture) description and architecture diagram to reflect that llama.cpp supports CPU or GPU execution.
 - Added a GPU-accelerated recommended invocation example and the `--gpu-layers` configuration parameter to the [llama.cpp Integration](#llamacpp-integration) deployment configuration section.
 - Added GPU-accelerated llama.cpp execution as a fourth mitigation strategy in the mixed-workload concurrency advisory under [NFR1](#latency-of-prompt-enhancement-under-concurrent-load).
+
+#### v5.2.1 Detailed Changelog
+
+**Error handling and recovery:**
+
+- Added [Advisory on the Absence of Server-Side Retry](#advisory-on-the-absence-of-server-side-retry) section to [Error Handling and Recovery](#error-handling-and-recovery), documenting the design rationale for why the service does not retry failed upstream calls to llama.cpp or Stable Diffusion. The advisory enumerates five considerations — latency amplification under tight timeout budgets, resource occupation under constrained concurrency, retry storm risk from layered retry, circuit breaker design tension, and computational cost of retried operations — and records the evaluation and deferral of a scoped connection-failure retry for future versions informed by operational telemetry.
+
+**Concurrency architecture:**
+
+- Corrected the [thread pool sizing](#concurrency-architecture-asynchronous-execution-model) specification from "the default thread pool executor" to "a dedicated `ThreadPoolExecutor`", reflecting that the executor shall be created explicitly and injected into `ImageGenerationService` as a constructor dependency rather than sizing the asyncio event loop's shared default executor.
+
+**Container specification:**
+
+- Added `HF_HOME=/home/service_user/.cache/huggingface` as a prescribed environment variable in [Dockerfile Stage 2](#dockerfile), making the Hugging Face cache directory path explicit rather than relying on the implicit default. This aligns the Dockerfile specification with the volume mount path in the [reference docker-compose](#reference-docker-compose-for-multi-instance-evaluation) and the [PersistentVolumeClaim](#persistentvolumeclaims) mount path in the Kubernetes deployment.
+
+**Device-agnostic wording corrections:**
+
+- Corrected the [Concurrency Architecture](#concurrency-architecture-asynchronous-execution-model) section: replaced the blanket "CPU-bound and synchronous" characterisation of thread pool executor operations with "synchronous and blocking", adding per-operation device qualifications — Stable Diffusion inference is CPU-bound on CPU devices and GPU-bound on CUDA devices (but still blocking the calling thread), while image encoding is CPU-bound on all devices (Pillow has no GPU encoding backend). The previous wording incorrectly characterised GPU-bound inference as CPU-bound, which could mislead implementers about the nature of the blocking behaviour on CUDA deployments.
+- Updated the [NFR44](#concurrency-control-for-image-generation) intent to describe resource exhaustion in device-agnostic terms (CPU core saturation on CPU; VRAM consumption on GPU) rather than assuming CPU-only operation.
+- Updated the [inference timeout advisory](#stable-diffusion-integration), the [client disconnect](#client-disconnect-during-inference) advisory, and the `TEXT_TO_IMAGE_INFERENCE_TIMEOUT_BY_STABLE_DIFFUSION_PER_BASELINE_UNIT_IN_SECONDS` [configuration variable description](#configuration-requirements) to replace unqualified "CPU-bound" with device-qualified "synchronous, blocking" phrasing throughout.
+- Updated the [mixed-workload concurrency advisory](#latency-of-prompt-enhancement-under-concurrent-load) under [NFR1](#latency-of-prompt-enhancement-under-concurrent-load) to remove an unqualified "CPU-bound" label from a context that could apply to GPU deployments.
+
+**Repository structure:**
+
+- Added [Normative Scope of the Directory Structure](#normative-scope-of-the-directory-structure) subheading under [Repository Structure](#repository-structure), classifying directory tree items into two categories: **normative items** (application source files, test files, dependency files, Dockerfile, continuous integration workflow, `openapi.yaml`, `pyproject.toml`, `README.md`) that **shall** be present, and **reference artefacts** (`nginx.conf`, `docker-compose.yml`, `k8s/`, `tests/load/`) that **should** be present. This resolves a normative scope contradiction where the blanket "shall" on the directory tree conflicted with the advisory "should" for Kubernetes manifests at the end of the [Kubernetes Deployment (Production Reference)](#kubernetes-deployment-production-reference) section. The reference artefact classification is consistent with the existing language describing the [reference docker-compose for multi-instance evaluation](#reference-docker-compose-for-multi-instance-evaluation) as "provided to reduce evaluation friction" and the load test scripts as "release qualification only" items that "should not run on every commit."
 
 ---
 

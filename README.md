@@ -658,7 +658,7 @@ text_to_image/
 ├── docker-compose.yml                             # Runs API + llama.cpp together
 ├── .dockerignore                                  # Files excluded from the Docker build context
 ├── README.md                                      # This file
-├── text-to-image-spec-v5_2_0.md                   # Project specification
+├── text-to-image-spec-v5_2_1.md                   # Project specification
 ├── .github/
 │   └── workflows/
 │       └── continuous-integration.yml              # Continuous integration pipeline (lint, format, type check, audit, test, contract validation)

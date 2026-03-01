@@ -964,7 +964,7 @@ class TestReadinessCheckReturning503FullStackIntegration:
     operation (for example, the llama.cpp server crashes or the Stable
     Diffusion pipeline encounters a fatal error).
 
-    The ``Retry-After`` header is required by NFR47 of the v5.2.0
+    The ``Retry-After`` header is required by NFR47 of the v5.2.1
     specification to enable orchestrators and monitoring tools to
     implement intelligent back-off when the service reports not-ready.
     """

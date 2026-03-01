@@ -1,7 +1,7 @@
 """
 Pydantic models for request validation and response serialisation.
 
-All request models enforce strict validation rules aligned with the v5.2.0
+All request models enforce strict validation rules aligned with the v5.2.1
 specification (Section 11 — Data Model and Schema Definition). All response
 models use field names matching the API contract exactly.
 

@@ -181,7 +181,7 @@ def create_application() -> fastapi.FastAPI:
 
         # ── Graceful shutdown sequence (FR40) ─────────────────────────────
         #
-        # The v5.2.0 specification requires a ``graceful_shutdown_initiated``
+        # The v5.2.1 specification requires a ``graceful_shutdown_initiated``
         # log event at INFO level when the service begins its shutdown
         # sequence.  This event must include the number of HTTP requests
         # still in progress at the moment of shutdown initiation, allowing

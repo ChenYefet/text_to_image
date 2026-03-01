@@ -11,7 +11,7 @@ Provides cross-cutting concerns that apply to every request/response cycle:
 - **RequestTimeoutMiddleware**: enforces the operator-configured end-to-end
   request timeout (``request_timeout_in_seconds``, default 300 s).  Requests
   exceeding this ceiling are aborted with HTTP 504 (request_timeout).
-  This middleware implements NFR48 from the v5.2.0 specification.
+  This middleware implements NFR48 from the v5.2.1 specification.
 
 - **ContentTypeValidationMiddleware**: rejects POST requests whose
   ``Content-Type`` header is missing or not ``application/json`` with
@@ -184,7 +184,7 @@ class CorrelationIdMiddleware:
 
         # Extract the declared request payload size from the Content-Length
         # header (if present) for inclusion in the http_request_received
-        # log event, as recommended by the v5.2.0 specification's 45-event
+        # log event, as recommended by the v5.2.1 specification's 45-event
         # logging taxonomy.
         number_of_bytes_of_request_payload = extract_content_length_from_headers(
             scope.get("headers", []),
@@ -283,7 +283,7 @@ class RequestTimeoutMiddleware:
     """
     Enforce an end-to-end request timeout on every HTTP request.
 
-    This middleware implements NFR48 from the v5.2.0 specification: a
+    This middleware implements NFR48 from the v5.2.1 specification: a
     configurable maximum duration for any single HTTP request.  When the
     timeout is exceeded, the request processing is cancelled and the client
     receives an HTTP 504 (Gateway Timeout) response with the structured
@@ -425,7 +425,7 @@ class ContentTypeValidationMiddleware:
     Content-Type.
 
     This middleware enforces NFR18 (Content-Type enforcement) from the
-    v5.2.0 specification.  It inspects the ``Content-Type`` header on
+    v5.2.1 specification.  It inspects the ``Content-Type`` header on
     every POST request and returns HTTP 415 (Unsupported Media Type)
     when the header is:
 
@@ -555,7 +555,7 @@ class RequestPayloadSizeLimitMiddleware:
     Reject HTTP requests whose body exceeds the configured maximum size.
 
     This middleware enforces NFR15 (request payload size enforcement) from
-    the v5.2.0 specification.  It uses two complementary strategies:
+    the v5.2.1 specification.  It uses two complementary strategies:
 
     1. **Fast-path rejection via Content-Length header**: when the client
        sends a ``Content-Length`` header that exceeds the limit, the
