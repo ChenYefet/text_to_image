@@ -81,6 +81,14 @@ ENV PYTHONDONTWRITEBYTECODE=1
 # time the container restarts).
 ENV HF_HOME=/data/huggingface
 
+# Install curl for container health checks.  The HEALTHCHECK command
+# below uses curl rather than a Python one-liner to avoid starting a
+# full Python interpreter on every check interval.  curl is smaller,
+# faster, and does not introduce the urllib.request attack surface.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
 # Create a non-root user.  Running as root inside a container is a
 # security risk — if an attacker escapes the app, they'd have root on
 # the host.  This user has no password and no home directory.
@@ -118,7 +126,7 @@ EXPOSE 8000
 # marked healthy when both the language model client and the Stable
 # Diffusion pipeline are initialised.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready')" || exit 1
+    CMD curl -sf http://localhost:8000/health/ready || exit 1
 
 # The command that runs when the container starts.
 #
