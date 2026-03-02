@@ -21,23 +21,25 @@ import pytest
 import pytest_asyncio
 
 import application.exceptions
+import application.integrations.llama_cpp_client
+import application.integrations.stable_diffusion_pipeline
 import application.main
 import application.services.image_generation_service
-import application.services.large_language_model_service
+import application.services.prompt_enhancement_service
 
 
-def _build_mock_of_image_generation_service():
+def _build_mock_of_stable_diffusion_pipeline():
     """
-    Create a mock ImageGenerationService that returns an
+    Create a mock StableDiffusionPipeline that returns an
     ``ImageGenerationResult`` matching the updated service interface.
     """
-    mock_generation_result = application.services.image_generation_service.ImageGenerationResult(
+    mock_generation_result = application.integrations.stable_diffusion_pipeline.ImageGenerationResult(
         base64_encoded_images=["base64encodedimage"],
         indices_flagged_by_content_safety_checker=[],
     )
 
     service = MagicMock(
-        spec=application.services.image_generation_service.ImageGenerationService,
+        spec=application.integrations.stable_diffusion_pipeline.StableDiffusionPipeline,
     )
     service.generate_images = AsyncMock(return_value=mock_generation_result)
     service.check_health.return_value = True
@@ -46,10 +48,10 @@ def _build_mock_of_image_generation_service():
     return service
 
 
-def _build_mock_of_large_language_model_service():
-    """Create a mock LargeLanguageModelService that behaves like the real one."""
+def _build_mock_of_llama_cpp_client():
+    """Create a mock LlamaCppClient that behaves like the real one."""
     service = MagicMock(
-        spec=application.services.large_language_model_service.LargeLanguageModelService,
+        spec=application.integrations.llama_cpp_client.LlamaCppClient,
     )
     service.enhance_prompt = AsyncMock(return_value="Enhanced prompt text")
     service.check_health = AsyncMock(return_value=True)
@@ -93,35 +95,35 @@ def _apply_default_configuration_attributes(mock_configuration_instance):
 
 
 @contextlib.contextmanager
-def _patched_services(mock_of_large_language_model_service, mock_of_image_generation_service):
+def _patched_services(mock_of_llama_cpp_client, mock_of_stable_diffusion_pipeline):
     """Patch both ML service constructors for the duration of the block."""
     with (
         patch.object(
-            application.services.large_language_model_service,
-            "LargeLanguageModelService",
-            return_value=mock_of_large_language_model_service,
+            application.integrations.llama_cpp_client,
+            "LlamaCppClient",
+            return_value=mock_of_llama_cpp_client,
         ),
         patch.object(
-            application.services.image_generation_service.ImageGenerationService,
+            application.integrations.stable_diffusion_pipeline.StableDiffusionPipeline,
             "load_pipeline",
-            return_value=mock_of_image_generation_service,
+            return_value=mock_of_stable_diffusion_pipeline,
         ),
     ):
         yield
 
 
 @pytest.fixture
-def mock_of_large_language_model_service():
-    return _build_mock_of_large_language_model_service()
+def mock_of_llama_cpp_client():
+    return _build_mock_of_llama_cpp_client()
 
 
 @pytest.fixture
-def mock_of_image_generation_service():
-    return _build_mock_of_image_generation_service()
+def mock_of_stable_diffusion_pipeline():
+    return _build_mock_of_stable_diffusion_pipeline()
 
 
 @pytest_asyncio.fixture
-async def integration_client(mock_of_large_language_model_service, mock_of_image_generation_service):
+async def integration_client(mock_of_llama_cpp_client, mock_of_stable_diffusion_pipeline):
     """
     Create a real FastAPI app via ``create_application()`` with mocked ML
     backends, invoke the lifespan, and yield an async HTTP client.
@@ -129,7 +131,7 @@ async def integration_client(mock_of_large_language_model_service, mock_of_image
     Patches remain active for the full lifespan because the lifespan
     closure references module-level names at runtime.
     """
-    with _patched_services(mock_of_large_language_model_service, mock_of_image_generation_service):
+    with _patched_services(mock_of_llama_cpp_client, mock_of_stable_diffusion_pipeline):
         test_application = application.main.create_application()
         async with test_application.router.lifespan_context(test_application):
             transport = httpx.ASGITransport(app=test_application)
@@ -138,13 +140,13 @@ async def integration_client(mock_of_large_language_model_service, mock_of_image
 
 
 @pytest_asyncio.fixture
-async def cors_client(mock_of_large_language_model_service, mock_of_image_generation_service):
+async def cors_client(mock_of_llama_cpp_client, mock_of_stable_diffusion_pipeline):
     """
     Create a real application with CORS enabled and yield an async HTTP client.
     """
     with (
         patch("application.configuration.ApplicationConfiguration") as mock_configuration_class,
-        _patched_services(mock_of_large_language_model_service, mock_of_image_generation_service),
+        _patched_services(mock_of_llama_cpp_client, mock_of_stable_diffusion_pipeline),
     ):
         configuration_instance = mock_configuration_class.return_value
         _apply_default_configuration_attributes(configuration_instance)
@@ -189,36 +191,36 @@ class TestApplicationFactory:
 
 class TestLifespan:
     @pytest.mark.asyncio
-    async def test_services_initialised_on_startup(
-        self, mock_of_large_language_model_service, mock_of_image_generation_service
-    ):
+    async def test_services_initialised_on_startup(self, mock_of_llama_cpp_client, mock_of_stable_diffusion_pipeline):
         """Services must be set on application state after lifespan startup."""
-        with _patched_services(mock_of_large_language_model_service, mock_of_image_generation_service):
+        with _patched_services(mock_of_llama_cpp_client, mock_of_stable_diffusion_pipeline):
             test_application = application.main.create_application()
             async with test_application.router.lifespan_context(test_application):
-                assert test_application.state.large_language_model_service is mock_of_large_language_model_service
-                assert test_application.state.image_generation_service is mock_of_image_generation_service
+                assert isinstance(
+                    test_application.state.prompt_enhancement_service,
+                    application.services.prompt_enhancement_service.PromptEnhancementService,
+                )
+                assert isinstance(
+                    test_application.state.image_generation_service,
+                    application.services.image_generation_service.ImageGenerationService,
+                )
 
     @pytest.mark.asyncio
-    async def test_services_closed_on_shutdown(
-        self, mock_of_large_language_model_service, mock_of_image_generation_service
-    ):
+    async def test_services_closed_on_shutdown(self, mock_of_llama_cpp_client, mock_of_stable_diffusion_pipeline):
         """Services must be closed when the lifespan exits."""
-        with _patched_services(mock_of_large_language_model_service, mock_of_image_generation_service):
+        with _patched_services(mock_of_llama_cpp_client, mock_of_stable_diffusion_pipeline):
             test_application = application.main.create_application()
             async with test_application.router.lifespan_context(test_application):
                 pass  # startup runs
 
         # After exiting, shutdown should have run
-        mock_of_large_language_model_service.close.assert_awaited_once()
-        mock_of_image_generation_service.close.assert_awaited_once()
+        mock_of_llama_cpp_client.close.assert_awaited_once()
+        mock_of_stable_diffusion_pipeline.close.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_metrics_collector_on_app_state(
-        self, mock_of_large_language_model_service, mock_of_image_generation_service
-    ):
+    async def test_metrics_collector_on_app_state(self, mock_of_llama_cpp_client, mock_of_stable_diffusion_pipeline):
         """The metrics collector must be set on application state."""
-        with _patched_services(mock_of_large_language_model_service, mock_of_image_generation_service):
+        with _patched_services(mock_of_llama_cpp_client, mock_of_stable_diffusion_pipeline):
             test_application = application.main.create_application()
             async with test_application.router.lifespan_context(test_application):
                 assert hasattr(test_application.state, "metrics_collector")
@@ -246,7 +248,7 @@ class TestStartupModelValidation:
     """
 
     @pytest_asyncio.fixture
-    async def degraded_client(self, mock_of_large_language_model_service):
+    async def degraded_client(self, mock_of_llama_cpp_client):
         """
         Create a FastAPI application where the Stable Diffusion model
         failed to load during startup, simulating the degraded state
@@ -259,12 +261,12 @@ class TestStartupModelValidation:
         """
         with (
             patch.object(
-                application.services.large_language_model_service,
-                "LargeLanguageModelService",
-                return_value=mock_of_large_language_model_service,
+                application.integrations.llama_cpp_client,
+                "LlamaCppClient",
+                return_value=mock_of_llama_cpp_client,
             ),
             patch.object(
-                application.services.image_generation_service.ImageGenerationService,
+                application.integrations.stable_diffusion_pipeline.StableDiffusionPipeline,
                 "load_pipeline",
                 side_effect=OSError("Model file not found: /models/stable-diffusion"),
             ),
@@ -346,7 +348,7 @@ class TestStartupModelValidation:
     @pytest.mark.asyncio
     async def test_startup_emits_critical_log_on_model_load_failure(
         self,
-        mock_of_large_language_model_service,
+        mock_of_llama_cpp_client,
         capsys,
     ):
         """FR49: When the Stable Diffusion model fails to load during
@@ -355,12 +357,12 @@ class TestStartupModelValidation:
         model identifier and a human-readable description of the failure."""
         with (
             patch.object(
-                application.services.large_language_model_service,
-                "LargeLanguageModelService",
-                return_value=mock_of_large_language_model_service,
+                application.integrations.llama_cpp_client,
+                "LlamaCppClient",
+                return_value=mock_of_llama_cpp_client,
             ),
             patch.object(
-                application.services.image_generation_service.ImageGenerationService,
+                application.integrations.stable_diffusion_pipeline.StableDiffusionPipeline,
                 "load_pipeline",
                 side_effect=OSError("Model file not found: /models/stable-diffusion"),
             ),
@@ -377,16 +379,16 @@ class TestStartupModelValidation:
     @pytest.mark.asyncio
     async def test_startup_emits_info_log_on_model_load_success(
         self,
-        mock_of_large_language_model_service,
-        mock_of_image_generation_service,
+        mock_of_llama_cpp_client,
+        mock_of_stable_diffusion_pipeline,
         capsys,
     ):
         """FR49: When the Stable Diffusion model loads successfully during
         startup, the service must emit an INFO-level
         ``model_validation_at_startup_passed`` log event."""
         with _patched_services(
-            mock_of_large_language_model_service,
-            mock_of_image_generation_service,
+            mock_of_llama_cpp_client,
+            mock_of_stable_diffusion_pipeline,
         ):
             fastapi_application = application.main.create_application()
             async with fastapi_application.router.lifespan_context(
@@ -403,7 +405,7 @@ class TestStartupModelValidation:
 
 class TestPromptEnhancementFlow:
     @pytest.mark.asyncio
-    async def test_successful_enhancement(self, integration_client, mock_of_large_language_model_service):
+    async def test_successful_enhancement(self, integration_client, mock_of_llama_cpp_client):
         response = await integration_client.post(
             "/v1/prompts/enhance",
             json={"prompt": "A cat"},
@@ -415,13 +417,13 @@ class TestPromptEnhancementFlow:
         assert body["enhanced_prompt"] == "Enhanced prompt text"
         assert "created" in body
         assert isinstance(body["created"], int)
-        mock_of_large_language_model_service.enhance_prompt.assert_awaited_once_with(
+        mock_of_llama_cpp_client.enhance_prompt.assert_awaited_once_with(
             original_prompt="A cat",
         )
 
     @pytest.mark.asyncio
-    async def test_enhancement_service_unavailable(self, integration_client, mock_of_large_language_model_service):
-        mock_of_large_language_model_service.enhance_prompt.side_effect = (
+    async def test_enhancement_service_unavailable(self, integration_client, mock_of_llama_cpp_client):
+        mock_of_llama_cpp_client.enhance_prompt.side_effect = (
             application.exceptions.LargeLanguageModelServiceUnavailableError(
                 detail="llama.cpp not reachable",
             )
@@ -438,8 +440,8 @@ class TestPromptEnhancementFlow:
         assert "llama.cpp not reachable" in body["error"]["message"]
 
     @pytest.mark.asyncio
-    async def test_enhancement_malformed_response(self, integration_client, mock_of_large_language_model_service):
-        mock_of_large_language_model_service.enhance_prompt.side_effect = application.exceptions.PromptEnhancementError(
+    async def test_enhancement_malformed_response(self, integration_client, mock_of_llama_cpp_client):
+        mock_of_llama_cpp_client.enhance_prompt.side_effect = application.exceptions.PromptEnhancementError(
             detail="Unexpected response structure",
         )
 
@@ -455,7 +457,7 @@ class TestPromptEnhancementFlow:
 
 class TestImageGenerationFlow:
     @pytest.mark.asyncio
-    async def test_successful_generation(self, integration_client, mock_of_image_generation_service):
+    async def test_successful_generation(self, integration_client, mock_of_stable_diffusion_pipeline):
         response = await integration_client.post(
             "/v1/images/generations",
             json={"prompt": "A sunset"},
@@ -469,14 +471,14 @@ class TestImageGenerationFlow:
         assert isinstance(body["seed"], int)
         assert len(body["data"]) == 1
         assert body["data"][0]["base64_json"] == "base64encodedimage"
-        mock_of_image_generation_service.generate_images.assert_awaited_once()
+        mock_of_stable_diffusion_pipeline.generate_images.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_generation_with_enhancer(
         self,
         integration_client,
-        mock_of_large_language_model_service,
-        mock_of_image_generation_service,
+        mock_of_llama_cpp_client,
+        mock_of_stable_diffusion_pipeline,
     ):
         response = await integration_client.post(
             "/v1/images/generations",
@@ -487,19 +489,19 @@ class TestImageGenerationFlow:
         body = response.json()
         assert body["enhanced_prompt"] == "Enhanced prompt text"
         assert "seed" in body
-        mock_of_large_language_model_service.enhance_prompt.assert_awaited_once_with(
+        mock_of_llama_cpp_client.enhance_prompt.assert_awaited_once_with(
             original_prompt="A sunset",
         )
         # The enhanced prompt should be passed to image generation
-        keyword_arguments_passed_to_generate_images = mock_of_image_generation_service.generate_images.call_args
+        keyword_arguments_passed_to_generate_images = mock_of_stable_diffusion_pipeline.generate_images.call_args
         assert keyword_arguments_passed_to_generate_images.kwargs["prompt"] == "Enhanced prompt text"
 
     @pytest.mark.asyncio
     async def test_generation_without_enhancer_skips_lm(
         self,
         integration_client,
-        mock_of_large_language_model_service,
-        mock_of_image_generation_service,
+        mock_of_llama_cpp_client,
+        mock_of_stable_diffusion_pipeline,
     ):
         response = await integration_client.post(
             "/v1/images/generations",
@@ -507,15 +509,15 @@ class TestImageGenerationFlow:
         )
 
         assert response.status_code == 200
-        mock_of_large_language_model_service.enhance_prompt.assert_not_awaited()
+        mock_of_llama_cpp_client.enhance_prompt.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_generation_custom_size_and_count(self, integration_client, mock_of_image_generation_service):
-        three_image_result = application.services.image_generation_service.ImageGenerationResult(
+    async def test_generation_custom_size_and_count(self, integration_client, mock_of_stable_diffusion_pipeline):
+        three_image_result = application.integrations.stable_diffusion_pipeline.ImageGenerationResult(
             base64_encoded_images=["img1", "img2", "img3"],
             indices_flagged_by_content_safety_checker=[],
         )
-        mock_of_image_generation_service.generate_images.return_value = three_image_result
+        mock_of_stable_diffusion_pipeline.generate_images.return_value = three_image_result
 
         response = await integration_client.post(
             "/v1/images/generations",
@@ -525,14 +527,14 @@ class TestImageGenerationFlow:
         assert response.status_code == 200
         body = response.json()
         assert len(body["data"]) == 3
-        keyword_arguments_passed_to_generate_images = mock_of_image_generation_service.generate_images.call_args
+        keyword_arguments_passed_to_generate_images = mock_of_stable_diffusion_pipeline.generate_images.call_args
         assert keyword_arguments_passed_to_generate_images.kwargs["image_width"] == 1024
         assert keyword_arguments_passed_to_generate_images.kwargs["image_height"] == 1024
         assert keyword_arguments_passed_to_generate_images.kwargs["number_of_images"] == 3
 
     @pytest.mark.asyncio
-    async def test_generation_service_unavailable(self, integration_client, mock_of_image_generation_service):
-        mock_of_image_generation_service.generate_images.side_effect = (
+    async def test_generation_service_unavailable(self, integration_client, mock_of_stable_diffusion_pipeline):
+        mock_of_stable_diffusion_pipeline.generate_images.side_effect = (
             application.exceptions.ImageGenerationServiceUnavailableError(
                 detail="Pipeline not loaded",
             )
@@ -549,8 +551,8 @@ class TestImageGenerationFlow:
         assert "Pipeline not loaded" in body["error"]["message"]
 
     @pytest.mark.asyncio
-    async def test_generation_error(self, integration_client, mock_of_image_generation_service):
-        mock_of_image_generation_service.generate_images.side_effect = application.exceptions.ImageGenerationError(
+    async def test_generation_error(self, integration_client, mock_of_stable_diffusion_pipeline):
+        mock_of_stable_diffusion_pipeline.generate_images.side_effect = application.exceptions.ImageGenerationError(
             detail="No images returned",
         )
 
@@ -565,11 +567,11 @@ class TestImageGenerationFlow:
 
     @pytest.mark.asyncio
     async def test_enhancer_failure_returns_502_per_specification(
-        self, integration_client, mock_of_large_language_model_service, mock_of_image_generation_service
+        self, integration_client, mock_of_llama_cpp_client, mock_of_stable_diffusion_pipeline
     ):
         """Per spec §16, when use_enhancer is true and llama.cpp fails,
         the service returns HTTP 502 — no silent fallback to the original prompt."""
-        mock_of_large_language_model_service.enhance_prompt.side_effect = (
+        mock_of_llama_cpp_client.enhance_prompt.side_effect = (
             application.exceptions.LargeLanguageModelServiceUnavailableError(
                 detail="Timeout",
             )
@@ -584,7 +586,7 @@ class TestImageGenerationFlow:
         body = response.json()
         assert body["error"]["code"] == "upstream_service_unavailable"
         # Image generation should NOT have been attempted
-        mock_of_image_generation_service.generate_images.assert_not_awaited()
+        mock_of_stable_diffusion_pipeline.generate_images.assert_not_awaited()
 
 
 # ─── Validation Through Full Stack ───────────────────────────────────────────
@@ -669,8 +671,8 @@ class TestCorrelationIdPropagation:
         assert body["error"]["correlation_id"] == response.headers["x-correlation-id"]
 
     @pytest.mark.asyncio
-    async def test_502_error_has_correlation_id(self, integration_client, mock_of_large_language_model_service):
-        mock_of_large_language_model_service.enhance_prompt.side_effect = (
+    async def test_502_error_has_correlation_id(self, integration_client, mock_of_llama_cpp_client):
+        mock_of_llama_cpp_client.enhance_prompt.side_effect = (
             application.exceptions.LargeLanguageModelServiceUnavailableError(
                 detail="Not reachable",
             )
@@ -699,9 +701,9 @@ class TestCorrelationIdPropagation:
     async def test_unhandled_exception_returns_json_500_with_correlation_id(
         self,
         integration_client,
-        mock_of_image_generation_service,
+        mock_of_stable_diffusion_pipeline,
     ):
-        mock_of_image_generation_service.generate_images.side_effect = ValueError(
+        mock_of_stable_diffusion_pipeline.generate_images.side_effect = ValueError(
             "totally unexpected",
         )
 
@@ -1005,14 +1007,14 @@ class TestReadinessCheckReturning503FullStackIntegration:
     async def test_readiness_returns_503_when_image_generation_service_unhealthy(
         self,
         integration_client,
-        mock_of_image_generation_service,
+        mock_of_stable_diffusion_pipeline,
     ):
         """When the image generation service reports unhealthy, the
         readiness endpoint returns HTTP 503 with ``status: not_ready``,
         the ``image_generation`` check marked as ``unavailable``, a
         ``Retry-After`` header, and ``Cache-Control: no-store, no-cache``
         to prevent intermediate proxies from caching stale health data."""
-        mock_of_image_generation_service.check_health.return_value = False
+        mock_of_stable_diffusion_pipeline.check_health.return_value = False
 
         response = await integration_client.get("/health/ready")
 
@@ -1034,15 +1036,15 @@ class TestReadinessCheckReturning503FullStackIntegration:
         assert "x-correlation-id" in response.headers
 
     @pytest.mark.asyncio
-    async def test_readiness_returns_503_when_large_language_model_service_unhealthy(
+    async def test_readiness_returns_503_when_llama_cpp_client_unhealthy(
         self,
         integration_client,
-        mock_of_large_language_model_service,
+        mock_of_llama_cpp_client,
     ):
-        """When the large language model service reports unhealthy, the
-        readiness endpoint returns HTTP 503 with the ``large_language_model``
-        check marked as ``unavailable`` and a ``Retry-After`` header."""
-        mock_of_large_language_model_service.check_health.return_value = False
+        """When the llama.cpp client reports unhealthy, the readiness
+        endpoint returns HTTP 503 with the ``large_language_model`` check
+        marked as ``unavailable`` and a ``Retry-After`` header."""
+        mock_of_llama_cpp_client.check_health.return_value = False
 
         response = await integration_client.get("/health/ready")
 
@@ -1057,14 +1059,14 @@ class TestReadinessCheckReturning503FullStackIntegration:
     async def test_readiness_returns_503_when_both_services_unhealthy(
         self,
         integration_client,
-        mock_of_large_language_model_service,
-        mock_of_image_generation_service,
+        mock_of_llama_cpp_client,
+        mock_of_stable_diffusion_pipeline,
     ):
         """When both backend services are unhealthy simultaneously, the
         readiness endpoint returns HTTP 503 with both checks marked as
         ``unavailable``.  This simulates a complete backend outage."""
-        mock_of_large_language_model_service.check_health.return_value = False
-        mock_of_image_generation_service.check_health.return_value = False
+        mock_of_llama_cpp_client.check_health.return_value = False
+        mock_of_stable_diffusion_pipeline.check_health.return_value = False
 
         response = await integration_client.get("/health/ready")
 
@@ -1100,8 +1102,8 @@ class TestPayloadTooLargeFullStackIntegration:
     @pytest.mark.asyncio
     async def test_oversized_payload_returns_413_with_payload_too_large_error_code(
         self,
-        mock_of_large_language_model_service,
-        mock_of_image_generation_service,
+        mock_of_llama_cpp_client,
+        mock_of_stable_diffusion_pipeline,
     ):
         """An HTTP POST whose body exceeds the configured maximum payload
         size is rejected with HTTP 413 and a structured JSON error body
@@ -1113,7 +1115,7 @@ class TestPayloadTooLargeFullStackIntegration:
         middleware stack."""
         with (
             patch("application.configuration.ApplicationConfiguration") as mock_configuration_class,
-            _patched_services(mock_of_large_language_model_service, mock_of_image_generation_service),
+            _patched_services(mock_of_llama_cpp_client, mock_of_stable_diffusion_pipeline),
         ):
             configuration_instance = mock_configuration_class.return_value
             _apply_default_configuration_attributes(configuration_instance)
@@ -1148,15 +1150,15 @@ class TestPayloadTooLargeFullStackIntegration:
     @pytest.mark.asyncio
     async def test_service_layer_not_invoked_when_payload_rejected(
         self,
-        mock_of_large_language_model_service,
-        mock_of_image_generation_service,
+        mock_of_llama_cpp_client,
+        mock_of_stable_diffusion_pipeline,
     ):
         """When the payload size limit middleware rejects a request, the
         service layer must not be invoked — the rejection occurs before
         the request body reaches the application layer."""
         with (
             patch("application.configuration.ApplicationConfiguration") as mock_configuration_class,
-            _patched_services(mock_of_large_language_model_service, mock_of_image_generation_service),
+            _patched_services(mock_of_llama_cpp_client, mock_of_stable_diffusion_pipeline),
         ):
             configuration_instance = mock_configuration_class.return_value
             _apply_default_configuration_attributes(configuration_instance)
@@ -1179,8 +1181,8 @@ class TestPayloadTooLargeFullStackIntegration:
                         headers={"Content-Type": "application/json"},
                     )
 
-                    # The large language model service must not have been called.
-                    mock_of_large_language_model_service.enhance_prompt.assert_not_awaited()
+                    # The llama.cpp client must not have been called.
+                    mock_of_llama_cpp_client.enhance_prompt.assert_not_awaited()
 
 
 class TestUnsupportedMediaTypeFullStackIntegration:
@@ -1258,7 +1260,7 @@ class TestRequestTimeoutFullStackIntegration:
     and the structured error code ``request_timeout`` (NFR48).
 
     These tests use a deliberately short timeout (50 milliseconds) and a
-    mock large language model service that blocks for 10 seconds, ensuring the
+    mock llama.cpp client that blocks for 10 seconds, ensuring the
     timeout fires deterministically.  The ``asyncio.wait_for`` mechanism
     cancels the blocked coroutine promptly, so the test completes in
     approximately 50 ms rather than 10 seconds.
@@ -1267,14 +1269,14 @@ class TestRequestTimeoutFullStackIntegration:
     @pytest.mark.asyncio
     async def test_request_exceeding_timeout_returns_504_with_request_timeout_error_code(
         self,
-        mock_of_large_language_model_service,
-        mock_of_image_generation_service,
+        mock_of_llama_cpp_client,
+        mock_of_stable_diffusion_pipeline,
     ):
         """A request whose processing time exceeds the configured
         end-to-end timeout ceiling receives HTTP 504 with the
         ``request_timeout`` error code and a correlation ID.
 
-        The mock large language model service is configured to block for 10
+        The mock llama.cpp client is configured to block for 10
         seconds, but the timeout is set to 50 milliseconds, ensuring
         the timeout fires before the service completes."""
 
@@ -1284,13 +1286,13 @@ class TestRequestTimeoutFullStackIntegration:
             await asyncio.sleep(10.0)
             return "This response will never be sent"
 
-        mock_of_large_language_model_service.enhance_prompt = AsyncMock(
+        mock_of_llama_cpp_client.enhance_prompt = AsyncMock(
             side_effect=simulate_slow_prompt_enhancement,
         )
 
         with (
             patch("application.configuration.ApplicationConfiguration") as mock_configuration_class,
-            _patched_services(mock_of_large_language_model_service, mock_of_image_generation_service),
+            _patched_services(mock_of_llama_cpp_client, mock_of_stable_diffusion_pipeline),
         ):
             configuration_instance = mock_configuration_class.return_value
             _apply_default_configuration_attributes(configuration_instance)
@@ -1344,8 +1346,8 @@ class TestAdmissionControlRejectionFullStackIntegration:
     @pytest.mark.asyncio
     async def test_concurrent_generation_beyond_limit_returns_429_service_busy(
         self,
-        mock_of_large_language_model_service,
-        mock_of_image_generation_service,
+        mock_of_llama_cpp_client,
+        mock_of_stable_diffusion_pipeline,
     ):
         """When the admission control concurrency limiter is fully occupied by an
         active image generation operation, a second concurrent request
@@ -1357,7 +1359,7 @@ class TestAdmissionControlRejectionFullStackIntegration:
         generation_entered_event = asyncio.Event()
         generation_release_event = asyncio.Event()
 
-        mock_generation_result = application.services.image_generation_service.ImageGenerationResult(
+        mock_generation_result = application.integrations.stable_diffusion_pipeline.ImageGenerationResult(
             base64_encoded_images=["base64encodedimage"],
             indices_flagged_by_content_safety_checker=[],
         )
@@ -1370,13 +1372,13 @@ class TestAdmissionControlRejectionFullStackIntegration:
             await generation_release_event.wait()
             return mock_generation_result
 
-        mock_of_image_generation_service.generate_images = AsyncMock(
+        mock_of_stable_diffusion_pipeline.generate_images = AsyncMock(
             side_effect=blocking_generate_images,
         )
 
         with (
             patch("application.configuration.ApplicationConfiguration") as mock_configuration_class,
-            _patched_services(mock_of_large_language_model_service, mock_of_image_generation_service),
+            _patched_services(mock_of_llama_cpp_client, mock_of_stable_diffusion_pipeline),
         ):
             configuration_instance = mock_configuration_class.return_value
             _apply_default_configuration_attributes(configuration_instance)
@@ -1441,8 +1443,8 @@ class TestAdmissionControlRejectionFullStackIntegration:
     @pytest.mark.asyncio
     async def test_service_busy_error_code(
         self,
-        mock_of_large_language_model_service,
-        mock_of_image_generation_service,
+        mock_of_llama_cpp_client,
+        mock_of_stable_diffusion_pipeline,
     ):
         """The admission control rejection must use the ``service_busy``
         error code when the GPU/CPU inference pipeline is at maximum
@@ -1453,7 +1455,7 @@ class TestAdmissionControlRejectionFullStackIntegration:
         generation_entered_event = asyncio.Event()
         generation_release_event = asyncio.Event()
 
-        mock_generation_result = application.services.image_generation_service.ImageGenerationResult(
+        mock_generation_result = application.integrations.stable_diffusion_pipeline.ImageGenerationResult(
             base64_encoded_images=["base64encodedimage"],
             indices_flagged_by_content_safety_checker=[],
         )
@@ -1463,13 +1465,13 @@ class TestAdmissionControlRejectionFullStackIntegration:
             await generation_release_event.wait()
             return mock_generation_result
 
-        mock_of_image_generation_service.generate_images = AsyncMock(
+        mock_of_stable_diffusion_pipeline.generate_images = AsyncMock(
             side_effect=blocking_generate_images,
         )
 
         with (
             patch("application.configuration.ApplicationConfiguration") as mock_configuration_class,
-            _patched_services(mock_of_large_language_model_service, mock_of_image_generation_service),
+            _patched_services(mock_of_llama_cpp_client, mock_of_stable_diffusion_pipeline),
         ):
             configuration_instance = mock_configuration_class.return_value
             _apply_default_configuration_attributes(configuration_instance)
@@ -1516,14 +1518,12 @@ class TestCustomiseOpenApiSchema:
     ``application/main.py``, which removes phantom 422 responses and adds
     global error responses to the generated OpenAPI schema."""
 
-    def test_phantom_422_responses_are_removed(
-        self, mock_of_large_language_model_service, mock_of_image_generation_service
-    ):
+    def test_phantom_422_responses_are_removed(self, mock_of_llama_cpp_client, mock_of_stable_diffusion_pipeline):
         """The customised schema must not contain any 422 response entries,
         because all validation errors are intercepted and returned as 400."""
         with (
             patch("application.configuration.ApplicationConfiguration") as mock_configuration_class,
-            _patched_services(mock_of_large_language_model_service, mock_of_image_generation_service),
+            _patched_services(mock_of_llama_cpp_client, mock_of_stable_diffusion_pipeline),
         ):
             configuration_instance = mock_configuration_class.return_value
             _apply_default_configuration_attributes(configuration_instance)
@@ -1539,14 +1539,14 @@ class TestCustomiseOpenApiSchema:
                         )
 
     def test_unused_validation_error_schemas_are_removed(
-        self, mock_of_large_language_model_service, mock_of_image_generation_service
+        self, mock_of_llama_cpp_client, mock_of_stable_diffusion_pipeline
     ):
         """The HTTPValidationError and ValidationError component schemas
         must be removed because they are no longer referenced after the
         422 responses are removed."""
         with (
             patch("application.configuration.ApplicationConfiguration") as mock_configuration_class,
-            _patched_services(mock_of_large_language_model_service, mock_of_image_generation_service),
+            _patched_services(mock_of_llama_cpp_client, mock_of_stable_diffusion_pipeline),
         ):
             configuration_instance = mock_configuration_class.return_value
             _apply_default_configuration_attributes(configuration_instance)
@@ -1558,14 +1558,12 @@ class TestCustomiseOpenApiSchema:
             assert "HTTPValidationError" not in component_schemas
             assert "ValidationError" not in component_schemas
 
-    def test_global_error_responses_are_added(
-        self, mock_of_large_language_model_service, mock_of_image_generation_service
-    ):
+    def test_global_error_responses_are_added(self, mock_of_llama_cpp_client, mock_of_stable_diffusion_pipeline):
         """Every path operation must include 404, 405, and 500 global error
         responses added by the customisation function."""
         with (
             patch("application.configuration.ApplicationConfiguration") as mock_configuration_class,
-            _patched_services(mock_of_large_language_model_service, mock_of_image_generation_service),
+            _patched_services(mock_of_llama_cpp_client, mock_of_stable_diffusion_pipeline),
         ):
             configuration_instance = mock_configuration_class.return_value
             _apply_default_configuration_attributes(configuration_instance)

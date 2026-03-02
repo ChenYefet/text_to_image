@@ -25,13 +25,15 @@ import application.api.endpoints.image_generation
 import application.api.error_handlers
 import application.api.middleware.correlation_identifier
 import application.exceptions
+import application.integrations.stable_diffusion_pipeline
 import application.metrics
 import application.services.image_generation_service
+import application.services.prompt_enhancement_service
 
 
 class TestImageGenerationRoutes:
     @pytest.mark.asyncio
-    async def test_success(self, client, mock_of_image_generation_service) -> None:
+    async def test_success(self, client, mock_of_stable_diffusion_pipeline) -> None:
         response = await client.post(
             "/v1/images/generations",
             json={"prompt": "A sunset"},
@@ -48,7 +50,7 @@ class TestImageGenerationRoutes:
 
     @pytest.mark.asyncio
     async def test_success_includes_cache_control_no_store_header(
-        self, client, mock_of_image_generation_service
+        self, client, mock_of_stable_diffusion_pipeline
     ) -> None:
         """
         Successful image generation responses must include a
@@ -69,7 +71,7 @@ class TestImageGenerationRoutes:
     async def test_success_does_not_include_enhanced_prompt_when_enhancer_off(
         self,
         client,
-        mock_of_image_generation_service,
+        mock_of_stable_diffusion_pipeline,
     ) -> None:
         response = await client.post(
             "/v1/images/generations",
@@ -84,7 +86,7 @@ class TestImageGenerationRoutes:
     async def test_success_does_not_include_warnings_when_no_filtering(
         self,
         client,
-        mock_of_image_generation_service,
+        mock_of_stable_diffusion_pipeline,
     ) -> None:
         response = await client.post(
             "/v1/images/generations",
@@ -99,8 +101,8 @@ class TestImageGenerationRoutes:
     async def test_with_enhancer_includes_enhanced_prompt(
         self,
         client,
-        mock_of_large_language_model_service,
-        mock_of_image_generation_service,
+        mock_of_llama_cpp_client,
+        mock_of_stable_diffusion_pipeline,
     ) -> None:
         response = await client.post(
             "/v1/images/generations",
@@ -112,15 +114,15 @@ class TestImageGenerationRoutes:
         body = response.json()
         assert body["enhanced_prompt"] == "Enhanced prompt"
         assert "seed" in body
-        mock_of_large_language_model_service.enhance_prompt.assert_awaited_once()
-        mock_of_image_generation_service.generate_images.assert_awaited_once()
+        mock_of_llama_cpp_client.enhance_prompt.assert_awaited_once()
+        mock_of_stable_diffusion_pipeline.generate_images.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_without_enhancer(
         self,
         client,
-        mock_of_large_language_model_service,
-        mock_of_image_generation_service,
+        mock_of_llama_cpp_client,
+        mock_of_stable_diffusion_pipeline,
     ) -> None:
         response = await client.post(
             "/v1/images/generations",
@@ -129,14 +131,14 @@ class TestImageGenerationRoutes:
 
         assert response.status_code == 200
         assert "X-Correlation-ID" in response.headers
-        mock_of_large_language_model_service.enhance_prompt.assert_not_awaited()
-        mock_of_image_generation_service.generate_images.assert_awaited_once()
+        mock_of_llama_cpp_client.enhance_prompt.assert_not_awaited()
+        mock_of_stable_diffusion_pipeline.generate_images.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_seed_echoed_when_provided(
         self,
         client,
-        mock_of_image_generation_service,
+        mock_of_stable_diffusion_pipeline,
     ) -> None:
         response = await client.post(
             "/v1/images/generations",
@@ -151,7 +153,7 @@ class TestImageGenerationRoutes:
     async def test_seed_generated_when_null(
         self,
         client,
-        mock_of_image_generation_service,
+        mock_of_stable_diffusion_pipeline,
     ) -> None:
         response = await client.post(
             "/v1/images/generations",
@@ -168,7 +170,7 @@ class TestImageGenerationRoutes:
     async def test_seed_generated_when_omitted(
         self,
         client,
-        mock_of_image_generation_service,
+        mock_of_stable_diffusion_pipeline,
     ) -> None:
         response = await client.post(
             "/v1/images/generations",
@@ -184,7 +186,7 @@ class TestImageGenerationRoutes:
     async def test_content_safety_warning_propagation_returns_warnings_and_null_images(
         self,
         client,
-        mock_of_image_generation_service,
+        mock_of_stable_diffusion_pipeline,
     ) -> None:
         """
         When the content safety checker flags one or more generated images,
@@ -206,7 +208,7 @@ class TestImageGenerationRoutes:
         through the route handler to the serialised JSON response (FR45).
         """
         generation_result_with_content_safety_flags = (
-            application.services.image_generation_service.ImageGenerationResult(
+            application.integrations.stable_diffusion_pipeline.ImageGenerationResult(
                 base64_encoded_images=[
                     "base64encodedimage_0",
                     None,
@@ -216,7 +218,7 @@ class TestImageGenerationRoutes:
                 indices_flagged_by_content_safety_checker=[1, 3],
             )
         )
-        mock_of_image_generation_service.generate_images = AsyncMock(
+        mock_of_stable_diffusion_pipeline.generate_images = AsyncMock(
             return_value=generation_result_with_content_safety_flags,
         )
 
@@ -258,7 +260,7 @@ class TestImageGenerationRoutes:
     async def test_content_safety_warning_single_flagged_image_in_batch(
         self,
         client,
-        mock_of_image_generation_service,
+        mock_of_stable_diffusion_pipeline,
     ) -> None:
         """
         When only one image in a multi-image batch is flagged by the
@@ -266,7 +268,7 @@ class TestImageGenerationRoutes:
         one entry, and the remaining images are unaffected.
         """
         single_generation_result_with_content_safety_flag = (
-            application.services.image_generation_service.ImageGenerationResult(
+            application.integrations.stable_diffusion_pipeline.ImageGenerationResult(
                 base64_encoded_images=[
                     "base64encodedimage_0",
                     None,
@@ -274,7 +276,7 @@ class TestImageGenerationRoutes:
                 indices_flagged_by_content_safety_checker=[1],
             )
         )
-        mock_of_image_generation_service.generate_images = AsyncMock(
+        mock_of_stable_diffusion_pipeline.generate_images = AsyncMock(
             return_value=single_generation_result_with_content_safety_flag,
         )
 
@@ -295,12 +297,12 @@ class TestImageGenerationRoutes:
         assert body["data"][1]["base64_json"] is None
 
     @pytest.mark.asyncio
-    async def test_all_images_flagged_by_content_safety_checker(self, client, mock_of_image_generation_service):
-        all_flagged_result = application.services.image_generation_service.ImageGenerationResult(
+    async def test_all_images_flagged_by_content_safety_checker(self, client, mock_of_stable_diffusion_pipeline):
+        all_flagged_result = application.integrations.stable_diffusion_pipeline.ImageGenerationResult(
             base64_encoded_images=[None, None],
             indices_flagged_by_content_safety_checker=[0, 1],
         )
-        mock_of_image_generation_service.generate_images.return_value = all_flagged_result
+        mock_of_stable_diffusion_pipeline.generate_images.return_value = all_flagged_result
 
         response = await client.post(
             "/v1/images/generations",
@@ -318,7 +320,7 @@ class TestImageGenerationRoutes:
     async def test_seed_zero_accepted_as_valid(
         self,
         client,
-        mock_of_image_generation_service,
+        mock_of_stable_diffusion_pipeline,
     ) -> None:
         response = await client.post(
             "/v1/images/generations",
@@ -333,7 +335,7 @@ class TestImageGenerationRoutes:
     async def test_response_format_base64_json_accepted(
         self,
         client,
-        mock_of_image_generation_service,
+        mock_of_stable_diffusion_pipeline,
     ) -> None:
         response = await client.post(
             "/v1/images/generations",
@@ -418,8 +420,8 @@ class TestImageGenerationRoutes:
         assert "X-Correlation-ID" in response.headers
 
     @pytest.mark.asyncio
-    async def test_service_unavailable(self, client, mock_of_image_generation_service) -> None:
-        mock_of_image_generation_service.generate_images.side_effect = (
+    async def test_service_unavailable(self, client, mock_of_stable_diffusion_pipeline) -> None:
+        mock_of_stable_diffusion_pipeline.generate_images.side_effect = (
             application.exceptions.ImageGenerationServiceUnavailableError(detail="Pipeline not loaded")
         )
 
@@ -435,8 +437,8 @@ class TestImageGenerationRoutes:
         assert "Pipeline not loaded" in body["error"]["message"]
 
     @pytest.mark.asyncio
-    async def test_generation_error(self, client, mock_of_image_generation_service) -> None:
-        mock_of_image_generation_service.generate_images.side_effect = application.exceptions.ImageGenerationError(
+    async def test_generation_error(self, client, mock_of_stable_diffusion_pipeline) -> None:
+        mock_of_stable_diffusion_pipeline.generate_images.side_effect = application.exceptions.ImageGenerationError(
             detail="No images returned"
         )
 
@@ -455,12 +457,12 @@ class TestImageGenerationRoutes:
     async def test_enhancer_failure_returns_502(
         self,
         client,
-        mock_of_large_language_model_service,
-        mock_of_image_generation_service,
+        mock_of_llama_cpp_client,
+        mock_of_stable_diffusion_pipeline,
     ) -> None:
         """Per spec §16, when use_enhancer is true and llama.cpp fails,
         the service returns HTTP 502 — no silent fallback."""
-        mock_of_large_language_model_service.enhance_prompt.side_effect = (
+        mock_of_llama_cpp_client.enhance_prompt.side_effect = (
             application.exceptions.LargeLanguageModelServiceUnavailableError(detail="Server down")
         )
 
@@ -472,7 +474,7 @@ class TestImageGenerationRoutes:
         assert response.status_code == 502
         body = response.json()
         assert body["error"]["code"] == "upstream_service_unavailable"
-        mock_of_image_generation_service.generate_images.assert_not_awaited()
+        mock_of_stable_diffusion_pipeline.generate_images.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_seed_negative_rejected(self, client) -> None:
@@ -518,8 +520,8 @@ class TestServiceBusyErrorHandler:
     @pytest_asyncio.fixture
     async def saturated_admission_controller_client(
         self,
-        mock_of_large_language_model_service,
-        mock_of_image_generation_service,
+        mock_of_llama_cpp_client,
+        mock_of_stable_diffusion_pipeline,
     ) -> collections.abc.AsyncGenerator:
         """
         Build a test application with an admission controller set to
@@ -530,6 +532,14 @@ class TestServiceBusyErrorHandler:
         """
         admission_controller = application.admission_control.AdmissionControllerForImageGeneration(
             maximum_number_of_concurrent_operations=1,
+        )
+
+        fixture_prompt_enhancement_service = application.services.prompt_enhancement_service.PromptEnhancementService(
+            llama_cpp_client=mock_of_llama_cpp_client,
+        )
+        fixture_image_generation_service = application.services.image_generation_service.ImageGenerationService(
+            stable_diffusion_pipeline=mock_of_stable_diffusion_pipeline,
+            prompt_enhancement_service=fixture_prompt_enhancement_service,
         )
 
         test_application = fastapi.FastAPI()
@@ -543,12 +553,12 @@ class TestServiceBusyErrorHandler:
             application.api.endpoints.image_generation.image_generation_router,
         )
 
-        test_application.dependency_overrides[application.api.dependencies.get_large_language_model_service] = lambda: (
-            mock_of_large_language_model_service
+        test_application.dependency_overrides[application.api.dependencies.get_prompt_enhancement_service] = lambda: (
+            fixture_prompt_enhancement_service
         )
 
         test_application.dependency_overrides[application.api.dependencies.get_image_generation_service] = lambda: (
-            mock_of_image_generation_service
+            fixture_image_generation_service
         )
 
         override_key = application.api.dependencies.get_admission_controller_for_image_generation

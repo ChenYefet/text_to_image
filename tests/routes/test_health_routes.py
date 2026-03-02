@@ -45,7 +45,7 @@ class TestHealthRoutes:
 class TestReadinessRoutes:
     @pytest.mark.asyncio
     async def test_ready_when_services_healthy(
-        self, client, mock_of_large_language_model_service, mock_of_image_generation_service
+        self, client, mock_of_llama_cpp_client, mock_of_stable_diffusion_pipeline
     ):
         response = await client.get("/health/ready")
 
@@ -81,8 +81,8 @@ class TestReadinessRoutes:
         assert body["checks"]["large_language_model"] == "unavailable"
 
     @pytest.mark.asyncio
-    async def test_not_ready_when_large_language_model_unhealthy(self, client, mock_of_large_language_model_service):
-        mock_of_large_language_model_service.check_health = AsyncMock(return_value=False)
+    async def test_not_ready_when_large_language_model_unhealthy(self, client, mock_of_llama_cpp_client):
+        mock_of_llama_cpp_client.check_health = AsyncMock(return_value=False)
 
         response = await client.get("/health/ready")
 
@@ -92,8 +92,8 @@ class TestReadinessRoutes:
         assert body["checks"]["large_language_model"] == "unavailable"
 
     @pytest.mark.asyncio
-    async def test_not_ready_when_image_pipeline_unhealthy(self, client, mock_of_image_generation_service):
-        mock_of_image_generation_service.check_health = lambda: False
+    async def test_not_ready_when_image_pipeline_unhealthy(self, client, mock_of_stable_diffusion_pipeline):
+        mock_of_stable_diffusion_pipeline.check_health = lambda: False
 
         response = await client.get("/health/ready")
 
@@ -103,8 +103,8 @@ class TestReadinessRoutes:
         assert body["checks"]["image_generation"] == "unavailable"
 
     @pytest.mark.asyncio
-    async def test_not_ready_when_large_language_model_check_raises(self, client, mock_of_large_language_model_service):
-        mock_of_large_language_model_service.check_health = AsyncMock(side_effect=RuntimeError("unexpected"))
+    async def test_not_ready_when_large_language_model_check_raises(self, client, mock_of_llama_cpp_client):
+        mock_of_llama_cpp_client.check_health = AsyncMock(side_effect=RuntimeError("unexpected"))
 
         response = await client.get("/health/ready")
 
@@ -113,10 +113,10 @@ class TestReadinessRoutes:
         assert body["checks"]["large_language_model"] == "unavailable"
 
     @pytest.mark.asyncio
-    async def test_503_response_includes_retry_after_header(self, client, mock_of_large_language_model_service):
+    async def test_503_response_includes_retry_after_header(self, client, mock_of_llama_cpp_client):
         """Per NFR47, HTTP 503 responses must include a Retry-After header
         populated from the retry_after_not_ready_in_seconds configuration."""
-        mock_of_large_language_model_service.check_health = AsyncMock(return_value=False)
+        mock_of_llama_cpp_client.check_health = AsyncMock(return_value=False)
 
         response = await client.get("/health/ready")
 
@@ -126,7 +126,7 @@ class TestReadinessRoutes:
 
     @pytest.mark.asyncio
     async def test_200_response_does_not_include_retry_after_header(
-        self, client, mock_of_large_language_model_service, mock_of_image_generation_service
+        self, client, mock_of_llama_cpp_client, mock_of_stable_diffusion_pipeline
     ):
         """When all backends are healthy, no Retry-After header is sent."""
         response = await client.get("/health/ready")

@@ -1,27 +1,28 @@
 """
-Service for communicating with the llama.cpp large language model server.
+Asynchronous HTTP client (``LlamaCppClient``) for the llama.cpp large
+language model server.
 
 The llama.cpp server must be running in OpenAI-compatible mode, exposing
-a ``POST /v1/chat/completions`` endpoint.  This service sends the user's
+a ``POST /v1/chat/completions`` endpoint.  This client sends the user's
 original prompt to that endpoint with a system instruction that guides
 the model to produce an enhanced, image-generation-optimised prompt.
 
 Defensive handling
 ------------------
-This service implements several defensive measures prescribed by the
+This client implements several defensive measures prescribed by the
 v5.2.1 specification (Section 15 — Upstream Communication) to protect
 against misconfigured or misbehaving upstream servers:
 
 - The request body includes ``"stream": false`` to explicitly request a
   non-streaming response.
 - If the upstream returns a ``text/event-stream`` Content-Type despite
-  this setting, the service treats it as a protocol violation and raises
+  this setting, the client treats it as a protocol violation and raises
   ``LargeLanguageModelServiceUnavailableError`` (HTTP 502).
 - If the upstream response body exceeds the configured maximum size
-  (``maximum_number_of_bytes_of_response_body``), the service raises
+  (``maximum_number_of_bytes_of_response_body``), the client raises
   ``LargeLanguageModelServiceUnavailableError`` (HTTP 502) to prevent memory
   exhaustion from unexpectedly large responses.
-- If the ``finish_reason`` in the response is ``"length"``, the service
+- If the ``finish_reason`` in the response is ``"length"``, the client
   logs a WARNING indicating the enhanced prompt was truncated by the
   token limit.  The truncated prompt is still forwarded to the caller
   because it may still produce a reasonable image.
@@ -29,13 +30,13 @@ against misconfigured or misbehaving upstream servers:
 Circuit breaker integration
 ---------------------------
 An optional ``CircuitBreaker`` instance (from ``circuit_breaker.py``)
-can be provided at construction time to prevent the service from
+can be provided at construction time to prevent the client from
 repeatedly waiting for the full timeout duration when the llama.cpp
 server is consistently failing.  When the circuit is open, requests
 are rejected immediately with ``LargeLanguageModelServiceUnavailableError``
 (HTTP 502) without attempting to contact the upstream server.
 
-When no circuit breaker is provided, the service behaves exactly as
+When no circuit breaker is provided, the client behaves exactly as
 before — every request is sent to the upstream regardless of prior
 failure history.
 """
@@ -56,19 +57,19 @@ DEFAULT_SYSTEM_PROMPT = (
 )
 
 
-class LargeLanguageModelService:
+class LlamaCppClient:
     """
     Asynchronous HTTP client for the llama.cpp OpenAI-compatible server.
 
-    This service maintains a persistent ``httpx.AsyncClient`` with a
+    This client maintains a persistent ``httpx.AsyncClient`` with a
     configurable connection pool for efficient HTTP communication with
     the llama.cpp server.  The client must be closed explicitly via the
     ``close`` method when the application shuts down to release network
     resources (file descriptors and TCP connections).
 
-    The service is stateless with respect to request processing: each
+    The client is stateless with respect to request processing: each
     call to ``enhance_prompt`` is independent and does not rely on any
-    state from previous calls.  This makes the service safe for
+    state from previous calls.  This makes the client safe for
     concurrent use from multiple async tasks.
     """
 
@@ -84,11 +85,11 @@ class LargeLanguageModelService:
         circuit_breaker: application.circuit_breaker.CircuitBreaker | None = None,
     ) -> None:
         """
-        Initialise the large language model service.
+        Initialise the llama.cpp client.
 
         Args:
             base_url_of_large_language_model_server: The base URL of the llama.cpp
-                server (e.g. ``"http://localhost:8080"``).  The service
+                server (e.g. ``"http://localhost:8080"``).  The client
                 appends ``/v1/chat/completions`` to this URL when sending
                 prompt enhancement requests.
             request_timeout_in_seconds: Maximum time in seconds to wait for
@@ -107,11 +108,11 @@ class LargeLanguageModelService:
             size_of_connection_pool: Maximum number of concurrent HTTP
                 connections maintained in the ``httpx`` connection pool.
             maximum_number_of_bytes_of_response_body: Maximum response body size in bytes
-                that the service will accept from the llama.cpp server.
+                that the client will accept from the llama.cpp server.
                 Responses exceeding this limit are treated as upstream
                 failures (HTTP 502).
             circuit_breaker: An optional ``CircuitBreaker`` instance that
-                prevents the service from repeatedly waiting for the full
+                prevents the client from repeatedly waiting for the full
                 timeout duration when the llama.cpp server is consistently
                 failing.  When ``None``, every request is sent to the
                 upstream regardless of prior failure history.
@@ -178,7 +179,7 @@ class LargeLanguageModelService:
         #
         # When a circuit breaker is configured, check whether the circuit
         # is open before attempting the upstream call.  This prevents the
-        # service from repeatedly waiting for the full timeout duration
+        # client from repeatedly waiting for the full timeout duration
         # (potentially 120 seconds) when the llama.cpp server is known
         # to be consistently failing.
         if self._circuit_breaker is not None:
@@ -197,7 +198,7 @@ class LargeLanguageModelService:
                     detail=(
                         "The large language model server has been consistently failing."
                         " The circuit breaker is preventing further requests to avoid"
-                        " prolonged timeouts. The service will automatically retry"
+                        " prolonged timeouts. The client will automatically retry"
                         " after a recovery period."
                     ),
                 ) from circuit_open_error
@@ -281,7 +282,7 @@ class LargeLanguageModelService:
         #
         # A misconfigured llama.cpp server may ignore the "stream": false
         # setting in the request body and return Server-Sent Events
-        # (Content-Type: text/event-stream) regardless.  This service
+        # (Content-Type: text/event-stream) regardless.  This client
         # does not implement an SSE parser, so a streaming response would
         # cause a JSON parse failure downstream.  Instead, we detect it
         # early by inspecting the Content-Type header and raise a clear

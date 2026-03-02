@@ -11,16 +11,16 @@ import fastapi
 import application.admission_control
 import application.exceptions
 import application.services.image_generation_service
-import application.services.large_language_model_service
+import application.services.prompt_enhancement_service
 
 
-def get_large_language_model_service(
+def get_prompt_enhancement_service(
     request: fastapi.Request,
-) -> application.services.large_language_model_service.LargeLanguageModelService:
+) -> application.services.prompt_enhancement_service.PromptEnhancementService:
     """
-    Retrieve the shared LargeLanguageModelService instance from application state.
+    Retrieve the shared PromptEnhancementService instance from application state.
     """
-    return request.app.state.large_language_model_service  # type: ignore[no-any-return]
+    return request.app.state.prompt_enhancement_service  # type: ignore[no-any-return]
 
 
 def get_image_generation_service(

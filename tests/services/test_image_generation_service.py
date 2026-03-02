@@ -8,7 +8,7 @@ import structlog
 from PIL import Image
 
 import application.exceptions
-import application.services.image_generation_service
+import application.integrations.stable_diffusion_pipeline
 
 
 def _create_test_image(width=64, height=64):
@@ -17,7 +17,7 @@ def _create_test_image(width=64, height=64):
 
 
 def _build_image_generation_service_with_mock_pipeline(device_type="cpu"):
-    """Create an ImageGenerationService with a mocked pipeline and a
+    """Create a StableDiffusionPipeline with a mocked pipeline and a
     single-worker ThreadPoolExecutor for test isolation."""
     mock_pipeline = MagicMock()
     mock_device = MagicMock()
@@ -26,7 +26,7 @@ def _build_image_generation_service_with_mock_pipeline(device_type="cpu"):
         max_workers=1,
         thread_name_prefix="test-inference",
     )
-    return application.services.image_generation_service.ImageGenerationService(
+    return application.integrations.stable_diffusion_pipeline.StableDiffusionPipeline(
         pipeline=mock_pipeline,
         device=mock_device,
         thread_pool_executor_for_inference=thread_pool_executor,
@@ -34,37 +34,37 @@ def _build_image_generation_service_with_mock_pipeline(device_type="cpu"):
 
 
 class TestResolveDevice:
-    @patch("application.services.image_generation_service.torch")
+    @patch("application.integrations.stable_diffusion_pipeline.torch")
     def test_auto_with_cuda(self, mock_torch):
         mock_torch.cuda.is_available.return_value = True
         mock_torch.device.return_value = MagicMock(type="cuda")
 
-        application.services.image_generation_service.ImageGenerationService._resolve_device("auto")
+        application.integrations.stable_diffusion_pipeline.StableDiffusionPipeline._resolve_device("auto")
 
         mock_torch.device.assert_called_with("cuda")
 
-    @patch("application.services.image_generation_service.torch")
+    @patch("application.integrations.stable_diffusion_pipeline.torch")
     def test_auto_without_cuda(self, mock_torch):
         mock_torch.cuda.is_available.return_value = False
         mock_torch.device.return_value = MagicMock(type="cpu")
 
-        application.services.image_generation_service.ImageGenerationService._resolve_device("auto")
+        application.integrations.stable_diffusion_pipeline.StableDiffusionPipeline._resolve_device("auto")
 
         mock_torch.device.assert_called_with("cpu")
 
-    @patch("application.services.image_generation_service.torch")
+    @patch("application.integrations.stable_diffusion_pipeline.torch")
     def test_explicit_cpu(self, mock_torch):
         mock_torch.device.return_value = MagicMock(type="cpu")
 
-        application.services.image_generation_service.ImageGenerationService._resolve_device("cpu")
+        application.integrations.stable_diffusion_pipeline.StableDiffusionPipeline._resolve_device("cpu")
 
         mock_torch.device.assert_called_with("cpu")
 
-    @patch("application.services.image_generation_service.torch")
+    @patch("application.integrations.stable_diffusion_pipeline.torch")
     def test_explicit_cuda(self, mock_torch):
         mock_torch.device.return_value = MagicMock(type="cuda")
 
-        application.services.image_generation_service.ImageGenerationService._resolve_device("cuda")
+        application.integrations.stable_diffusion_pipeline.StableDiffusionPipeline._resolve_device("cuda")
 
         mock_torch.device.assert_called_with("cuda")
 
@@ -220,7 +220,7 @@ class TestGenerateImages:
         mock_result.nsfw_content_detected = None
         service._pipeline.return_value = mock_result
 
-        with patch("application.services.image_generation_service.torch") as mock_torch:
+        with patch("application.integrations.stable_diffusion_pipeline.torch") as mock_torch:
             # Ensure the device type check in _cleanup_after_inference
             # evaluates the real device mock (not the patched torch).
             # The service's _device attribute was set by _build_image_generation_service_with_mock_pipeline
@@ -353,7 +353,7 @@ class TestRunStartupWarmup:
         service = _build_image_generation_service_with_mock_pipeline(device_type="cuda")
         service._pipeline.side_effect = RuntimeError("Simulated warmup failure")
 
-        with patch("application.services.image_generation_service.torch") as mock_torch:
+        with patch("application.integrations.stable_diffusion_pipeline.torch") as mock_torch:
             await service.run_startup_warmup()
             # gc.collect() is called inside _cleanup_after_inference,
             # and on CUDA devices, torch.cuda.empty_cache() is also called.
@@ -361,8 +361,8 @@ class TestRunStartupWarmup:
 
 
 class TestLoadPipeline:
-    @patch("application.services.image_generation_service.diffusers")
-    @patch("application.services.image_generation_service.torch")
+    @patch("application.integrations.stable_diffusion_pipeline.diffusers")
+    @patch("application.integrations.stable_diffusion_pipeline.torch")
     def test_safety_checker_enabled_by_default(self, mock_torch, mock_diffusers):
         mock_torch.cuda.is_available.return_value = False
         mock_torch.device.return_value = MagicMock(type="cpu")
@@ -372,7 +372,7 @@ class TestLoadPipeline:
         mock_diffusers.StableDiffusionPipeline.from_pretrained.return_value = mock_pipeline
 
         thread_pool_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-        application.services.image_generation_service.ImageGenerationService.load_pipeline(
+        application.integrations.stable_diffusion_pipeline.StableDiffusionPipeline.load_pipeline(
             model_id="test-model",
             thread_pool_executor_for_inference=thread_pool_executor,
             device_preference="cpu",
@@ -384,8 +384,8 @@ class TestLoadPipeline:
             revision="main",
         )
 
-    @patch("application.services.image_generation_service.diffusers")
-    @patch("application.services.image_generation_service.torch")
+    @patch("application.integrations.stable_diffusion_pipeline.diffusers")
+    @patch("application.integrations.stable_diffusion_pipeline.torch")
     def test_safety_checker_disabled(self, mock_torch, mock_diffusers):
         mock_torch.cuda.is_available.return_value = False
         mock_torch.device.return_value = MagicMock(type="cpu")
@@ -395,7 +395,7 @@ class TestLoadPipeline:
         mock_diffusers.StableDiffusionPipeline.from_pretrained.return_value = mock_pipeline
 
         thread_pool_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-        application.services.image_generation_service.ImageGenerationService.load_pipeline(
+        application.integrations.stable_diffusion_pipeline.StableDiffusionPipeline.load_pipeline(
             model_id="test-model",
             thread_pool_executor_for_inference=thread_pool_executor,
             device_preference="cpu",
@@ -409,8 +409,8 @@ class TestLoadPipeline:
             safety_checker=None,
         )
 
-    @patch("application.services.image_generation_service.diffusers")
-    @patch("application.services.image_generation_service.torch")
+    @patch("application.integrations.stable_diffusion_pipeline.diffusers")
+    @patch("application.integrations.stable_diffusion_pipeline.torch")
     def test_model_revision_passed_to_from_pretrained(self, mock_torch, mock_diffusers):
         """The ``model_revision`` parameter is forwarded as the ``revision``
         keyword argument to ``StableDiffusionPipeline.from_pretrained()``,
@@ -424,7 +424,7 @@ class TestLoadPipeline:
         mock_diffusers.StableDiffusionPipeline.from_pretrained.return_value = mock_pipeline
 
         thread_pool_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-        application.services.image_generation_service.ImageGenerationService.load_pipeline(
+        application.integrations.stable_diffusion_pipeline.StableDiffusionPipeline.load_pipeline(
             model_id="test-model",
             thread_pool_executor_for_inference=thread_pool_executor,
             model_revision="abc123def456",
@@ -459,7 +459,7 @@ class TestClose:
     async def test_close_cpu(self):
         service = _build_image_generation_service_with_mock_pipeline(device_type="cpu")
 
-        with patch("application.services.image_generation_service.torch") as mock_torch:
+        with patch("application.integrations.stable_diffusion_pipeline.torch") as mock_torch:
             await service.close()
             mock_torch.cuda.empty_cache.assert_not_called()
 
@@ -467,7 +467,7 @@ class TestClose:
     async def test_close_cuda(self):
         service = _build_image_generation_service_with_mock_pipeline(device_type="cuda")
 
-        with patch("application.services.image_generation_service.torch") as mock_torch:
+        with patch("application.integrations.stable_diffusion_pipeline.torch") as mock_torch:
             await service.close()
             mock_torch.cuda.empty_cache.assert_called_once()
 
@@ -475,7 +475,7 @@ class TestClose:
     async def test_close_twice_is_safe(self):
         service = _build_image_generation_service_with_mock_pipeline(device_type="cpu")
 
-        with patch("application.services.image_generation_service.torch"):
+        with patch("application.integrations.stable_diffusion_pipeline.torch"):
             await service.close()
             await service.close()  # should not raise
 

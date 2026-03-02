@@ -8,13 +8,13 @@ import application.api.dependencies
 import application.exceptions
 
 
-class TestGetLargeLanguageModelService:
+class TestGetPromptEnhancementService:
     def test_returns_service_from_app_state(self):
         mock_service = MagicMock()
         mock_request = MagicMock()
-        mock_request.app.state.large_language_model_service = mock_service
+        mock_request.app.state.prompt_enhancement_service = mock_service
 
-        result = application.api.dependencies.get_large_language_model_service(mock_request)
+        result = application.api.dependencies.get_prompt_enhancement_service(mock_request)
 
         assert result is mock_service
 

@@ -19,7 +19,7 @@ import fastapi.responses
 import application.api.dependencies
 import application.api.schemas.error
 import application.api.schemas.prompt_enhancement
-import application.services.large_language_model_service
+import application.services.prompt_enhancement_service
 
 prompt_enhancement_router = fastapi.APIRouter(
     prefix="/v1/prompts",
@@ -85,10 +85,10 @@ prompt_enhancement_router = fastapi.APIRouter(
 async def handle_prompt_enhancement_request(
     request: fastapi.Request,
     prompt_enhancement_request: application.api.schemas.prompt_enhancement.PromptEnhancementRequest,
-    large_language_model_service: typing.Annotated[
-        application.services.large_language_model_service.LargeLanguageModelService,
+    prompt_enhancement_service: typing.Annotated[
+        application.services.prompt_enhancement_service.PromptEnhancementService,
         fastapi.Depends(
-            application.api.dependencies.get_large_language_model_service,
+            application.api.dependencies.get_prompt_enhancement_service,
         ),
     ],
 ) -> fastapi.responses.JSONResponse:
@@ -106,7 +106,7 @@ async def handle_prompt_enhancement_request(
     intermediate proxies and CDNs from caching dynamically generated
     content (§12 of the v5.2.1 specification, SHOULD-level advisory).
     """
-    enhanced_prompt_text = await large_language_model_service.enhance_prompt(
+    enhanced_prompt_text = await prompt_enhancement_service.enhance_prompt(
         original_prompt=prompt_enhancement_request.prompt,
     )
 

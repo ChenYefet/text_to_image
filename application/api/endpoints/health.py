@@ -208,14 +208,15 @@ async def readiness_check(request: fastapi.Request) -> fastapi.responses.JSONRes
 
     # ── Language model backend check ──────────────────────────────────
     #
-    # The large language model service sends an HTTP GET request to the
-    # llama.cpp server's /health endpoint.  Any exception (connection
-    # refused, timeout, HTTP error) is caught and treated as unhealthy
-    # to prevent a failing upstream from crashing the readiness probe.
-    large_language_model_service = getattr(request.app.state, "large_language_model_service", None)
-    if large_language_model_service is not None:
+    # The prompt enhancement service delegates to the llama.cpp client,
+    # which sends an HTTP GET request to the llama.cpp server's /health
+    # endpoint.  Any exception (connection refused, timeout, HTTP error)
+    # is caught and treated as unhealthy to prevent a failing upstream
+    # from crashing the readiness probe.
+    prompt_enhancement_service = getattr(request.app.state, "prompt_enhancement_service", None)
+    if prompt_enhancement_service is not None:
         try:
-            large_language_model_is_healthy = await large_language_model_service.check_health()
+            large_language_model_is_healthy = await prompt_enhancement_service.check_health()
         except Exception:
             large_language_model_is_healthy = False
         checks["large_language_model"] = "ok" if large_language_model_is_healthy else "unavailable"

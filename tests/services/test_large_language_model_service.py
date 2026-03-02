@@ -1,5 +1,5 @@
 """
-Tests for application/services/large_language_model_service.py.
+Tests for application/integrations/llama_cpp_client.py.
 
 Covers all public methods and defensive handling paths:
 - Successful prompt enhancement and whitespace stripping.
@@ -20,17 +20,17 @@ import pytest
 
 import application.circuit_breaker
 import application.exceptions
-import application.services.large_language_model_service
+import application.integrations.llama_cpp_client
 
 
-def _build_large_language_model_service(
+def _build_llama_cpp_client(
     base_url: str = "http://localhost:8080",
     request_timeout_in_seconds: float = 30.0,
     maximum_number_of_bytes_of_response_body: int = 1_048_576,
     circuit_breaker: application.circuit_breaker.CircuitBreaker | None = None,
-) -> application.services.large_language_model_service.LargeLanguageModelService:
+) -> application.integrations.llama_cpp_client.LlamaCppClient:
     """
-    Create a LargeLanguageModelService instance with configurable parameters.
+    Create a LlamaCppClient instance with configurable parameters.
 
     The ``maximum_number_of_bytes_of_response_body`` parameter controls the response body size
     limit for testing the oversized-response rejection path.
@@ -39,7 +39,7 @@ def _build_large_language_model_service(
     breaker instance for verifying the integration between the service
     and the circuit breaker pattern.
     """
-    return application.services.large_language_model_service.LargeLanguageModelService(
+    return application.integrations.llama_cpp_client.LlamaCppClient(
         base_url_of_large_language_model_server=base_url,
         request_timeout_in_seconds=request_timeout_in_seconds,
         maximum_number_of_bytes_of_response_body=maximum_number_of_bytes_of_response_body,
@@ -57,7 +57,7 @@ def _build_mock_of_json_response(
     Create a mock httpx.Response with the standard chat-completion shape.
 
     Includes the ``headers`` and ``content`` attributes that the
-    LargeLanguageModelService inspects for streaming response detection (checking
+    LlamaCppClient inspects for streaming response detection (checking
     Content-Type for ``text/event-stream``) and response body size
     enforcement (checking ``len(response.content)``).
 
@@ -88,7 +88,7 @@ def _build_mock_of_json_response(
 class TestEnhancePrompt:
     @pytest.mark.asyncio
     async def test_success(self):
-        service = _build_large_language_model_service()
+        service = _build_llama_cpp_client()
         mock_response = _build_mock_of_json_response("Enhanced prompt text")
         service.http_client = AsyncMock()
         service.http_client.post = AsyncMock(return_value=mock_response)
@@ -100,7 +100,7 @@ class TestEnhancePrompt:
 
     @pytest.mark.asyncio
     async def test_strips_whitespace(self):
-        service = _build_large_language_model_service()
+        service = _build_llama_cpp_client()
         mock_response = _build_mock_of_json_response("  Enhanced with spaces  ")
         service.http_client = AsyncMock()
         service.http_client.post = AsyncMock(return_value=mock_response)
@@ -111,7 +111,7 @@ class TestEnhancePrompt:
 
     @pytest.mark.asyncio
     async def test_connection_error(self):
-        service = _build_large_language_model_service()
+        service = _build_llama_cpp_client()
         service.http_client = AsyncMock()
         service.http_client.post = AsyncMock(side_effect=httpx.ConnectError("Connection refused"))
 
@@ -120,7 +120,7 @@ class TestEnhancePrompt:
 
     @pytest.mark.asyncio
     async def test_http_status_error(self):
-        service = _build_large_language_model_service()
+        service = _build_llama_cpp_client()
         mock_response = MagicMock(spec=httpx.Response)
         mock_response.status_code = 500
         service.http_client = AsyncMock()
@@ -137,7 +137,7 @@ class TestEnhancePrompt:
 
     @pytest.mark.asyncio
     async def test_timeout(self):
-        service = _build_large_language_model_service()
+        service = _build_llama_cpp_client()
         service.http_client = AsyncMock()
         service.http_client.post = AsyncMock(side_effect=httpx.TimeoutException("Timed out"))
 
@@ -150,7 +150,7 @@ class TestEnhancePrompt:
         caught by the httpx.RequestError catch-all and mapped to
         LargeLanguageModelServiceUnavailableError (HTTP 502) rather than
         propagating as unhandled 500 errors (audit finding P-2)."""
-        service = _build_large_language_model_service()
+        service = _build_llama_cpp_client()
         service.http_client = AsyncMock()
         service.http_client.post = AsyncMock(
             side_effect=httpx.TooManyRedirects(
@@ -164,7 +164,7 @@ class TestEnhancePrompt:
 
     @pytest.mark.asyncio
     async def test_malformed_response(self):
-        service = _build_large_language_model_service()
+        service = _build_llama_cpp_client()
         malformed_body = {"unexpected": "structure"}
         import json
 
@@ -183,7 +183,7 @@ class TestEnhancePrompt:
 
     @pytest.mark.asyncio
     async def test_empty_content(self):
-        service = _build_large_language_model_service()
+        service = _build_llama_cpp_client()
         mock_response = _build_mock_of_json_response("")
         service.http_client = AsyncMock()
         service.http_client.post = AsyncMock(return_value=mock_response)
@@ -196,7 +196,7 @@ class TestEnhancePrompt:
         """A non-JSON response body (for example, an HTML error page) must
         be caught and mapped to LargeLanguageModelServiceUnavailableError
         (HTTP 502) rather than propagating as an unhandled ValueError."""
-        service = _build_large_language_model_service()
+        service = _build_llama_cpp_client()
         html_body = b"<html><body>502 Bad Gateway</body></html>"
 
         mock_response = MagicMock(spec=httpx.Response)
@@ -232,7 +232,7 @@ class TestStreamingResponseDetection:
         ``stream: false``, the service raises
         ``LargeLanguageModelServiceUnavailableError``.
         """
-        service = _build_large_language_model_service()
+        service = _build_llama_cpp_client()
         mock_response = _build_mock_of_json_response(
             "Enhanced text",
             content_type="text/event-stream",
@@ -252,7 +252,7 @@ class TestStreamingResponseDetection:
         The detection must match Content-Type values that include
         parameters (e.g., ``text/event-stream; charset=utf-8``).
         """
-        service = _build_large_language_model_service()
+        service = _build_llama_cpp_client()
         mock_response = _build_mock_of_json_response(
             "Enhanced text",
             content_type="text/event-stream; charset=utf-8",
@@ -271,7 +271,7 @@ class TestStreamingResponseDetection:
         A well-behaved upstream returning ``application/json`` must not
         trigger the streaming response detection path.
         """
-        service = _build_large_language_model_service()
+        service = _build_llama_cpp_client()
         mock_response = _build_mock_of_json_response(
             "Enhanced text",
             content_type="application/json",
@@ -302,7 +302,7 @@ class TestResponseBodySizeLimit:
         the service raises ``LargeLanguageModelServiceUnavailableError``.
         """
         # Create a service with a very small response body limit (100 bytes).
-        service = _build_large_language_model_service(maximum_number_of_bytes_of_response_body=100)
+        service = _build_llama_cpp_client(maximum_number_of_bytes_of_response_body=100)
 
         # Create a response whose serialised body exceeds 100 bytes.
         large_content_text = "A" * 200
@@ -322,7 +322,7 @@ class TestResponseBodySizeLimit:
         A response body within the configured limit must be accepted
         and parsed normally.
         """
-        service = _build_large_language_model_service(maximum_number_of_bytes_of_response_body=10_000)
+        service = _build_llama_cpp_client(maximum_number_of_bytes_of_response_body=10_000)
         mock_response = _build_mock_of_json_response("Short enhanced text")
         service.http_client = AsyncMock()
         service.http_client.post = AsyncMock(return_value=mock_response)
@@ -341,7 +341,7 @@ class TestResponseBodySizeLimit:
         mock_response = _build_mock_of_json_response("test content")
         response_body_size = len(mock_response.content)
 
-        service = _build_large_language_model_service(maximum_number_of_bytes_of_response_body=response_body_size)
+        service = _build_llama_cpp_client(maximum_number_of_bytes_of_response_body=response_body_size)
         service.http_client = AsyncMock()
         service.http_client.post = AsyncMock(return_value=mock_response)
 
@@ -372,7 +372,7 @@ class TestFinishReasonTruncationDetection:
         than through the standard ``caplog`` mechanism, so we capture
         the stdout stream directly via ``capsys``.
         """
-        service = _build_large_language_model_service()
+        service = _build_llama_cpp_client()
         mock_response = _build_mock_of_json_response(
             "Truncated enhanced prompt text",
             finish_reason="length",
@@ -392,7 +392,7 @@ class TestFinishReasonTruncationDetection:
         The truncated prompt is still returned to the caller — truncation
         is informational, not a hard failure.
         """
-        service = _build_large_language_model_service()
+        service = _build_llama_cpp_client()
         mock_response = _build_mock_of_json_response(
             "Truncated but usable prompt",
             finish_reason="length",
@@ -410,7 +410,7 @@ class TestFinishReasonTruncationDetection:
         A normal ``finish_reason: "stop"`` must not trigger the
         truncation warning.
         """
-        service = _build_large_language_model_service()
+        service = _build_llama_cpp_client()
         mock_response = _build_mock_of_json_response(
             "Complete enhanced prompt",
             finish_reason="stop",
@@ -429,7 +429,7 @@ class TestFinishReasonTruncationDetection:
         When the response lacks a ``finish_reason`` field entirely, the
         service must not raise or log a truncation warning.
         """
-        service = _build_large_language_model_service()
+        service = _build_llama_cpp_client()
 
         # Build a response without any finish_reason field.
         response_body = {
@@ -462,7 +462,7 @@ class TestFinishReasonTruncationDetection:
         self,
     ) -> None:
         """
-        The ``finish_reason`` extraction (large_language_model_service.py lines
+        The ``finish_reason`` extraction (llama_cpp_client.py lines
         212–215) is wrapped in a defensive ``try/except (KeyError,
         IndexError)`` guard.  This guard protects against the unlikely
         scenario where the ``choices`` list is accessible during prompt
@@ -525,7 +525,7 @@ class TestFinishReasonTruncationDetection:
         mock_response.headers = {"content-type": "application/json"}
         mock_response.content = serialised_body
 
-        service = _build_large_language_model_service()
+        service = _build_llama_cpp_client()
         service.http_client = AsyncMock()
         service.http_client.post = AsyncMock(return_value=mock_response)
 
@@ -539,7 +539,7 @@ class TestFinishReasonTruncationDetection:
 class TestCheckHealth:
     @pytest.mark.asyncio
     async def test_healthy_when_server_returns_2xx(self):
-        service = _build_large_language_model_service()
+        service = _build_llama_cpp_client()
         mock_response = MagicMock(spec=httpx.Response)
         mock_response.is_success = True
         service.http_client = AsyncMock()
@@ -549,7 +549,7 @@ class TestCheckHealth:
 
     @pytest.mark.asyncio
     async def test_unhealthy_when_server_returns_non_2xx(self):
-        service = _build_large_language_model_service()
+        service = _build_llama_cpp_client()
         mock_response = MagicMock(spec=httpx.Response)
         mock_response.is_success = False
         service.http_client = AsyncMock()
@@ -559,7 +559,7 @@ class TestCheckHealth:
 
     @pytest.mark.asyncio
     async def test_unhealthy_when_connection_fails(self):
-        service = _build_large_language_model_service()
+        service = _build_llama_cpp_client()
         service.http_client = AsyncMock()
         service.http_client.get = AsyncMock(side_effect=httpx.ConnectError("Connection refused"))
 
@@ -568,7 +568,7 @@ class TestCheckHealth:
 
 class TestCircuitBreakerIntegration:
     """
-    Verify the integration between LargeLanguageModelService and the circuit
+    Verify the integration between LlamaCppClient and the circuit
     breaker pattern.
 
     The circuit breaker prevents the service from repeatedly waiting for
@@ -595,7 +595,7 @@ class TestCircuitBreakerIntegration:
         )
         await breaker.record_failure()
 
-        service = _build_large_language_model_service(circuit_breaker=breaker)
+        service = _build_llama_cpp_client(circuit_breaker=breaker)
         service.http_client = AsyncMock()
 
         with pytest.raises(
@@ -620,7 +620,7 @@ class TestCircuitBreakerIntegration:
 
         assert breaker.number_of_consecutive_failures == 2
 
-        service = _build_large_language_model_service(circuit_breaker=breaker)
+        service = _build_llama_cpp_client(circuit_breaker=breaker)
         mock_response = _build_mock_of_json_response("Enhanced prompt text")
         service.http_client = AsyncMock()
         service.http_client.post = AsyncMock(return_value=mock_response)
@@ -637,7 +637,7 @@ class TestCircuitBreakerIntegration:
             name="test",
         )
 
-        service = _build_large_language_model_service(circuit_breaker=breaker)
+        service = _build_llama_cpp_client(circuit_breaker=breaker)
         service.http_client = AsyncMock()
         service.http_client.post = AsyncMock(
             side_effect=httpx.ConnectError("Connection refused"),
@@ -656,7 +656,7 @@ class TestCircuitBreakerIntegration:
             name="test",
         )
 
-        service = _build_large_language_model_service(circuit_breaker=breaker)
+        service = _build_llama_cpp_client(circuit_breaker=breaker)
         service.http_client = AsyncMock()
         service.http_client.post = AsyncMock(
             side_effect=httpx.TimeoutException("Timed out"),
@@ -675,7 +675,7 @@ class TestCircuitBreakerIntegration:
             name="test",
         )
 
-        service = _build_large_language_model_service(circuit_breaker=breaker)
+        service = _build_llama_cpp_client(circuit_breaker=breaker)
         mock_response = MagicMock(spec=httpx.Response)
         mock_response.status_code = 500
         service.http_client = AsyncMock()
@@ -700,7 +700,7 @@ class TestCircuitBreakerIntegration:
             name="test",
         )
 
-        service = _build_large_language_model_service(circuit_breaker=breaker)
+        service = _build_llama_cpp_client(circuit_breaker=breaker)
         service.http_client = AsyncMock()
         service.http_client.post = AsyncMock(
             side_effect=httpx.TooManyRedirects(
@@ -717,7 +717,7 @@ class TestCircuitBreakerIntegration:
     @pytest.mark.asyncio
     async def test_no_circuit_breaker_operates_normally(self) -> None:
         """When no circuit breaker is configured, the service operates normally."""
-        service = _build_large_language_model_service(circuit_breaker=None)
+        service = _build_llama_cpp_client(circuit_breaker=None)
         mock_response = _build_mock_of_json_response("Enhanced prompt text")
         service.http_client = AsyncMock()
         service.http_client.post = AsyncMock(return_value=mock_response)
@@ -738,7 +738,7 @@ class TestCircuitBreakerIntegration:
             name="test",
         )
 
-        service = _build_large_language_model_service(circuit_breaker=breaker)
+        service = _build_llama_cpp_client(circuit_breaker=breaker)
         service.http_client = AsyncMock()
         service.http_client.post = AsyncMock(
             side_effect=httpx.ConnectError("Connection refused"),
@@ -769,7 +769,7 @@ class TestCircuitBreakerIntegration:
 class TestClose:
     @pytest.mark.asyncio
     async def test_close_calls_aclose(self):
-        service = _build_large_language_model_service()
+        service = _build_llama_cpp_client()
         service.http_client = AsyncMock()
 
         await service.close()

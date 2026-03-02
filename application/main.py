@@ -32,10 +32,12 @@ import application.api.middleware.request_payload_size_limit
 import application.api.middleware.request_timeout
 import application.circuit_breaker
 import application.configuration
+import application.integrations.llama_cpp_client
+import application.integrations.stable_diffusion_pipeline
 import application.logging_config
 import application.metrics
 import application.services.image_generation_service
-import application.services.large_language_model_service
+import application.services.prompt_enhancement_service
 
 logger = structlog.get_logger()
 
@@ -79,23 +81,19 @@ def create_application() -> fastapi.FastAPI:
             name="large_language_model",
         )
 
-        instance_of_large_language_model_service = (
-            application.services.large_language_model_service.LargeLanguageModelService(
-                base_url_of_large_language_model_server=(
-                    application_configuration.base_url_of_large_language_model_server
-                ),
-                request_timeout_in_seconds=(
-                    application_configuration.timeout_for_requests_to_large_language_model_in_seconds
-                ),
-                temperature=(application_configuration.large_language_model_temperature),
-                maximum_tokens=(application_configuration.maximum_tokens_generated_by_large_language_model),
-                system_prompt=(application_configuration.system_prompt_for_large_language_model),
-                size_of_connection_pool=(application_configuration.size_of_connection_pool_for_large_language_model),
-                maximum_number_of_bytes_of_response_body=(
-                    application_configuration.maximum_number_of_bytes_of_response_body_from_large_language_model
-                ),
-                circuit_breaker=circuit_breaker_for_large_language_model,
-            )
+        instance_of_llama_cpp_client = application.integrations.llama_cpp_client.LlamaCppClient(
+            base_url_of_large_language_model_server=(application_configuration.base_url_of_large_language_model_server),
+            request_timeout_in_seconds=(
+                application_configuration.timeout_for_requests_to_large_language_model_in_seconds
+            ),
+            temperature=(application_configuration.large_language_model_temperature),
+            maximum_tokens=(application_configuration.maximum_tokens_generated_by_large_language_model),
+            system_prompt=(application_configuration.system_prompt_for_large_language_model),
+            size_of_connection_pool=(application_configuration.size_of_connection_pool_for_large_language_model),
+            maximum_number_of_bytes_of_response_body=(
+                application_configuration.maximum_number_of_bytes_of_response_body_from_large_language_model
+            ),
+            circuit_breaker=circuit_breaker_for_large_language_model,
         )
 
         # ── Custom thread pool executor (spec §14) ────────────────────
@@ -131,10 +129,21 @@ def create_application() -> fastapi.FastAPI:
         # action (for example, restarting the pod or alerting operators)
         # without losing the ability to diagnose the failure via the
         # liveness probe and structured logs.
-        instance_of_image_generation_service = None
+        # ── Service-layer construction ────────────────────────────────
+        #
+        # The PromptEnhancementService wraps the LlamaCppClient,
+        # providing the architectural boundary between API and
+        # integration layers.
+        instance_of_prompt_enhancement_service = (
+            application.services.prompt_enhancement_service.PromptEnhancementService(
+                llama_cpp_client=instance_of_llama_cpp_client,
+            )
+        )
+
+        instance_of_stable_diffusion_pipeline = None
         try:
-            instance_of_image_generation_service = (
-                application.services.image_generation_service.ImageGenerationService.load_pipeline(
+            instance_of_stable_diffusion_pipeline = (
+                application.integrations.stable_diffusion_pipeline.StableDiffusionPipeline.load_pipeline(
                     model_id=(application_configuration.id_of_stable_diffusion_model),
                     thread_pool_executor_for_inference=thread_pool_executor_for_inference,
                     model_revision=(application_configuration.revision_of_stable_diffusion_model),
@@ -155,12 +164,12 @@ def create_application() -> fastapi.FastAPI:
                 error=str(model_loading_error),
             )
 
-        if instance_of_image_generation_service is not None:
+        if instance_of_stable_diffusion_pipeline is not None:
             logger.info(
                 "model_validation_at_startup_passed",
                 model_id=application_configuration.id_of_stable_diffusion_model,
                 model_revision=application_configuration.revision_of_stable_diffusion_model,
-                device=str(instance_of_image_generation_service._device),
+                device=str(instance_of_stable_diffusion_pipeline._device),
             )
 
         # ── Startup warmup (SA-3) ────────────────────────────────────
@@ -170,8 +179,23 @@ def create_application() -> fastapi.FastAPI:
         # sequence rather than on the first real user request.  This
         # is a best-effort optimisation: if the warmup fails, the
         # first user request absorbs the warmup cost instead.
-        if instance_of_image_generation_service is not None:
-            await instance_of_image_generation_service.run_startup_warmup()
+        if instance_of_stable_diffusion_pipeline is not None:
+            await instance_of_stable_diffusion_pipeline.run_startup_warmup()
+
+        # ── ImageGenerationService construction ──────────────────────
+        #
+        # The ImageGenerationService wraps the StableDiffusionPipeline
+        # and PromptEnhancementService, absorbing orchestration logic
+        # (seed resolution, prompt enhancement coordination, response
+        # construction) that the endpoint handler delegates to it.
+        # When the pipeline failed to load, the service is None and
+        # the dependency provider raises ImageGenerationServiceUnavailableError.
+        instance_of_image_generation_service = None
+        if instance_of_stable_diffusion_pipeline is not None:
+            instance_of_image_generation_service = application.services.image_generation_service.ImageGenerationService(
+                stable_diffusion_pipeline=instance_of_stable_diffusion_pipeline,
+                prompt_enhancement_service=instance_of_prompt_enhancement_service,
+            )
 
         instance_of_admission_controller_for_image_generation = (
             application.admission_control.AdmissionControllerForImageGeneration(
@@ -181,7 +205,7 @@ def create_application() -> fastapi.FastAPI:
             )
         )
 
-        fastapi_application.state.large_language_model_service = instance_of_large_language_model_service
+        fastapi_application.state.prompt_enhancement_service = instance_of_prompt_enhancement_service
         fastapi_application.state.image_generation_service = instance_of_image_generation_service
         fastapi_application.state.admission_controller_for_image_generation = (
             instance_of_admission_controller_for_image_generation
@@ -223,7 +247,7 @@ def create_application() -> fastapi.FastAPI:
             in_flight_requests=in_flight_request_counter.number_of_in_flight_requests,
         )
 
-        await instance_of_large_language_model_service.close()
+        await instance_of_prompt_enhancement_service.close()
         if instance_of_image_generation_service is not None:
             await instance_of_image_generation_service.close()
         thread_pool_executor_for_inference.shutdown(wait=True)
