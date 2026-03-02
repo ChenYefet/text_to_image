@@ -35,8 +35,8 @@ Run the following command from the repository root::
 
     python -c "
     import yaml
-    import application.server_factory
-    application_instance = application.server_factory.create_application()
+    import application.main
+    application_instance = application.main.create_application()
     schema = application_instance.openapi()
     with open('openapi.yaml', 'w', encoding='utf-8') as output_file:
         yaml.dump(schema, output_file, default_flow_style=False,
@@ -49,7 +49,7 @@ import pathlib
 
 import yaml
 
-import application.server_factory
+import application.main
 
 # The path to the committed OpenAPI specification file, resolved relative
 # to this test file's location in the repository.  The test file lives at
@@ -132,7 +132,7 @@ class TestOpenApiContractAlignment:
             committed_specification = yaml.safe_load(specification_file)
 
         # Generate the live schema from the application factory.
-        fastapi_application = application.server_factory.create_application()
+        fastapi_application = application.main.create_application()
         generated_schema = fastapi_application.openapi()
 
         # Compare the two schemas using canonical JSON serialisation.
@@ -148,8 +148,8 @@ class TestOpenApiContractAlignment:
             "To fix this, regenerate the openapi.yaml file by running:\n\n"
             '    python -c "\n'
             "    import yaml\n"
-            "    import application.server_factory\n"
-            "    application_instance = application.server_factory.create_application()\n"
+            "    import application.main\n"
+            "    application_instance = application.main.create_application()\n"
             "    schema = application_instance.openapi()\n"
             "    with open('openapi.yaml', 'w', encoding='utf-8') as output_file:\n"
             "        yaml.dump(schema, output_file, default_flow_style=False,\n"
@@ -167,13 +167,13 @@ class TestOpenApiContractAlignment:
         every route that accepts a request body.  However, this service
         intercepts all validation errors via custom error handlers and
         returns 400 (Bad Request) with the ErrorResponse schema instead.
-        The ``_customise_openapi_schema`` function in ``server_factory.py``
+        The ``_customise_openapi_schema`` function in ``application/main.py``
         removes these phantom 422 entries.
 
         This test verifies that the removal is effective and that no
         422 entries have been inadvertently reintroduced.
         """
-        fastapi_application = application.server_factory.create_application()
+        fastapi_application = application.main.create_application()
         generated_schema = fastapi_application.openapi()
 
         for path, path_item in generated_schema.get("paths", {}).items():
@@ -185,7 +185,7 @@ class TestOpenApiContractAlignment:
                         f"never returns HTTP 422 — all validation errors are "
                         f"returned as HTTP 400 with the ErrorResponse schema.  "
                         f"Ensure that _customise_openapi_schema() in "
-                        f"server_factory.py is removing 422 entries correctly."
+                        f"application/main.py is removing 422 entries correctly."
                     )
 
     def test_openapi_schema_is_cached_after_first_generation(self) -> None:
@@ -195,7 +195,7 @@ class TestOpenApiContractAlignment:
         Subsequent calls must return the cached schema (the same object
         identity) without regenerating it.
 
-        This test exercises the cache return path at server_factory.py
+        This test exercises the cache return path at application/main.py
         line 310: ``if fastapi_application.openapi_schema: return
         fastapi_application.openapi_schema``.
 
@@ -204,7 +204,7 @@ class TestOpenApiContractAlignment:
         exact same dictionary object from the cache, not a freshly
         generated copy.
         """
-        fastapi_application = application.server_factory.create_application()
+        fastapi_application = application.main.create_application()
 
         # First call: generates and caches the schema.
         first_call_schema = fastapi_application.openapi()
@@ -233,7 +233,7 @@ class TestOpenApiContractAlignment:
         unreferenced and should also be removed to keep the specification
         clean.
         """
-        fastapi_application = application.server_factory.create_application()
+        fastapi_application = application.main.create_application()
         generated_schema = fastapi_application.openapi()
 
         component_schemas = generated_schema.get("components", {}).get(

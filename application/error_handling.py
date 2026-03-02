@@ -202,7 +202,7 @@ def register_error_handlers(fastapi_application: fastapi.FastAPI) -> None:
     Register all custom exception handlers on the given FastAPI application.
 
     This function must be called once during application initialisation
-    (see ``server_factory.create_application``).  It registers handlers
+    (see ``application.main.create_application``).  It registers handlers
     for every exception type that may be raised during request processing,
     ensuring that all error responses follow the specification's
     ``ErrorResponse`` JSON schema.

@@ -102,7 +102,7 @@ RUN mkdir -p /home/service_user/.cache/huggingface && chown service_user:service
 WORKDIR /home/service_user/application
 
 # Copy the application source code into the image.
-COPY --chown=service_user:service_user main.py configuration.py ./
+COPY --chown=service_user:service_user main.py ./
 COPY --chown=service_user:service_user application/ ./application/
 
 # Switch to the non-root user for all subsequent commands.

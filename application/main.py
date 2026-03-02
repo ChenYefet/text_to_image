@@ -1,10 +1,13 @@
 """
-FastAPI application factory.
+FastAPI application factory and module-level application instance.
 
 The ``create_application`` function constructs a fully configured FastAPI
 instance with service lifecycle management, error handling, and route
 registration. Using a factory function (rather than a module-level global)
 makes the application straightforward to test and re-create.
+
+The module-level ``fastapi_application`` instance is the entry point for
+Uvicorn and is re-exported by the root ``main.py`` shim.
 """
 
 import collections.abc
@@ -19,6 +22,7 @@ import structlog
 
 import application.admission_control
 import application.circuit_breaker
+import application.configuration
 import application.error_handling
 import application.logging_config
 import application.metrics
@@ -28,7 +32,6 @@ import application.routes.image_generation_routes
 import application.routes.prompt_enhancement_routes
 import application.services.image_generation_service
 import application.services.large_language_model_service
-import configuration
 
 logger = structlog.get_logger()
 
@@ -45,7 +48,7 @@ def create_application() -> fastapi.FastAPI:
       4. Adds the correlation-ID middleware.
       5. Includes all route handlers.
     """
-    application_configuration = configuration.ApplicationConfiguration()
+    application_configuration = application.configuration.ApplicationConfiguration()
     application.logging_config.configure_logging(
         log_level=application_configuration.log_level,
     )
@@ -424,3 +427,6 @@ def _customise_openapi_schema(fastapi_application: fastapi.FastAPI) -> None:
         return openapi_schema
 
     fastapi_application.openapi = customised_openapi  # type: ignore[method-assign]
+
+
+fastapi_application = create_application()

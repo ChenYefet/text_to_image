@@ -1,5 +1,5 @@
 """
-Integration tests for the server factory and full request flows.
+Integration tests for the application factory and full request flows.
 
 These tests exercise ``create_application()`` with mocked ML backends and
 send real HTTP requests through the entire middleware → routing → dependency
@@ -21,7 +21,7 @@ import pytest
 import pytest_asyncio
 
 import application.exceptions
-import application.server_factory
+import application.main
 import application.services.image_generation_service
 import application.services.large_language_model_service
 
@@ -130,7 +130,7 @@ async def integration_client(mock_of_large_language_model_service, mock_of_image
     closure references module-level names at runtime.
     """
     with _patched_services(mock_of_large_language_model_service, mock_of_image_generation_service):
-        test_application = application.server_factory.create_application()
+        test_application = application.main.create_application()
         async with test_application.router.lifespan_context(test_application):
             transport = httpx.ASGITransport(app=test_application)
             async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
@@ -143,24 +143,24 @@ async def cors_client(mock_of_large_language_model_service, mock_of_image_genera
     Create a real application with CORS enabled and yield an async HTTP client.
     """
     with (
-        patch("configuration.ApplicationConfiguration") as mock_configuration_class,
+        patch("application.configuration.ApplicationConfiguration") as mock_configuration_class,
         _patched_services(mock_of_large_language_model_service, mock_of_image_generation_service),
     ):
         configuration_instance = mock_configuration_class.return_value
         _apply_default_configuration_attributes(configuration_instance)
         configuration_instance.cors_allowed_origins = ["http://localhost:3000"]
 
-        test_application = application.server_factory.create_application()
+        test_application = application.main.create_application()
         async with test_application.router.lifespan_context(test_application):
             transport = httpx.ASGITransport(app=test_application)
             async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
                 yield client
 
 
-# ─── Server Factory ──────────────────────────────────────────────────────────
+# ─── Application Factory ─────────────────────────────────────────────────────
 
 
-class TestServerFactory:
+class TestApplicationFactory:
     @pytest.mark.asyncio
     async def test_create_application_returns_working_app(self, integration_client):
         response = await integration_client.get("/health")
@@ -194,7 +194,7 @@ class TestLifespan:
     ):
         """Services must be set on application state after lifespan startup."""
         with _patched_services(mock_of_large_language_model_service, mock_of_image_generation_service):
-            test_application = application.server_factory.create_application()
+            test_application = application.main.create_application()
             async with test_application.router.lifespan_context(test_application):
                 assert test_application.state.large_language_model_service is mock_of_large_language_model_service
                 assert test_application.state.image_generation_service is mock_of_image_generation_service
@@ -205,7 +205,7 @@ class TestLifespan:
     ):
         """Services must be closed when the lifespan exits."""
         with _patched_services(mock_of_large_language_model_service, mock_of_image_generation_service):
-            test_application = application.server_factory.create_application()
+            test_application = application.main.create_application()
             async with test_application.router.lifespan_context(test_application):
                 pass  # startup runs
 
@@ -219,7 +219,7 @@ class TestLifespan:
     ):
         """The metrics collector must be set on application state."""
         with _patched_services(mock_of_large_language_model_service, mock_of_image_generation_service):
-            test_application = application.server_factory.create_application()
+            test_application = application.main.create_application()
             async with test_application.router.lifespan_context(test_application):
                 assert hasattr(test_application.state, "metrics_collector")
                 assert test_application.state.metrics_collector is not None
@@ -269,7 +269,7 @@ class TestStartupModelValidation:
                 side_effect=OSError("Model file not found: /models/stable-diffusion"),
             ),
         ):
-            fastapi_application = application.server_factory.create_application()
+            fastapi_application = application.main.create_application()
             async with fastapi_application.router.lifespan_context(
                 fastapi_application,
             ):
@@ -365,7 +365,7 @@ class TestStartupModelValidation:
                 side_effect=OSError("Model file not found: /models/stable-diffusion"),
             ),
         ):
-            fastapi_application = application.server_factory.create_application()
+            fastapi_application = application.main.create_application()
             async with fastapi_application.router.lifespan_context(
                 fastapi_application,
             ):
@@ -388,7 +388,7 @@ class TestStartupModelValidation:
             mock_of_large_language_model_service,
             mock_of_image_generation_service,
         ):
-            fastapi_application = application.server_factory.create_application()
+            fastapi_application = application.main.create_application()
             async with fastapi_application.router.lifespan_context(
                 fastapi_application,
             ):
@@ -1112,7 +1112,7 @@ class TestPayloadTooLargeFullStackIntegration:
         JSON body, confirming end-to-end traceability across the full
         middleware stack."""
         with (
-            patch("configuration.ApplicationConfiguration") as mock_configuration_class,
+            patch("application.configuration.ApplicationConfiguration") as mock_configuration_class,
             _patched_services(mock_of_large_language_model_service, mock_of_image_generation_service),
         ):
             configuration_instance = mock_configuration_class.return_value
@@ -1121,7 +1121,7 @@ class TestPayloadTooLargeFullStackIntegration:
             # JSON request body exceeds the threshold.
             configuration_instance.maximum_number_of_bytes_of_request_payload = 100
 
-            fastapi_application = application.server_factory.create_application()
+            fastapi_application = application.main.create_application()
             async with fastapi_application.router.lifespan_context(
                 fastapi_application,
             ):
@@ -1155,14 +1155,14 @@ class TestPayloadTooLargeFullStackIntegration:
         service layer must not be invoked — the rejection occurs before
         the request body reaches the application layer."""
         with (
-            patch("configuration.ApplicationConfiguration") as mock_configuration_class,
+            patch("application.configuration.ApplicationConfiguration") as mock_configuration_class,
             _patched_services(mock_of_large_language_model_service, mock_of_image_generation_service),
         ):
             configuration_instance = mock_configuration_class.return_value
             _apply_default_configuration_attributes(configuration_instance)
             configuration_instance.maximum_number_of_bytes_of_request_payload = 100
 
-            fastapi_application = application.server_factory.create_application()
+            fastapi_application = application.main.create_application()
             async with fastapi_application.router.lifespan_context(
                 fastapi_application,
             ):
@@ -1289,7 +1289,7 @@ class TestRequestTimeoutFullStackIntegration:
         )
 
         with (
-            patch("configuration.ApplicationConfiguration") as mock_configuration_class,
+            patch("application.configuration.ApplicationConfiguration") as mock_configuration_class,
             _patched_services(mock_of_large_language_model_service, mock_of_image_generation_service),
         ):
             configuration_instance = mock_configuration_class.return_value
@@ -1298,7 +1298,7 @@ class TestRequestTimeoutFullStackIntegration:
             # completes quickly whilst still exceeding the timeout.
             configuration_instance.timeout_for_requests_in_seconds = 0.05
 
-            fastapi_application = application.server_factory.create_application()
+            fastapi_application = application.main.create_application()
             async with fastapi_application.router.lifespan_context(
                 fastapi_application,
             ):
@@ -1375,7 +1375,7 @@ class TestAdmissionControlRejectionFullStackIntegration:
         )
 
         with (
-            patch("configuration.ApplicationConfiguration") as mock_configuration_class,
+            patch("application.configuration.ApplicationConfiguration") as mock_configuration_class,
             _patched_services(mock_of_large_language_model_service, mock_of_image_generation_service),
         ):
             configuration_instance = mock_configuration_class.return_value
@@ -1384,7 +1384,7 @@ class TestAdmissionControlRejectionFullStackIntegration:
             # fully occupies the admission controller.
             configuration_instance.maximum_number_of_concurrent_operations_of_image_generation = 1
 
-            fastapi_application = application.server_factory.create_application()
+            fastapi_application = application.main.create_application()
             async with fastapi_application.router.lifespan_context(
                 fastapi_application,
             ):
@@ -1468,14 +1468,14 @@ class TestAdmissionControlRejectionFullStackIntegration:
         )
 
         with (
-            patch("configuration.ApplicationConfiguration") as mock_configuration_class,
+            patch("application.configuration.ApplicationConfiguration") as mock_configuration_class,
             _patched_services(mock_of_large_language_model_service, mock_of_image_generation_service),
         ):
             configuration_instance = mock_configuration_class.return_value
             _apply_default_configuration_attributes(configuration_instance)
             configuration_instance.maximum_number_of_concurrent_operations_of_image_generation = 1
 
-            fastapi_application = application.server_factory.create_application()
+            fastapi_application = application.main.create_application()
             async with fastapi_application.router.lifespan_context(
                 fastapi_application,
             ):
@@ -1513,7 +1513,7 @@ class TestAdmissionControlRejectionFullStackIntegration:
 
 class TestCustomiseOpenApiSchema:
     """Unit tests for the ``_customise_openapi_schema`` function in
-    ``server_factory.py``, which removes phantom 422 responses and adds
+    ``application/main.py``, which removes phantom 422 responses and adds
     global error responses to the generated OpenAPI schema."""
 
     def test_phantom_422_responses_are_removed(
@@ -1522,21 +1522,21 @@ class TestCustomiseOpenApiSchema:
         """The customised schema must not contain any 422 response entries,
         because all validation errors are intercepted and returned as 400."""
         with (
-            patch("configuration.ApplicationConfiguration") as mock_configuration_class,
+            patch("application.configuration.ApplicationConfiguration") as mock_configuration_class,
             _patched_services(mock_of_large_language_model_service, mock_of_image_generation_service),
         ):
             configuration_instance = mock_configuration_class.return_value
             _apply_default_configuration_attributes(configuration_instance)
 
-            test_application = application.server_factory.create_application()
+            test_application = application.main.create_application()
             schema = test_application.openapi()
 
             for path, path_item in schema.get("paths", {}).items():
                 for method, operation in path_item.items():
                     if isinstance(operation, dict) and "responses" in operation:
-                        assert (
-                            "422" not in operation["responses"]
-                        ), f"Phantom 422 response found in {method.upper()} {path}"
+                        assert "422" not in operation["responses"], (
+                            f"Phantom 422 response found in {method.upper()} {path}"
+                        )
 
     def test_unused_validation_error_schemas_are_removed(
         self, mock_of_large_language_model_service, mock_of_image_generation_service
@@ -1545,13 +1545,13 @@ class TestCustomiseOpenApiSchema:
         must be removed because they are no longer referenced after the
         422 responses are removed."""
         with (
-            patch("configuration.ApplicationConfiguration") as mock_configuration_class,
+            patch("application.configuration.ApplicationConfiguration") as mock_configuration_class,
             _patched_services(mock_of_large_language_model_service, mock_of_image_generation_service),
         ):
             configuration_instance = mock_configuration_class.return_value
             _apply_default_configuration_attributes(configuration_instance)
 
-            test_application = application.server_factory.create_application()
+            test_application = application.main.create_application()
             schema = test_application.openapi()
 
             component_schemas = schema.get("components", {}).get("schemas", {})
@@ -1564,19 +1564,19 @@ class TestCustomiseOpenApiSchema:
         """Every path operation must include 404, 405, and 500 global error
         responses added by the customisation function."""
         with (
-            patch("configuration.ApplicationConfiguration") as mock_configuration_class,
+            patch("application.configuration.ApplicationConfiguration") as mock_configuration_class,
             _patched_services(mock_of_large_language_model_service, mock_of_image_generation_service),
         ):
             configuration_instance = mock_configuration_class.return_value
             _apply_default_configuration_attributes(configuration_instance)
 
-            test_application = application.server_factory.create_application()
+            test_application = application.main.create_application()
             schema = test_application.openapi()
 
             for path, path_item in schema.get("paths", {}).items():
                 for method, operation in path_item.items():
                     if isinstance(operation, dict) and "responses" in operation:
                         for expected_status_code in ("404", "405", "500"):
-                            assert (
-                                expected_status_code in operation["responses"]
-                            ), f"Missing {expected_status_code} response in {method.upper()} {path}"
+                            assert expected_status_code in operation["responses"], (
+                                f"Missing {expected_status_code} response in {method.upper()} {path}"
+                            )

@@ -648,7 +648,6 @@ curl -X POST http://localhost:8000/v1/images/generations \
 ```
 text_to_image/
 ├── main.py                                        # Application entry point
-├── configuration.py                               # Environment-based configuration
 ├── requirements.txt                               # Python dependencies
 ├── requirements-dev.txt                           # Development dependencies (pytest, ruff, etc.)
 ├── pyproject.toml                                 # Tool configuration (ruff, pytest)
@@ -667,7 +666,8 @@ text_to_image/
 │   └── ggml*.dll / *.so files
 ├── application/
 │   ├── __init__.py
-│   ├── server_factory.py                          # FastAPI application factory
+│   ├── main.py                                    # FastAPI application factory
+│   ├── configuration.py                           # Environment-based configuration
 │   ├── dependencies.py                            # Dependency injection providers
 │   ├── models.py                                  # Request and response Pydantic models
 │   ├── exceptions.py                              # Custom exception classes

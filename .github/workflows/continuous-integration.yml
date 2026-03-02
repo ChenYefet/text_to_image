@@ -73,8 +73,8 @@ jobs:
       # If this step fails, regenerate the openapi.yaml file using:
       #
       #   python -c "
-      #   import yaml, application.server_factory
-      #   app = application.server_factory.create_application()
+      #   import yaml, application.main
+      #   app = application.main.create_application()
       #   with open('openapi.yaml', 'w', encoding='utf-8') as f:
       #       yaml.dump(app.openapi(), f, default_flow_style=False,
       #                 sort_keys=False, allow_unicode=True)

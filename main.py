@@ -1,22 +1,24 @@
 """
-Entry point for the Text-to-Image with Prompt Assist service.
+Thin re-export shim for the Uvicorn entry point.
 
-This module creates the FastAPI application instance and starts the Uvicorn
-ASGI server when executed directly.
+Uvicorn is configured with ``main:fastapi_application`` as its import
+target (both in the Dockerfile CMD and in the Makefile ``run`` target).
+This module re-exports the application instance created by the factory
+in ``application.main`` so that the Uvicorn import path remains stable.
 """
 
-import uvicorn
+from application.main import fastapi_application
 
-import application.server_factory
-
-TIMEOUT_FOR_GRACEFUL_SHUTDOWN_IN_SECONDS = 60
-
-fastapi_application = application.server_factory.create_application()
+__all__ = ["fastapi_application"]
 
 if __name__ == "__main__":
-    import configuration
+    import uvicorn
 
-    application_configuration = configuration.ApplicationConfiguration()
+    import application.configuration
+
+    TIMEOUT_FOR_GRACEFUL_SHUTDOWN_IN_SECONDS = 60
+
+    application_configuration = application.configuration.ApplicationConfiguration()
 
     uvicorn.run(
         "main:fastapi_application",
