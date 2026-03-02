@@ -53,9 +53,9 @@ import application.main
 
 # The path to the committed OpenAPI specification file, resolved relative
 # to this test file's location in the repository.  The test file lives at
-# tests/test_openapi_contract.py, and the specification lives at the
-# repository root (openapi.yaml), so we navigate two levels up.
-_REPOSITORY_ROOT = pathlib.Path(__file__).resolve().parent.parent
+# tests/integration/test_openapi_contract.py, and the specification lives
+# at the repository root (openapi.yaml), so we navigate three levels up.
+_REPOSITORY_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 _COMMITTED_OPENAPI_SPECIFICATION_PATH = _REPOSITORY_ROOT / "openapi.yaml"
 
 

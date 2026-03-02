@@ -82,7 +82,7 @@ jobs:
       - name: Validate OpenAPI contract alignment
         run: |
           source .venv/bin/activate
-          pytest tests/test_openapi_contract.py -v --no-header
+          pytest tests/integration/test_openapi_contract.py -v --no-header
 
   # ──────────────────────────────────────────────────────────────────────
   #  Job 2: Build and tag the Docker container image

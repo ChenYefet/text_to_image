@@ -31,7 +31,7 @@ import application.services.image_generation_service
 import application.services.prompt_enhancement_service
 
 
-class TestImageGenerationRoutes:
+class TestImageGenerationEndpoint:
     @pytest.mark.asyncio
     async def test_success(self, client, mock_of_stable_diffusion_pipeline) -> None:
         response = await client.post(

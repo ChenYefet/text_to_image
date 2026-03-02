@@ -1,4 +1,4 @@
-"""Tests for application/services/image_generation_service.py."""
+"""Tests for application/integrations/stable_diffusion_pipeline.py."""
 
 import concurrent.futures
 from unittest.mock import MagicMock, patch

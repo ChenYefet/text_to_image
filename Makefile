@@ -25,7 +25,7 @@ coverage:
 	pytest --cov=application --cov-report=term-missing --cov-fail-under=80
 
 contract:
-	pytest tests/test_openapi_contract.py -v --no-header
+	pytest tests/integration/test_openapi_contract.py -v --no-header
 
 continuous-integration: lint format-check typecheck audit coverage contract
 

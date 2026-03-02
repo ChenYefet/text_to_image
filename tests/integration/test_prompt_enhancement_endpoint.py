@@ -5,7 +5,7 @@ import pytest
 import application.exceptions
 
 
-class TestPromptEnhancementRoutes:
+class TestPromptEnhancementEndpoint:
     @pytest.mark.asyncio
     async def test_success(self, client, mock_of_llama_cpp_client) -> None:
         response = await client.post(

@@ -10,7 +10,7 @@ import application.api.endpoints.health
 import application.api.middleware.correlation_identifier
 
 
-class TestHealthRoutes:
+class TestHealthEndpoints:
     @pytest.mark.asyncio
     async def test_health_returns_200(self, client):
         response = await client.get("/health")
@@ -42,7 +42,7 @@ class TestHealthRoutes:
         assert response.headers.get("pragma") == "no-cache"
 
 
-class TestReadinessRoutes:
+class TestReadinessEndpoints:
     @pytest.mark.asyncio
     async def test_ready_when_services_healthy(
         self, client, mock_of_llama_cpp_client, mock_of_stable_diffusion_pipeline
@@ -151,7 +151,7 @@ class TestReadinessRoutes:
         assert response.headers.get("pragma") == "no-cache"
 
 
-class TestMetricsRoutes:
+class TestMetricsEndpoints:
     @pytest.mark.asyncio
     async def test_metrics_returns_200(self, client):
         response = await client.get("/metrics")
