@@ -21,12 +21,16 @@ import fastapi.openapi.utils
 import structlog
 
 import application.admission_control
+import application.api.middleware.content_type_validation
+import application.api.middleware.correlation_identifier
+import application.api.middleware.request_logging
+import application.api.middleware.request_payload_size_limit
+import application.api.middleware.request_timeout
 import application.circuit_breaker
 import application.configuration
 import application.error_handling
 import application.logging_config
 import application.metrics
-import application.middleware
 import application.routes.health_routes
 import application.routes.image_generation_routes
 import application.routes.prompt_enhancement_routes
@@ -54,7 +58,7 @@ def create_application() -> fastapi.FastAPI:
     )
 
     metrics_collector = application.metrics.MetricsCollector()
-    in_flight_request_counter = application.middleware.InFlightRequestCounter()
+    in_flight_request_counter = application.api.middleware.correlation_identifier.InFlightRequestCounter()
 
     @contextlib.asynccontextmanager
     async def application_lifespan(
@@ -257,34 +261,45 @@ def create_application() -> fastapi.FastAPI:
     #   Request → CorrelationId → RequestTimeout → ContentType
     #           → PayloadSizeLimit → CORS → App
     #
+    # ASGI middleware executes in reverse registration order (last
+    # registered = outermost).  The resulting execution order is:
+    #
+    #   Request → CorrelationId → RequestLogging → RequestTimeout
+    #           → ContentType → PayloadSizeLimit → CORS → App
+    #
     # CorrelationId is outermost so that every request (including those
     # rejected by inner middleware) receives a traceable correlation ID.
-    # RequestTimeout is second so that the entire request processing
-    # pipeline (including validation and inference) is bounded by the
-    # end-to-end timeout ceiling (NFR48).  ContentType rejects malformed
-    # POST requests before the body is read.  PayloadSizeLimit then
-    # guards against oversized payloads.  CORS (registered above, if
-    # configured) is innermost.
+    # RequestLogging is second so that every request is logged with its
+    # correlation ID context.  RequestTimeout is third so that the
+    # entire request processing pipeline (including validation and
+    # inference) is bounded by the end-to-end timeout ceiling (NFR48).
+    # ContentType rejects malformed POST requests before the body is
+    # read.  PayloadSizeLimit then guards against oversized payloads.
+    # CORS (registered above, if configured) is innermost.
 
     fastapi_application.add_middleware(
-        application.middleware.RequestPayloadSizeLimitMiddleware,
+        application.api.middleware.request_payload_size_limit.RequestPayloadSizeLimitMiddleware,
         maximum_number_of_bytes_of_request_payload=(
             application_configuration.maximum_number_of_bytes_of_request_payload
         ),
     )
 
     fastapi_application.add_middleware(
-        application.middleware.ContentTypeValidationMiddleware,
+        application.api.middleware.content_type_validation.ContentTypeValidationMiddleware,
     )
 
     fastapi_application.add_middleware(
-        application.middleware.RequestTimeoutMiddleware,
+        application.api.middleware.request_timeout.RequestTimeoutMiddleware,
         request_timeout_in_seconds=(application_configuration.timeout_for_requests_in_seconds),
     )
 
     fastapi_application.add_middleware(
-        application.middleware.CorrelationIdMiddleware,
+        application.api.middleware.request_logging.RequestLoggingMiddleware,
         metrics_collector=metrics_collector,
+    )
+
+    fastapi_application.add_middleware(
+        application.api.middleware.correlation_identifier.CorrelationIdMiddleware,
         in_flight_request_counter=in_flight_request_counter,
     )
 

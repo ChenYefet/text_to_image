@@ -671,12 +671,17 @@ text_to_image/
 │   ├── dependencies.py                            # Dependency injection providers
 │   ├── exceptions.py                              # Custom exception classes
 │   ├── error_handling.py                          # Centralised error handler registration
-│   ├── middleware.py                              # ASGI middleware (correlation ID, request logging)
 │   ├── logging_config.py                          # Structured JSON logging configuration (structlog)
 │   ├── metrics.py                                 # In-memory performance metrics collector
 │   ├── admission_control.py                       # Admission control for image generation (limiting of concurrent operations)
 │   ├── circuit_breaker.py                         # Circuit breaker for communication with the llama.cpp server
 │   ├── api/
+│   │   ├── middleware/
+│   │   │   ├── correlation_identifier.py          # Correlation ID assignment and in-flight request tracking
+│   │   │   ├── request_logging.py                 # HTTP request and response logging with metrics
+│   │   │   ├── request_timeout.py                 # End-to-end request timeout enforcement
+│   │   │   ├── content_type_validation.py         # Content-Type header validation
+│   │   │   └── request_payload_size_limit.py      # Request payload size enforcement
 │   │   └── schemas/
 │   │       ├── prompt_enhancement.py              # Prompt enhancement request and response schemas
 │   │       ├── image_generation.py                # Image generation request and response schemas

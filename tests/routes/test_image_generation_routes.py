@@ -20,11 +20,11 @@ import pytest
 import pytest_asyncio
 
 import application.admission_control
+import application.api.middleware.correlation_identifier
 import application.dependencies
 import application.error_handling
 import application.exceptions
 import application.metrics
-import application.middleware
 import application.routes.image_generation_routes
 import application.services.image_generation_service
 
@@ -536,7 +536,7 @@ class TestServiceBusyErrorHandler:
         application.error_handling.register_error_handlers(test_application)
 
         test_application.add_middleware(
-            application.middleware.CorrelationIdMiddleware,
+            application.api.middleware.correlation_identifier.CorrelationIdMiddleware,
         )
 
         test_application.include_router(

@@ -8,10 +8,14 @@ import pytest
 import pytest_asyncio
 
 import application.admission_control
+import application.api.middleware.content_type_validation
+import application.api.middleware.correlation_identifier
+import application.api.middleware.request_logging
+import application.api.middleware.request_payload_size_limit
+import application.api.middleware.request_timeout
 import application.dependencies
 import application.error_handling
 import application.metrics
-import application.middleware
 import application.routes.health_routes
 import application.routes.image_generation_routes
 import application.routes.prompt_enhancement_routes
@@ -67,22 +71,26 @@ def test_application(
     metrics_collector = application.metrics.MetricsCollector()
 
     test_application.add_middleware(
-        application.middleware.RequestPayloadSizeLimitMiddleware,
+        application.api.middleware.request_payload_size_limit.RequestPayloadSizeLimitMiddleware,
         maximum_number_of_bytes_of_request_payload=1_048_576,
     )
 
     test_application.add_middleware(
-        application.middleware.ContentTypeValidationMiddleware,
+        application.api.middleware.content_type_validation.ContentTypeValidationMiddleware,
     )
 
     test_application.add_middleware(
-        application.middleware.RequestTimeoutMiddleware,
+        application.api.middleware.request_timeout.RequestTimeoutMiddleware,
         request_timeout_in_seconds=300.0,
     )
 
     test_application.add_middleware(
-        application.middleware.CorrelationIdMiddleware,
+        application.api.middleware.request_logging.RequestLoggingMiddleware,
         metrics_collector=metrics_collector,
+    )
+
+    test_application.add_middleware(
+        application.api.middleware.correlation_identifier.CorrelationIdMiddleware,
     )
     test_application.include_router(application.routes.prompt_enhancement_routes.prompt_enhancement_router)
     test_application.include_router(application.routes.image_generation_routes.image_generation_router)

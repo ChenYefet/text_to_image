@@ -6,7 +6,7 @@ import fastapi
 import httpx
 import pytest
 
-import application.middleware
+import application.api.middleware.correlation_identifier
 import application.routes.health_routes
 
 
@@ -66,7 +66,7 @@ class TestReadinessRoutes:
         """Return 503 when services are not set on application state."""
         test_application = fastapi.FastAPI()
         test_application.add_middleware(
-            application.middleware.CorrelationIdMiddleware,
+            application.api.middleware.correlation_identifier.CorrelationIdMiddleware,
         )
         test_application.include_router(application.routes.health_routes.health_router)
 
@@ -211,7 +211,7 @@ class TestMetricsRoutes:
         """Return empty metrics when metrics_collector is not on application state."""
         test_application = fastapi.FastAPI()
         test_application.add_middleware(
-            application.middleware.CorrelationIdMiddleware,
+            application.api.middleware.correlation_identifier.CorrelationIdMiddleware,
         )
         test_application.include_router(application.routes.health_routes.health_router)
 

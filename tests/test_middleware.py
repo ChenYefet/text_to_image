@@ -1,4 +1,4 @@
-"""Tests for application/middleware.py — InFlightRequestCounter,
+"""Tests for middleware modules — InFlightRequestCounter,
 CorrelationIdMiddleware, RequestTimeoutMiddleware,
 ContentTypeValidationMiddleware, and RequestPayloadSizeLimitMiddleware."""
 
@@ -10,7 +10,10 @@ import httpx
 import pytest
 import pytest_asyncio
 
-import application.middleware
+import application.api.middleware.content_type_validation
+import application.api.middleware.correlation_identifier
+import application.api.middleware.request_payload_size_limit
+import application.api.middleware.request_timeout
 
 
 class TestInFlightRequestCounter:
@@ -25,18 +28,18 @@ class TestInFlightRequestCounter:
 
     def test_initial_count_is_zero(self):
         """A freshly created counter must report zero in-flight requests."""
-        counter = application.middleware.InFlightRequestCounter()
+        counter = application.api.middleware.correlation_identifier.InFlightRequestCounter()
         assert counter.number_of_in_flight_requests == 0
 
     def test_increment_increases_count(self):
         """Calling ``increment`` must increase the count by one."""
-        counter = application.middleware.InFlightRequestCounter()
+        counter = application.api.middleware.correlation_identifier.InFlightRequestCounter()
         counter.increment()
         assert counter.number_of_in_flight_requests == 1
 
     def test_decrement_decreases_count(self):
         """Calling ``decrement`` after ``increment`` must restore the count."""
-        counter = application.middleware.InFlightRequestCounter()
+        counter = application.api.middleware.correlation_identifier.InFlightRequestCounter()
         counter.increment()
         counter.increment()
         counter.decrement()
@@ -44,7 +47,7 @@ class TestInFlightRequestCounter:
 
     def test_multiple_increments_and_decrements(self):
         """The counter must correctly track multiple concurrent requests."""
-        counter = application.middleware.InFlightRequestCounter()
+        counter = application.api.middleware.correlation_identifier.InFlightRequestCounter()
         counter.increment()
         counter.increment()
         counter.increment()
@@ -60,7 +63,7 @@ class TestInFlightRequestCounter:
         counter when a request begins and decrement it when the request
         completes, leaving the counter at zero after the request finishes.
         """
-        counter = application.middleware.InFlightRequestCounter()
+        counter = application.api.middleware.correlation_identifier.InFlightRequestCounter()
         counter_during_request: int | None = None
 
         async def inner_app(scope, receive, send):
@@ -82,7 +85,7 @@ class TestInFlightRequestCounter:
                 }
             )
 
-        middleware = application.middleware.CorrelationIdMiddleware(
+        middleware = application.api.middleware.correlation_identifier.CorrelationIdMiddleware(
             inner_app,
             in_flight_request_counter=counter,
         )
@@ -117,12 +120,12 @@ class TestInFlightRequestCounter:
         counter in the ``finally`` block, ensuring the counter does not
         drift upward over time due to failed requests.
         """
-        counter = application.middleware.InFlightRequestCounter()
+        counter = application.api.middleware.correlation_identifier.InFlightRequestCounter()
 
         async def failing_inner_app(scope, receive, send):
             raise RuntimeError("Simulated application failure")
 
-        middleware = application.middleware.CorrelationIdMiddleware(
+        middleware = application.api.middleware.correlation_identifier.CorrelationIdMiddleware(
             failing_inner_app,
             in_flight_request_counter=counter,
         )
@@ -151,7 +154,7 @@ class TestInFlightRequestCounter:
 def _create_test_application():
     """Create a minimal FastAPI application with the correlation ID middleware."""
     test_application = fastapi.FastAPI()
-    test_application.add_middleware(application.middleware.CorrelationIdMiddleware)
+    test_application.add_middleware(application.api.middleware.correlation_identifier.CorrelationIdMiddleware)
 
     @test_application.get("/test")
     async def test_endpoint(request: fastapi.Request):
@@ -186,10 +189,10 @@ def _create_timeout_test_application(request_timeout_in_seconds: float = 1.0):
     # Register in reverse order: last registered = outermost.
     # Execution order: CorrelationId → RequestTimeout → Application
     test_application.add_middleware(
-        application.middleware.RequestTimeoutMiddleware,
+        application.api.middleware.request_timeout.RequestTimeoutMiddleware,
         request_timeout_in_seconds=request_timeout_in_seconds,
     )
-    test_application.add_middleware(application.middleware.CorrelationIdMiddleware)
+    test_application.add_middleware(application.api.middleware.correlation_identifier.CorrelationIdMiddleware)
 
     return test_application
 
@@ -261,7 +264,7 @@ class TestCorrelationIdMiddleware:
             nonlocal inner_called
             inner_called = True
 
-        middleware = application.middleware.CorrelationIdMiddleware(inner_app)
+        middleware = application.api.middleware.correlation_identifier.CorrelationIdMiddleware(inner_app)
         await middleware({"type": "lifespan"}, None, None)
         assert inner_called
 
@@ -298,7 +301,7 @@ class TestCorrelationIdMiddleware:
                 }
             )
 
-        middleware = application.middleware.CorrelationIdMiddleware(inner_app)
+        middleware = application.api.middleware.correlation_identifier.CorrelationIdMiddleware(inner_app)
 
         # Construct a scope with a Content-Length header that cannot be
         # parsed as an integer.  The middleware must handle this gracefully.
@@ -429,7 +432,7 @@ class TestRequestTimeoutMiddleware:
                 }
             )
 
-        middleware = application.middleware.RequestTimeoutMiddleware(
+        middleware = application.api.middleware.request_timeout.RequestTimeoutMiddleware(
             slow_inner_app_that_sends_headers_first,
             request_timeout_in_seconds=0.05,
         )
@@ -469,7 +472,7 @@ class TestRequestTimeoutMiddleware:
             nonlocal inner_called
             inner_called = True
 
-        middleware = application.middleware.RequestTimeoutMiddleware(
+        middleware = application.api.middleware.request_timeout.RequestTimeoutMiddleware(
             inner_app,
             request_timeout_in_seconds=1.0,
         )
@@ -505,9 +508,9 @@ def _create_content_type_test_application():
     # Register in reverse order: last registered = outermost.
     # Execution order: CorrelationId → ContentType → Application
     test_application.add_middleware(
-        application.middleware.ContentTypeValidationMiddleware,
+        application.api.middleware.content_type_validation.ContentTypeValidationMiddleware,
     )
-    test_application.add_middleware(application.middleware.CorrelationIdMiddleware)
+    test_application.add_middleware(application.api.middleware.correlation_identifier.CorrelationIdMiddleware)
 
     return test_application
 
@@ -660,7 +663,7 @@ class TestContentTypeValidationMiddleware:
             nonlocal inner_called
             inner_called = True
 
-        middleware = application.middleware.ContentTypeValidationMiddleware(inner_app)
+        middleware = application.api.middleware.content_type_validation.ContentTypeValidationMiddleware(inner_app)
         await middleware({"type": "lifespan"}, None, None)
         assert inner_called
 
@@ -699,7 +702,7 @@ class TestContentTypeValidationMiddleware:
                 }
             )
 
-        middleware = application.middleware.ContentTypeValidationMiddleware(inner_app)
+        middleware = application.api.middleware.content_type_validation.ContentTypeValidationMiddleware(inner_app)
 
         # Construct a scope with NO Content-Type header at all.
         # The headers list contains only an Accept header — no
@@ -770,10 +773,10 @@ def _create_payload_size_test_application(maximum_number_of_bytes_of_request_pay
     # Register in reverse order: last registered = outermost.
     # Execution order: CorrelationId → PayloadSizeLimit → Application
     test_application.add_middleware(
-        application.middleware.RequestPayloadSizeLimitMiddleware,
+        application.api.middleware.request_payload_size_limit.RequestPayloadSizeLimitMiddleware,
         maximum_number_of_bytes_of_request_payload=maximum_number_of_bytes_of_request_payload,
     )
-    test_application.add_middleware(application.middleware.CorrelationIdMiddleware)
+    test_application.add_middleware(application.api.middleware.correlation_identifier.CorrelationIdMiddleware)
 
     return test_application
 
@@ -936,7 +939,7 @@ class TestRequestPayloadSizeLimitMiddleware:
             nonlocal inner_called
             inner_called = True
 
-        middleware = application.middleware.RequestPayloadSizeLimitMiddleware(
+        middleware = application.api.middleware.request_payload_size_limit.RequestPayloadSizeLimitMiddleware(
             inner_app,
             maximum_number_of_bytes_of_request_payload=100,
         )
@@ -1057,7 +1060,7 @@ class TestRequestPayloadSizeLimitStreamingGuard:
                 }
             )
 
-        middleware = application.middleware.RequestPayloadSizeLimitMiddleware(
+        middleware = application.api.middleware.request_payload_size_limit.RequestPayloadSizeLimitMiddleware(
             inner_app,
             maximum_number_of_bytes_of_request_payload=100,
         )
@@ -1106,7 +1109,7 @@ class TestRequestPayloadSizeLimitStreamingGuard:
                 inner_app_raised = True
                 raise
 
-        middleware = application.middleware.RequestPayloadSizeLimitMiddleware(
+        middleware = application.api.middleware.request_payload_size_limit.RequestPayloadSizeLimitMiddleware(
             inner_app,
             maximum_number_of_bytes_of_request_payload=100,
         )
@@ -1144,7 +1147,7 @@ class TestRequestPayloadSizeLimitStreamingGuard:
             # Simulate a parse failure on the truncated body.
             raise ValueError("Simulated parse failure on truncated body")
 
-        middleware = application.middleware.RequestPayloadSizeLimitMiddleware(
+        middleware = application.api.middleware.request_payload_size_limit.RequestPayloadSizeLimitMiddleware(
             inner_app,
             maximum_number_of_bytes_of_request_payload=50,
         )
@@ -1185,7 +1188,7 @@ class TestRequestPayloadSizeLimitStreamingGuard:
             await receive()
             raise ValueError("Simulated parse failure")
 
-        middleware = application.middleware.RequestPayloadSizeLimitMiddleware(
+        middleware = application.api.middleware.request_payload_size_limit.RequestPayloadSizeLimitMiddleware(
             inner_app,
             maximum_number_of_bytes_of_request_payload=50,
         )
@@ -1220,7 +1223,7 @@ class TestRequestPayloadSizeLimitStreamingGuard:
         async def inner_app(scope, receive, send):
             raise RuntimeError("Unrelated application error")
 
-        middleware = application.middleware.RequestPayloadSizeLimitMiddleware(
+        middleware = application.api.middleware.request_payload_size_limit.RequestPayloadSizeLimitMiddleware(
             inner_app,
             maximum_number_of_bytes_of_request_payload=1000,
         )
@@ -1268,7 +1271,7 @@ class TestRequestPayloadSizeLimitStreamingGuard:
                 }
             )
 
-        middleware = application.middleware.RequestPayloadSizeLimitMiddleware(
+        middleware = application.api.middleware.request_payload_size_limit.RequestPayloadSizeLimitMiddleware(
             inner_app,
             maximum_number_of_bytes_of_request_payload=50,
         )
@@ -1329,7 +1332,7 @@ class TestRequestPayloadSizeLimitStreamingGuard:
                 }
             )
 
-        middleware = application.middleware.RequestPayloadSizeLimitMiddleware(
+        middleware = application.api.middleware.request_payload_size_limit.RequestPayloadSizeLimitMiddleware(
             inner_app,
             maximum_number_of_bytes_of_request_payload=100,
         )

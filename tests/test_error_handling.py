@@ -41,10 +41,10 @@ import pytest_asyncio
 import starlette.exceptions
 
 import application.admission_control
+import application.api.middleware.correlation_identifier
 import application.error_handling
 import application.exceptions
 import application.metrics
-import application.middleware
 
 # ──────────────────────────────────────────────────────────────────────────────
 #  Helper model used to trigger request validation errors in handler tests
@@ -83,8 +83,7 @@ def test_application_with_error_handlers():
 
     metrics_collector = application.metrics.MetricsCollector()
     fastapi_application.add_middleware(
-        application.middleware.CorrelationIdMiddleware,
-        metrics_collector=metrics_collector,
+        application.api.middleware.correlation_identifier.CorrelationIdMiddleware,
     )
 
     fastapi_application.state.retry_after_busy_in_seconds = 30
