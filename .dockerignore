@@ -18,8 +18,10 @@ llama.cpp/
 # Python caches are rebuilt inside the container.
 __pycache__/
 *.pyc
+*.pyo
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
 
 # Coverage artefacts — test-time only.
 htmlcov/
@@ -30,10 +32,29 @@ coverage.xml
 .DS_Store
 Thumbs.db
 
-# Environment file — configuration is injected via docker-compose or
+# Environment files — configuration is injected via docker-compose or
 # environment variables at runtime, not baked into the image.
 .env
+.env.*
 
-# The spec and Claude configuration are documentation, not runtime code.
-text-to-image-spec-v3_2_0.md
+# Test suites — not needed in the production image.
+tests/
+
+# Kubernetes manifests — deployment artefacts, not application code.
+k8s/
+
+# Documentation and licence files add nothing to the runtime image.
+*.md
+LICENSE
+
+# Compose and reverse proxy configuration — operational artefacts that
+# are consumed by the host orchestrator, not by the container itself.
+docker-compose.yml
+nginx.conf
+
+# Model files — multi-GB GGUF and Hugging Face model weights must not
+# be sent to the Docker build context.
+models/
+
+# Claude configuration is not runtime code.
 .claude/
