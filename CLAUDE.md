@@ -126,6 +126,8 @@ The specification is the authoritative source of truth for what constitutes corr
 2. What the external assessment recommends and why.
 3. Whether the external assessment has identified a genuine limitation in the specification's design — a case where the spec may not be optimal even though the implementation conforms to it.
 
+After presenting both perspectives, make a clear engineering recommendation. If the external assessment identifies a genuine design improvement — one where industry best practice, operational reality, or engineering rigour favours the external recommendation over the spec's current prescription — recommend updating the specification rather than defaulting to spec compliance. The spec exists to serve the system, not the other way around. Treating the spec as immutable when evidence points to a better design is itself a deficiency.
+
 The user decides whether to treat the finding as (a) invalid because the spec's design trade-off is sound, (b) a specification improvement opportunity that warrants updating the spec first and then the implementation, or (c) something to defer. Never unilaterally commit to implementing a change that contradicts the specification, and never unilaterally dismiss an external finding without surfacing it.
 
 README REQUIREMENTS
