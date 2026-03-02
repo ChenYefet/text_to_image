@@ -143,6 +143,8 @@ COMMIT MESSAGE REQUIREMENTS
 
 Commit messages must describe the changes in terms of the specification and the codebase. They must never reference external documents such as audit reports, review feedback, or third-party assessments. The motivation for a change is the specification requirement it satisfies or the defect it corrects — not the external document that identified it.
 
+When a commit modifies a specific artefact whose identity is not self-evident from the change description, the commit message must name that artefact explicitly. For example, a message that says "Add directive to recommend specification improvements" is ambiguous — it could refer to a change in the specification, in CLAUDE.md, in a CI workflow, or in application code. The correct form names the file or artefact: "Add directive to CLAUDE.md to recommend specification improvements". This applies to all artefacts — the specification, CLAUDE.md, the Makefile, the Dockerfile, Kubernetes manifests, CI workflows, and any other file where the subject line alone does not make the target unambiguous.
+
 MARKDOWN ANCHOR LINK REQUIREMENTS
 
 Every internal anchor reference in all markdown files (`.md`) must correspond to a markdown heading with a valid anchor. When adding cross-references anywhere in the codebase's markdown documentation, verify the target heading exists before committing. A markdown link checker (such as markdown-link-check) may be used to validate all references before submission. Dead anchor links in any markdown file violate clarity requirements and must be caught during review.
