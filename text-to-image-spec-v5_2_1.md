@@ -943,7 +943,7 @@ The non-functional requirements are specified before functional requirements bec
 
 **Preconditions:**
 
-- At least 2 instances of the Text-to-Image API Service are deployed behind a load balancer or reverse proxy configured for round-robin distribution with no session affinity (recommended tool: Kubernetes with a LoadBalancer Service, or `nginx` with round-robin upstream configuration)
+- At least 2 instances of the Text-to-Image API Service are deployed behind a load balancer or reverse proxy configured for round-robin distribution with no session affinity (recommended tool: Kubernetes with a ClusterIP Service behind an Ingress controller, or `nginx` with round-robin upstream configuration)
 - Each instance is configured identically (same environment variables, same model files)
 - The llama.cpp HTTP server is running and accessible to all instances
 - A load-testing tool is installed and configured (recommended tool: k6)
@@ -954,7 +954,7 @@ The non-functional requirements are specified before functional requirements bec
 
     (Recommended tool: k6 or another suitable load-testing tool)
 
-    1. Deploy 2 instances of the Text-to-Image API Service behind a load balancer configured for round-robin distribution (recommended tool: Kubernetes Deployment with `replicas: 2` and a Service of type LoadBalancer, or `docker-compose` with `nginx` as a reverse proxy)
+    1. Deploy 2 instances of the Text-to-Image API Service behind a load balancer configured for round-robin distribution (recommended tool: Kubernetes Deployment with `replicas: 2` and a ClusterIP Service behind an Ingress controller, or `docker-compose` with `nginx` as a reverse proxy)
     2. Execute [RO7](#ro7-concurrent-load-prompt-enhancement) through the load balancer using 5 concurrent virtual users continuously issuing requests for 5 minutes (each virtual user should repeatedly issue prompt enhancement requests back-to-back, issuing the next request immediately after receiving the previous response, for the full duration of the test)
     3. Collect per-request response times, HTTP status codes, and `X-Correlation-ID` response header values
     4. After the load test completes, examine the logs of each service instance and, for each recorded correlation identifier, determine which instance processed the request (recommended tool: `docker logs {container}` or `kubectl logs {pod}`)
@@ -4524,10 +4524,12 @@ Examples:
 
 | Property | Value |
 |----------|-------|
-| Type | LoadBalancer |
+| Type | ClusterIP |
 | Port | 80 |
 | Target port | 8000 |
 | Selector | `app: text-to-image-api` |
+
+**Rationale:** ClusterIP is used instead of LoadBalancer because production Kubernetes clusters expose services to external traffic through an Ingress controller (or Gateway API resource), not through per-service LoadBalancer resources. A LoadBalancer service provisions a dedicated cloud load balancer for every service, which is expensive, prevents path-based routing and shared TLS termination, and bypasses the reverse proxy layer that this specification already prescribes for rate limiting enforcement (see [Security Considerations](#security-considerations)). ClusterIP ensures that only the Ingress layer accepts external traffic, maintaining a single point of entry consistent with the defence-in-depth posture applied to the llama.cpp service below.
 
 #### Service: llama-cpp-server-service
 
@@ -4640,7 +4642,7 @@ The following verification requirements ensure that deployed infrastructure conf
 5. **HPA verification:** Verify that the HorizontalPodAutoscaler is configured with the specified target utilisation percentages and replica bounds
 6. **PVC verification:** Verify that PersistentVolumeClaims are bound and accessible by the expected pods
 7. **Network policy verification:** Verify that the network policy is applied and that llama.cpp server pods are not directly accessible from outside the namespace (recommended tool: `kubectl exec` from a pod in a different namespace, expecting connection refused)
-8. **Service verification:** Verify that the LoadBalancer service for the API is accessible and routes requests to API pods, and that the ClusterIP service for llama.cpp is accessible only from within the cluster
+8. **Service verification:** Verify that the ClusterIP service for the API is reachable from the Ingress controller and routes requests to API pods, and that the ClusterIP service for llama.cpp is accessible only from within the cluster
 
 ### Disaster Recovery and High Availability
 
@@ -5401,7 +5403,7 @@ This section documents failure modes commonly encountered during initial setup a
 | 5.0.0 | 22 Feb 2026 | Operational completeness, infrastructure maturity, evaluation framework enhancement, and specification ambiguity resolution. See detailed v5.0.0 changelog below. |
 | 5.1.0 | 25 Feb 2026 | Circuit breaker for communication with the large language model service; continuous integration pipeline documentation corrections. See detailed v5.1.0 changelog below. |
 | 5.2.0 | 25 Feb 2026 | Expanded normative logging taxonomy from 32 to 45 events; removed rate limiting from specification scope. See detailed v5.2.0 changelog below. |
-| 5.2.1 | 1 Mar 2026 | Added advisory on the absence of server-side retry; corrected thread pool executor specification from default to dedicated; added `HF_HOME` environment variable to Dockerfile Stage 2; corrected device-agnostic wording from "CPU-bound" to "synchronous and blocking" throughout concurrency architecture; added [normative scope of the directory structure](#normative-scope-of-the-directory-structure) classification distinguishing normative items from reference artefacts. See detailed v5.2.1 changelog below. |
+| 5.2.1 | 1 Mar 2026 | Added advisory on the absence of server-side retry; corrected thread pool executor specification from default to dedicated; added `HF_HOME` environment variable to Dockerfile Stage 2; corrected device-agnostic wording from "CPU-bound" to "synchronous and blocking" throughout concurrency architecture; added [normative scope of the directory structure](#normative-scope-of-the-directory-structure) classification distinguishing normative items from reference artefacts. Changed Kubernetes API service type from `LoadBalancer` to `ClusterIP` with rationale; updated all NFR4 verification procedure references and the deployment verification checklist to reflect `ClusterIP` behind an Ingress controller. See detailed v5.2.1 changelog below. |
 
 #### v4.0.0 Detailed Changelog
 
@@ -5798,6 +5800,12 @@ This section documents failure modes commonly encountered during initial setup a
 **Repository structure:**
 
 - Added [Normative Scope of the Directory Structure](#normative-scope-of-the-directory-structure) subheading under [Repository Structure](#repository-structure), classifying directory tree items into two categories: **normative items** (application source files, test files, dependency files, Dockerfile, continuous integration workflow, `openapi.yaml`, `pyproject.toml`, `README.md`) that **shall** be present, and **reference artefacts** (`nginx.conf`, `docker-compose.yml`, `k8s/`, `tests/load/`) that **should** be present. This resolves a normative scope contradiction where the blanket "shall" on the directory tree conflicted with the advisory "should" for Kubernetes manifests at the end of the [Kubernetes Deployment (Production Reference)](#kubernetes-deployment-production-reference) section. The reference artefact classification is consistent with the existing language describing the [reference docker-compose for multi-instance evaluation](#reference-docker-compose-for-multi-instance-evaluation) as "provided to reduce evaluation friction" and the load test scripts as "release qualification only" items that "should not run on every commit."
+
+**Kubernetes infrastructure:**
+
+- Changed the Kubernetes API service type from `LoadBalancer` to `ClusterIP` in the [Service: text-to-image-api-service](#service-text-to-image-api-service) table. Added a rationale paragraph explaining that production Kubernetes clusters expose services through an Ingress controller rather than per-service LoadBalancer resources, which are expensive, prevent path-based routing and shared TLS termination, and bypass the reverse proxy layer the specification prescribes for rate limiting.
+- Updated the [NFR4](#horizontal-scalability) verification procedure preconditions and step 1 to reference a ClusterIP Service behind an Ingress controller instead of a LoadBalancer Service.
+- Updated the [deployment verification checklist](#deployment-verification-requirements) service verification item to verify that the ClusterIP service for the API is reachable from the Ingress controller, replacing the previous LoadBalancer accessibility check.
 
 ---
 
