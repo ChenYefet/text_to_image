@@ -670,12 +670,17 @@ text_to_image/
 │   ├── configuration.py                           # Environment-based configuration
 │   ├── dependencies.py                            # Dependency injection providers
 │   ├── exceptions.py                              # Custom exception classes
-│   ├── error_handling.py                          # Centralised error handler registration
 │   ├── logging_config.py                          # Structured JSON logging configuration (structlog)
 │   ├── metrics.py                                 # In-memory performance metrics collector
 │   ├── admission_control.py                       # Admission control for image generation (limiting of concurrent operations)
 │   ├── circuit_breaker.py                         # Circuit breaker for communication with the llama.cpp server
 │   ├── api/
+│   │   ├── dependencies.py                        # FastAPI dependency providers
+│   │   ├── error_handlers.py                      # Centralised error handler registration
+│   │   ├── endpoints/
+│   │   │   ├── prompt_enhancement.py              # POST /v1/prompts/enhance
+│   │   │   ├── image_generation.py                # POST /v1/images/generations
+│   │   │   └── health.py                          # GET /health, GET /health/ready, GET /metrics
 │   │   ├── middleware/
 │   │   │   ├── correlation_identifier.py          # Correlation ID assignment and in-flight request tracking
 │   │   │   ├── request_logging.py                 # HTTP request and response logging with metrics
@@ -686,15 +691,10 @@ text_to_image/
 │   │       ├── prompt_enhancement.py              # Prompt enhancement request and response schemas
 │   │       ├── image_generation.py                # Image generation request and response schemas
 │   │       └── error.py                           # Error response schemas
-│   ├── services/
-│   │   ├── __init__.py
-│   │   ├── large_language_model_service.py              # llama.cpp integration
-│   │   └── image_generation_service.py            # Stable Diffusion pipeline (diffusers)
-│   └── routes/
+│   └── services/
 │       ├── __init__.py
-│       ├── health_routes.py                       # GET /health, GET /health/ready, GET /metrics
-│       ├── prompt_enhancement_routes.py           # POST /v1/prompts/enhance
-│       └── image_generation_routes.py             # POST /v1/images/generations
+│       ├── large_language_model_service.py        # llama.cpp integration
+│       └── image_generation_service.py            # Stable Diffusion pipeline (diffusers)
 └── tests/
     ├── __init__.py
     ├── conftest.py

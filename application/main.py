@@ -21,6 +21,10 @@ import fastapi.openapi.utils
 import structlog
 
 import application.admission_control
+import application.api.endpoints.health
+import application.api.endpoints.image_generation
+import application.api.endpoints.prompt_enhancement
+import application.api.error_handlers
 import application.api.middleware.content_type_validation
 import application.api.middleware.correlation_identifier
 import application.api.middleware.request_logging
@@ -28,12 +32,8 @@ import application.api.middleware.request_payload_size_limit
 import application.api.middleware.request_timeout
 import application.circuit_breaker
 import application.configuration
-import application.error_handling
 import application.logging_config
 import application.metrics
-import application.routes.health_routes
-import application.routes.image_generation_routes
-import application.routes.prompt_enhancement_routes
 import application.services.image_generation_service
 import application.services.large_language_model_service
 
@@ -241,7 +241,7 @@ def create_application() -> fastapi.FastAPI:
         lifespan=application_lifespan,
     )
 
-    application.error_handling.register_error_handlers(fastapi_application)
+    application.api.error_handlers.register_error_handlers(fastapi_application)
 
     if application_configuration.cors_allowed_origins:
         fastapi_application.add_middleware(
@@ -304,13 +304,13 @@ def create_application() -> fastapi.FastAPI:
     )
 
     fastapi_application.include_router(
-        application.routes.prompt_enhancement_routes.prompt_enhancement_router,
+        application.api.endpoints.prompt_enhancement.prompt_enhancement_router,
     )
     fastapi_application.include_router(
-        application.routes.image_generation_routes.image_generation_router,
+        application.api.endpoints.image_generation.image_generation_router,
     )
     fastapi_application.include_router(
-        application.routes.health_routes.health_router,
+        application.api.endpoints.health.health_router,
     )
 
     # ── OpenAPI schema customisation ──────────────────────────────────
@@ -318,7 +318,7 @@ def create_application() -> fastapi.FastAPI:
     # FastAPI auto-generates a ``422 Unprocessable Entity`` response with
     # ``HTTPValidationError`` / ``ValidationError`` schemas for every route
     # that accepts a request body.  However, this service's custom error
-    # handlers (see ``error_handling.py``) intercept all validation errors
+    # handlers (see ``error_handlers.py``) intercept all validation errors
     # and return ``400 Bad Request`` with the ``ErrorResponse`` schema
     # instead.  The 422 status code is never emitted by the live service.
     #

@@ -6,8 +6,8 @@ import fastapi
 import httpx
 import pytest
 
+import application.api.endpoints.health
 import application.api.middleware.correlation_identifier
-import application.routes.health_routes
 
 
 class TestHealthRoutes:
@@ -68,7 +68,7 @@ class TestReadinessRoutes:
         test_application.add_middleware(
             application.api.middleware.correlation_identifier.CorrelationIdMiddleware,
         )
-        test_application.include_router(application.routes.health_routes.health_router)
+        test_application.include_router(application.api.endpoints.health.health_router)
 
         transport = httpx.ASGITransport(app=test_application)
         async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
@@ -213,7 +213,7 @@ class TestMetricsRoutes:
         test_application.add_middleware(
             application.api.middleware.correlation_identifier.CorrelationIdMiddleware,
         )
-        test_application.include_router(application.routes.health_routes.health_router)
+        test_application.include_router(application.api.endpoints.health.health_router)
 
         transport = httpx.ASGITransport(app=test_application)
         async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:

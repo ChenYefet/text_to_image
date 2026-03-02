@@ -1,5 +1,5 @@
 """
-Route definitions for the image generation endpoint.
+Endpoint definitions for the image generation endpoint.
 
 This module defines the POST /v1/images/generations endpoint, which
 generates one or more images from a text prompt using Stable Diffusion.
@@ -31,9 +31,9 @@ import fastapi.responses
 import structlog
 
 import application.admission_control
+import application.api.dependencies
 import application.api.schemas.error
 import application.api.schemas.image_generation
-import application.dependencies
 import application.services.image_generation_service
 import application.services.large_language_model_service
 
@@ -117,19 +117,19 @@ async def handle_image_generation_request(
     image_generation_service: typing.Annotated[
         application.services.image_generation_service.ImageGenerationService,
         fastapi.Depends(
-            application.dependencies.get_image_generation_service,
+            application.api.dependencies.get_image_generation_service,
         ),
     ],
     large_language_model_service: typing.Annotated[
         application.services.large_language_model_service.LargeLanguageModelService,
         fastapi.Depends(
-            application.dependencies.get_large_language_model_service,
+            application.api.dependencies.get_large_language_model_service,
         ),
     ],
     admission_controller: typing.Annotated[
         application.admission_control.AdmissionControllerForImageGeneration,
         fastapi.Depends(
-            application.dependencies.get_admission_controller_for_image_generation,
+            application.api.dependencies.get_admission_controller_for_image_generation,
         ),
     ],
 ) -> fastapi.responses.JSONResponse:

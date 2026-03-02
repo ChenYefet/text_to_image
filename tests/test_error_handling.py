@@ -1,4 +1,4 @@
-"""Tests for application/error_handling.py — centralised error handler registration.
+"""Tests for application/api/error_handlers.py — centralised error handler registration.
 
 This module provides dedicated tests for the centralised error handling
 layer, covering all seven exception handlers, the three helper functions,
@@ -41,8 +41,8 @@ import pytest_asyncio
 import starlette.exceptions
 
 import application.admission_control
+import application.api.error_handlers
 import application.api.middleware.correlation_identifier
-import application.error_handling
 import application.exceptions
 import application.metrics
 
@@ -79,7 +79,7 @@ def test_application_with_error_handlers():
     configuration.
     """
     fastapi_application = fastapi.FastAPI()
-    application.error_handling.register_error_handlers(fastapi_application)
+    application.api.error_handlers.register_error_handlers(fastapi_application)
 
     metrics_collector = application.metrics.MetricsCollector()
     fastapi_application.add_middleware(
@@ -180,7 +180,7 @@ class TestGetCorrelationId:
         mock_request = MagicMock()
         mock_request.state.correlation_id = "test-correlation-id-abc-123"
 
-        result = application.error_handling._get_correlation_id(mock_request)
+        result = application.api.error_handlers._get_correlation_id(mock_request)
 
         assert result == "test-correlation-id-abc-123"
 
@@ -193,7 +193,7 @@ class TestGetCorrelationId:
         mock_request = MagicMock(spec=[])
         mock_request.state = MagicMock(spec=[])
 
-        result = application.error_handling._get_correlation_id(mock_request)
+        result = application.api.error_handlers._get_correlation_id(mock_request)
 
         assert result == "unknown"
 
@@ -216,7 +216,7 @@ class TestDiscoverAllowedMethodsForPath:
         async def example_route() -> None:
             pass
 
-        result = application.error_handling._discover_allowed_methods_for_path(
+        result = application.api.error_handlers._discover_allowed_methods_for_path(
             fastapi_application,
             "/example",
         )
@@ -235,7 +235,7 @@ class TestDiscoverAllowedMethodsForPath:
         async def example_route() -> None:
             pass
 
-        result = application.error_handling._discover_allowed_methods_for_path(
+        result = application.api.error_handlers._discover_allowed_methods_for_path(
             fastapi_application,
             "/example",
         )
@@ -250,7 +250,7 @@ class TestDiscoverAllowedMethodsForPath:
         """
         fastapi_application = fastapi.FastAPI()
 
-        result = application.error_handling._discover_allowed_methods_for_path(
+        result = application.api.error_handlers._discover_allowed_methods_for_path(
             fastapi_application,
             "/nonexistent",
         )
@@ -273,7 +273,7 @@ class TestDiscoverAllowedMethodsForPath:
         async def example_post() -> None:
             pass
 
-        result = application.error_handling._discover_allowed_methods_for_path(
+        result = application.api.error_handlers._discover_allowed_methods_for_path(
             fastapi_application,
             "/example",
         )
@@ -293,7 +293,7 @@ class TestBuildErrorResponse:
         The returned ``JSONResponse`` must carry the HTTP status code
         passed to the builder.
         """
-        response = application.error_handling._build_error_response(
+        response = application.api.error_handlers._build_error_response(
             status_code=502,
             code="upstream_service_unavailable",
             message="The server is unreachable.",
@@ -308,7 +308,7 @@ class TestBuildErrorResponse:
         field must be omitted entirely from the serialised JSON body
         rather than being present as ``null``.
         """
-        response = application.error_handling._build_error_response(
+        response = application.api.error_handlers._build_error_response(
             status_code=500,
             code="internal_server_error",
             message="An unexpected error occurred.",
@@ -326,7 +326,7 @@ class TestBuildErrorResponse:
         ``service_busy`` or ``payload_too_large``), the field must be
         present in the response body as that string value.
         """
-        response = application.error_handling._build_error_response(
+        response = application.api.error_handlers._build_error_response(
             status_code=429,
             code="service_busy",
             message="The service is at capacity.",
@@ -348,7 +348,7 @@ class TestBuildErrorResponse:
             {"location": ["body", "name"], "message": "Field required", "type": "missing"},
         ]
 
-        response = application.error_handling._build_error_response(
+        response = application.api.error_handlers._build_error_response(
             status_code=400,
             code="request_validation_failed",
             message="Request body failed schema validation.",
@@ -368,7 +368,7 @@ class TestBuildErrorResponse:
         code, the human-readable message, and the correlation ID in
         the nested ``error`` object.
         """
-        response = application.error_handling._build_error_response(
+        response = application.api.error_handlers._build_error_response(
             status_code=404,
             code="not_found",
             message="The requested endpoint does not exist.",

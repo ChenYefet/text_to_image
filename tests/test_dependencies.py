@@ -1,10 +1,10 @@
-"""Tests for application/dependencies.py — FastAPI dependency providers."""
+"""Tests for application/api/dependencies.py — FastAPI dependency providers."""
 
 from unittest.mock import MagicMock
 
 import pytest
 
-import application.dependencies
+import application.api.dependencies
 import application.exceptions
 
 
@@ -14,7 +14,7 @@ class TestGetLargeLanguageModelService:
         mock_request = MagicMock()
         mock_request.app.state.large_language_model_service = mock_service
 
-        result = application.dependencies.get_large_language_model_service(mock_request)
+        result = application.api.dependencies.get_large_language_model_service(mock_request)
 
         assert result is mock_service
 
@@ -25,7 +25,7 @@ class TestGetImageGenerationService:
         mock_request = MagicMock()
         mock_request.app.state.image_generation_service = mock_service
 
-        result = application.dependencies.get_image_generation_service(mock_request)
+        result = application.api.dependencies.get_image_generation_service(mock_request)
 
         assert result is mock_service
 
@@ -42,7 +42,7 @@ class TestGetImageGenerationService:
         mock_request.app.state.image_generation_service = None
 
         with pytest.raises(application.exceptions.ImageGenerationServiceUnavailableError) as exception_context:
-            application.dependencies.get_image_generation_service(mock_request)
+            application.api.dependencies.get_image_generation_service(mock_request)
 
         assert "failed to load" in exception_context.value.detail
 
@@ -60,7 +60,7 @@ class TestGetImageGenerationService:
         mock_request.app.state = MagicMock(spec=[])
 
         with pytest.raises(application.exceptions.ImageGenerationServiceUnavailableError):
-            application.dependencies.get_image_generation_service(mock_request)
+            application.api.dependencies.get_image_generation_service(mock_request)
 
 
 class TestGetAdmissionControllerForImageGeneration:
@@ -73,6 +73,6 @@ class TestGetAdmissionControllerForImageGeneration:
         mock_request = MagicMock()
         mock_request.app.state.admission_controller_for_image_generation = mock_controller
 
-        result = application.dependencies.get_admission_controller_for_image_generation(mock_request)
+        result = application.api.dependencies.get_admission_controller_for_image_generation(mock_request)
 
         assert result is mock_controller

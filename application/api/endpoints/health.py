@@ -1,5 +1,5 @@
 """
-Route definitions for health, readiness, and metrics endpoints.
+Endpoint definitions for health, readiness, and metrics endpoints.
 
 Provides three infrastructure endpoints for operational monitoring:
 

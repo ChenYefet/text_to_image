@@ -20,12 +20,12 @@ import pytest
 import pytest_asyncio
 
 import application.admission_control
+import application.api.dependencies
+import application.api.endpoints.image_generation
+import application.api.error_handlers
 import application.api.middleware.correlation_identifier
-import application.dependencies
-import application.error_handling
 import application.exceptions
 import application.metrics
-import application.routes.image_generation_routes
 import application.services.image_generation_service
 
 
@@ -495,7 +495,7 @@ class TestImageGenerationRoutes:
 
 class TestServiceBusyErrorHandler:
     """
-    Verify the ``ServiceBusyError`` exception handler (error_handling.py
+    Verify the ``ServiceBusyError`` exception handler (error_handlers.py
     lines 226–263) produces the correct HTTP 429 response.
 
     When the admission controller for image generation rejects a request
@@ -533,25 +533,25 @@ class TestServiceBusyErrorHandler:
         )
 
         test_application = fastapi.FastAPI()
-        application.error_handling.register_error_handlers(test_application)
+        application.api.error_handlers.register_error_handlers(test_application)
 
         test_application.add_middleware(
             application.api.middleware.correlation_identifier.CorrelationIdMiddleware,
         )
 
         test_application.include_router(
-            application.routes.image_generation_routes.image_generation_router,
+            application.api.endpoints.image_generation.image_generation_router,
         )
 
-        test_application.dependency_overrides[application.dependencies.get_large_language_model_service] = lambda: (
+        test_application.dependency_overrides[application.api.dependencies.get_large_language_model_service] = lambda: (
             mock_of_large_language_model_service
         )
 
-        test_application.dependency_overrides[application.dependencies.get_image_generation_service] = lambda: (
+        test_application.dependency_overrides[application.api.dependencies.get_image_generation_service] = lambda: (
             mock_of_image_generation_service
         )
 
-        override_key = application.dependencies.get_admission_controller_for_image_generation
+        override_key = application.api.dependencies.get_admission_controller_for_image_generation
         test_application.dependency_overrides[override_key] = lambda: admission_controller
 
         test_application.state.retry_after_busy_in_seconds = 45

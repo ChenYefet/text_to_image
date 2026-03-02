@@ -1,5 +1,5 @@
 """
-Route definitions for the prompt enhancement endpoint.
+Endpoint definitions for the prompt enhancement endpoint.
 
 This module defines the POST /v1/prompts/enhance endpoint, which accepts
 a raw text prompt and returns an enhanced version optimised for
@@ -16,9 +16,9 @@ import typing
 import fastapi
 import fastapi.responses
 
+import application.api.dependencies
 import application.api.schemas.error
 import application.api.schemas.prompt_enhancement
-import application.dependencies
 import application.services.large_language_model_service
 
 prompt_enhancement_router = fastapi.APIRouter(
@@ -88,7 +88,7 @@ async def handle_prompt_enhancement_request(
     large_language_model_service: typing.Annotated[
         application.services.large_language_model_service.LargeLanguageModelService,
         fastapi.Depends(
-            application.dependencies.get_large_language_model_service,
+            application.api.dependencies.get_large_language_model_service,
         ),
     ],
 ) -> fastapi.responses.JSONResponse:

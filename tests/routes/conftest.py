@@ -8,17 +8,17 @@ import pytest
 import pytest_asyncio
 
 import application.admission_control
+import application.api.dependencies
+import application.api.endpoints.health
+import application.api.endpoints.image_generation
+import application.api.endpoints.prompt_enhancement
+import application.api.error_handlers
 import application.api.middleware.content_type_validation
 import application.api.middleware.correlation_identifier
 import application.api.middleware.request_logging
 import application.api.middleware.request_payload_size_limit
 import application.api.middleware.request_timeout
-import application.dependencies
-import application.error_handling
 import application.metrics
-import application.routes.health_routes
-import application.routes.image_generation_routes
-import application.routes.prompt_enhancement_routes
 import application.services.image_generation_service
 
 
@@ -66,7 +66,7 @@ def test_application(
     admission_controller_for_image_generation,
 ):
     test_application = fastapi.FastAPI()
-    application.error_handling.register_error_handlers(test_application)
+    application.api.error_handlers.register_error_handlers(test_application)
 
     metrics_collector = application.metrics.MetricsCollector()
 
@@ -92,21 +92,21 @@ def test_application(
     test_application.add_middleware(
         application.api.middleware.correlation_identifier.CorrelationIdMiddleware,
     )
-    test_application.include_router(application.routes.prompt_enhancement_routes.prompt_enhancement_router)
-    test_application.include_router(application.routes.image_generation_routes.image_generation_router)
-    test_application.include_router(application.routes.health_routes.health_router)
+    test_application.include_router(application.api.endpoints.prompt_enhancement.prompt_enhancement_router)
+    test_application.include_router(application.api.endpoints.image_generation.image_generation_router)
+    test_application.include_router(application.api.endpoints.health.health_router)
 
-    test_application.dependency_overrides[application.dependencies.get_large_language_model_service] = lambda: (
+    test_application.dependency_overrides[application.api.dependencies.get_large_language_model_service] = lambda: (
         mock_of_large_language_model_service
     )
 
-    test_application.dependency_overrides[application.dependencies.get_image_generation_service] = lambda: (
+    test_application.dependency_overrides[application.api.dependencies.get_image_generation_service] = lambda: (
         mock_of_image_generation_service
     )
 
-    test_application.dependency_overrides[application.dependencies.get_admission_controller_for_image_generation] = (
-        lambda: admission_controller_for_image_generation
-    )
+    test_application.dependency_overrides[
+        application.api.dependencies.get_admission_controller_for_image_generation
+    ] = lambda: admission_controller_for_image_generation
 
     test_application.state.large_language_model_service = mock_of_large_language_model_service
     test_application.state.image_generation_service = mock_of_image_generation_service
