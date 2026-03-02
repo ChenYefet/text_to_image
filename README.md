@@ -668,7 +668,6 @@ text_to_image/
 │   ├── __init__.py
 │   ├── main.py                                    # FastAPI application factory
 │   ├── configuration.py                           # Environment-based configuration
-│   ├── dependencies.py                            # Dependency injection providers
 │   ├── exceptions.py                              # Custom exception classes
 │   ├── logging_config.py                          # Structured JSON logging configuration (structlog)
 │   ├── metrics.py                                 # In-memory performance metrics collector
@@ -691,34 +690,35 @@ text_to_image/
 │   │       ├── prompt_enhancement.py              # Prompt enhancement request and response schemas
 │   │       ├── image_generation.py                # Image generation request and response schemas
 │   │       └── error.py                           # Error response schemas
-│   └── services/
-│       ├── __init__.py
-│       ├── large_language_model_service.py        # llama.cpp integration
-│       └── image_generation_service.py            # Stable Diffusion pipeline (diffusers)
+│   ├── services/
+│   │   ├── prompt_enhancement_service.py          # Orchestrator wrapping the llama.cpp client
+│   │   └── image_generation_service.py            # Orchestrator wrapping the Stable Diffusion pipeline
+│   └── integrations/
+│       ├── llama_cpp_client.py                    # llama.cpp HTTP client integration
+│       └── stable_diffusion_pipeline.py           # Stable Diffusion pipeline (diffusers)
 └── tests/
     ├── __init__.py
     ├── conftest.py
-    ├── test_configuration.py
-    ├── test_dependencies.py
-    ├── test_exceptions.py
-    ├── test_integration.py
-    ├── test_logging_config.py
-    ├── test_metrics.py
-    ├── test_middleware.py
-    ├── test_models.py
-    ├── test_admission_control.py
-    ├── test_circuit_breaker.py
-    ├── test_openapi_contract.py
-    ├── routes/
-    │   ├── __init__.py
-    │   ├── conftest.py
-    │   ├── test_health_routes.py
-    │   ├── test_prompt_enhancement_routes.py
-    │   └── test_image_generation_routes.py
-    └── services/
-        ├── __init__.py
-        ├── test_large_language_model_service.py
-        └── test_image_generation_service.py
+    ├── unit/
+    │   ├── test_admission_control.py
+    │   ├── test_circuit_breaker.py
+    │   ├── test_configuration.py
+    │   ├── test_dependencies.py
+    │   ├── test_exceptions.py
+    │   ├── test_llama_cpp_client.py
+    │   ├── test_logging_config.py
+    │   ├── test_metrics.py
+    │   ├── test_middleware.py
+    │   ├── test_schemas.py
+    │   └── test_stable_diffusion_pipeline.py
+    └── integration/
+        ├── conftest.py
+        ├── test_error_handling.py
+        ├── test_health_endpoints.py
+        ├── test_image_generation_endpoint.py
+        ├── test_integration.py
+        ├── test_openapi_contract.py
+        └── test_prompt_enhancement_endpoint.py
 ```
 
 **Note:** The `llama.cpp/` directory and `.env` file are excluded from git (via `.gitignore`) as they contain platform-specific binaries and local configuration. You must set these up manually as described in the setup instructions above.
