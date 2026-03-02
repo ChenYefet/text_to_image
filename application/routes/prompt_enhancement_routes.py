@@ -16,8 +16,9 @@ import typing
 import fastapi
 import fastapi.responses
 
+import application.api.schemas.error
+import application.api.schemas.prompt_enhancement
 import application.dependencies
-import application.models
 import application.services.large_language_model_service
 
 prompt_enhancement_router = fastapi.APIRouter(
@@ -28,7 +29,7 @@ prompt_enhancement_router = fastapi.APIRouter(
 
 @prompt_enhancement_router.post(
     "/enhance",
-    response_model=application.models.PromptEnhancementResponse,
+    response_model=application.api.schemas.prompt_enhancement.PromptEnhancementResponse,
     summary="Enhance a text prompt using the large language model",
     description=(
         "Accepts a raw text prompt and returns an enhanced version"
@@ -51,18 +52,18 @@ prompt_enhancement_router = fastapi.APIRouter(
                 " (``invalid_request_json``) or fails schema validation"
                 " (``request_validation_failed``)."
             ),
-            "model": application.models.ErrorResponse,
+            "model": application.api.schemas.error.ErrorResponse,
         },
         413: {
             "description": (
                 "Payload Too Large — the request body exceeds the"
                 " configured maximum payload size (``payload_too_large``)."
             ),
-            "model": application.models.ErrorResponse,
+            "model": application.api.schemas.error.ErrorResponse,
         },
         415: {
             "description": ("Unsupported Media Type — the ``Content-Type`` header is not ``application/json``."),
-            "model": application.models.ErrorResponse,
+            "model": application.api.schemas.error.ErrorResponse,
         },
         502: {
             "description": (
@@ -70,20 +71,20 @@ prompt_enhancement_router = fastapi.APIRouter(
                 " server is unreachable or returned an error"
                 " (``upstream_service_unavailable``)."
             ),
-            "model": application.models.ErrorResponse,
+            "model": application.api.schemas.error.ErrorResponse,
         },
         504: {
             "description": (
                 "Gateway Timeout — the request exceeded the configured"
                 " end-to-end timeout ceiling (``request_timeout``)."
             ),
-            "model": application.models.ErrorResponse,
+            "model": application.api.schemas.error.ErrorResponse,
         },
     },
 )
 async def handle_prompt_enhancement_request(
     request: fastapi.Request,
-    prompt_enhancement_request: application.models.PromptEnhancementRequest,
+    prompt_enhancement_request: application.api.schemas.prompt_enhancement.PromptEnhancementRequest,
     large_language_model_service: typing.Annotated[
         application.services.large_language_model_service.LargeLanguageModelService,
         fastapi.Depends(
@@ -109,7 +110,7 @@ async def handle_prompt_enhancement_request(
         original_prompt=prompt_enhancement_request.prompt,
     )
 
-    response_model = application.models.PromptEnhancementResponse(
+    response_model = application.api.schemas.prompt_enhancement.PromptEnhancementResponse(
         original_prompt=prompt_enhancement_request.prompt,
         enhanced_prompt=enhanced_prompt_text,
         created=int(time.time()),

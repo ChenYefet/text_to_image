@@ -31,8 +31,9 @@ import fastapi.responses
 import structlog
 
 import application.admission_control
+import application.api.schemas.error
+import application.api.schemas.image_generation
 import application.dependencies
-import application.models
 import application.services.image_generation_service
 import application.services.large_language_model_service
 
@@ -46,7 +47,7 @@ image_generation_router = fastapi.APIRouter(
 
 @image_generation_router.post(
     "/generations",
-    response_model=application.models.ImageGenerationResponse,
+    response_model=application.api.schemas.image_generation.ImageGenerationResponse,
     response_model_exclude_unset=True,
     summary="Generate images from a text prompt",
     description=(
@@ -70,18 +71,18 @@ image_generation_router = fastapi.APIRouter(
                 " (``invalid_request_json``) or fails schema validation"
                 " (``request_validation_failed``)."
             ),
-            "model": application.models.ErrorResponse,
+            "model": application.api.schemas.error.ErrorResponse,
         },
         413: {
             "description": (
                 "Payload Too Large — the request body exceeds the"
                 " configured maximum payload size (``payload_too_large``)."
             ),
-            "model": application.models.ErrorResponse,
+            "model": application.api.schemas.error.ErrorResponse,
         },
         415: {
             "description": ("Unsupported Media Type — the ``Content-Type`` header is not ``application/json``."),
-            "model": application.models.ErrorResponse,
+            "model": application.api.schemas.error.ErrorResponse,
         },
         429: {
             "description": (
@@ -90,7 +91,7 @@ image_generation_router = fastapi.APIRouter(
                 " ``Retry-After`` header indicates how long to wait"
                 " before retrying."
             ),
-            "model": application.models.ErrorResponse,
+            "model": application.api.schemas.error.ErrorResponse,
         },
         502: {
             "description": (
@@ -99,20 +100,20 @@ image_generation_router = fastapi.APIRouter(
                 " (``upstream_service_unavailable`` or"
                 " ``model_unavailable``)."
             ),
-            "model": application.models.ErrorResponse,
+            "model": application.api.schemas.error.ErrorResponse,
         },
         504: {
             "description": (
                 "Gateway Timeout — the request exceeded the configured"
                 " end-to-end timeout ceiling (``request_timeout``)."
             ),
-            "model": application.models.ErrorResponse,
+            "model": application.api.schemas.error.ErrorResponse,
         },
     },
 )
 async def handle_image_generation_request(
     request: fastapi.Request,
-    image_generation_request: application.models.ImageGenerationRequest,
+    image_generation_request: application.api.schemas.image_generation.ImageGenerationRequest,
     image_generation_service: typing.Annotated[
         application.services.image_generation_service.ImageGenerationService,
         fastapi.Depends(
@@ -186,7 +187,7 @@ async def handle_image_generation_request(
         seed_for_generation: int = (
             image_generation_request.seed
             if image_generation_request.seed is not None
-            else random.randint(0, application.models.MAXIMUM_SEED_VALUE)
+            else random.randint(0, application.api.schemas.image_generation.MAXIMUM_SEED_VALUE)
         )
 
         image_width, image_height = image_generation_request.parse_width_and_height_of_image()
@@ -200,7 +201,7 @@ async def handle_image_generation_request(
         )
 
     list_of_generated_image_data = [
-        application.models.GeneratedImageData(
+        application.api.schemas.image_generation.GeneratedImageData(
             base64_json=base64_image_string,
         )
         for base64_image_string in generation_result.base64_encoded_images
@@ -223,14 +224,14 @@ async def handle_image_generation_request(
     # one or more images, per FR45.
     if generation_result.indices_flagged_by_content_safety_checker:
         keyword_arguments_for_response["warnings"] = [
-            application.models.ImageGenerationWarning(
+            application.api.schemas.image_generation.ImageGenerationWarning(
                 index=flagged_index,
                 reason="content_policy_violation",
             )
             for flagged_index in generation_result.indices_flagged_by_content_safety_checker
         ]
 
-    response_model = application.models.ImageGenerationResponse(**keyword_arguments_for_response)
+    response_model = application.api.schemas.image_generation.ImageGenerationResponse(**keyword_arguments_for_response)
 
     # Serialise with exclude_unset=True so that optional fields
     # (enhanced_prompt, warnings) are omitted entirely from the JSON

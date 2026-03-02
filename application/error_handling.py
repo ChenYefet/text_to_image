@@ -41,8 +41,8 @@ import starlette.exceptions
 import starlette.routing
 import structlog
 
+import application.api.schemas.error
 import application.exceptions
-import application.models
 
 logger = structlog.get_logger()
 
@@ -187,8 +187,8 @@ def _build_error_response(
     if details is not None:
         keyword_arguments_for_error_detail["details"] = details
 
-    error_response = application.models.ErrorResponse(
-        error=application.models.ErrorDetail(**keyword_arguments_for_error_detail),
+    error_response = application.api.schemas.error.ErrorResponse(
+        error=application.api.schemas.error.ErrorDetail(**keyword_arguments_for_error_detail),
     )
 
     return fastapi.responses.JSONResponse(

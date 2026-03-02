@@ -669,7 +669,6 @@ text_to_image/
 │   ├── main.py                                    # FastAPI application factory
 │   ├── configuration.py                           # Environment-based configuration
 │   ├── dependencies.py                            # Dependency injection providers
-│   ├── models.py                                  # Request and response Pydantic models
 │   ├── exceptions.py                              # Custom exception classes
 │   ├── error_handling.py                          # Centralised error handler registration
 │   ├── middleware.py                              # ASGI middleware (correlation ID, request logging)
@@ -677,6 +676,11 @@ text_to_image/
 │   ├── metrics.py                                 # In-memory performance metrics collector
 │   ├── admission_control.py                       # Admission control for image generation (limiting of concurrent operations)
 │   ├── circuit_breaker.py                         # Circuit breaker for communication with the llama.cpp server
+│   ├── api/
+│   │   └── schemas/
+│   │       ├── prompt_enhancement.py              # Prompt enhancement request and response schemas
+│   │       ├── image_generation.py                # Image generation request and response schemas
+│   │       └── error.py                           # Error response schemas
 │   ├── services/
 │   │   ├── __init__.py
 │   │   ├── large_language_model_service.py              # llama.cpp integration

@@ -1,9 +1,9 @@
 """
-Pydantic models for request validation and response serialisation.
+Pydantic schemas for the image generation endpoint.
 
-All request models enforce strict validation rules aligned with the v5.2.1
-specification (Section 11 — Data Model and Schema Definition). All response
-models use field names matching the API contract exactly.
+These schemas define the request and response bodies for
+POST /v1/images/generations, aligned with the v5.2.1 specification
+(Section 11 — Data Model and Schema Definition).
 
 Conditional field presence
 --------------------------
@@ -22,11 +22,14 @@ import typing
 
 import pydantic
 
+from application.api.schemas.prompt_enhancement import (
+    MAXIMUM_NUMBER_OF_CHARACTERS_IN_PROMPT,
+)
+
 # ──────────────────────────────────────────────────────────────────────────────
 #  Request Constants
 # ──────────────────────────────────────────────────────────────────────────────
 
-MAXIMUM_NUMBER_OF_CHARACTERS_IN_PROMPT = 2000
 MAXIMUM_NUMBER_OF_IMAGES_PER_REQUEST = 4
 DEFAULT_IMAGE_SIZE: typing.Literal["512x512"] = "512x512"
 SUPPORTED_IMAGE_SIZES = {"512x512", "768x768", "1024x1024"}
@@ -36,32 +39,8 @@ MAXIMUM_SEED_VALUE = 4_294_967_295  # Unsigned 32-bit integer maximum (2^32 - 1)
 SUPPORTED_RESPONSE_FORMATS = {"base64_json"}
 
 # ──────────────────────────────────────────────────────────────────────────────
-#  Request Models
+#  Request Model
 # ──────────────────────────────────────────────────────────────────────────────
-
-
-class PromptEnhancementRequest(pydantic.BaseModel):
-    """
-    Request body for the POST /v1/prompts/enhance endpoint.
-
-    The client supplies a raw text prompt which will be sent to the
-    large language model for enhancement.
-    """
-
-    prompt: str = pydantic.Field(
-        ...,
-        min_length=1,
-        max_length=MAXIMUM_NUMBER_OF_CHARACTERS_IN_PROMPT,
-        pattern=r".*\S.*",
-        description=(
-            f"The original user-supplied prompt to be enhanced by the large language model."
-            f" Must be between 1 and {MAXIMUM_NUMBER_OF_CHARACTERS_IN_PROMPT} characters and contain at"
-            " least one non-whitespace character."
-        ),
-        examples=["A cat sitting on a windowsill"],
-    )
-
-    model_config = pydantic.ConfigDict(extra="forbid")
 
 
 class ImageGenerationRequest(pydantic.BaseModel):
@@ -146,43 +125,6 @@ class ImageGenerationRequest(pydantic.BaseModel):
 # ──────────────────────────────────────────────────────────────────────────────
 #  Response Models
 # ──────────────────────────────────────────────────────────────────────────────
-
-
-class PromptEnhancementResponse(pydantic.BaseModel):
-    """
-    Response body for the POST /v1/prompts/enhance endpoint.
-
-    Contains the original prompt echoed back for client-side correlation,
-    the enhanced version produced by the large language model, and a Unix
-    timestamp indicating when the enhancement completed.
-    """
-
-    original_prompt: str = pydantic.Field(
-        ...,
-        min_length=1,
-        description=(
-            "The user-provided prompt exactly as received by the service,"
-            " echoed for client-side correlation without requiring the client"
-            " to maintain its own request bookkeeping."
-        ),
-    )
-
-    enhanced_prompt: str = pydantic.Field(
-        ...,
-        min_length=1,
-        description=(
-            "Enhanced version of the input prompt, optimised for"
-            " text-to-image generation. This value is the llama.cpp response"
-            " content after leading and trailing whitespace has been stripped."
-        ),
-    )
-
-    created: int = pydantic.Field(
-        ...,
-        description=("Unix timestamp (seconds since epoch) indicating when the prompt enhancement completed."),
-    )
-
-    model_config = pydantic.ConfigDict(extra="forbid")
 
 
 class GeneratedImageData(pydantic.BaseModel):
@@ -275,65 +217,6 @@ class ImageGenerationResponse(pydantic.BaseModel):
             "Present only when the content safety checker has flagged one or"
             " more images. Lists the indices of filtered images."
         ),
-    )
-
-    model_config = pydantic.ConfigDict(extra="forbid")
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-#  Error Models
-# ──────────────────────────────────────────────────────────────────────────────
-
-
-class ErrorDetail(pydantic.BaseModel):
-    """
-    Detailed error information nested inside the error response.
-
-    The ``details`` field can be:
-    - A descriptive string (for single-cause errors such as payload_too_large)
-    - An array of validation error objects (for request_validation_failed)
-    - Null or omitted when no additional context is available
-    """
-
-    code: str = pydantic.Field(
-        ...,
-        description="A machine-readable error code in snake_case format.",
-    )
-
-    message: str = pydantic.Field(
-        ...,
-        description=("A human-readable error description safe for display to end users."),
-    )
-
-    details: str | list | None = pydantic.Field(
-        default=None,
-        description=(
-            "Additional context about the error, when available. May be a"
-            " descriptive string, an array of validation error objects, or"
-            " null."
-        ),
-    )
-
-    correlation_id: str = pydantic.Field(
-        ...,
-        json_schema_extra={"format": "uuid"},
-        description=("UUID v4 correlation identifier matching the X-Correlation-ID response header."),
-    )
-
-    model_config = pydantic.ConfigDict(extra="forbid")
-
-
-class ErrorResponse(pydantic.BaseModel):
-    """
-    Standardised error response returned for all error conditions.
-
-    Every error response from this service follows this nested structure
-    to ensure clients can rely on a consistent error format.
-    """
-
-    error: ErrorDetail = pydantic.Field(
-        ...,
-        description="An object containing error details.",
     )
 
     model_config = pydantic.ConfigDict(extra="forbid")
