@@ -108,6 +108,10 @@ When correcting a count in the specification (such as the number of logging even
 1. Never infer which version introduced an item based on semantic reasoning about its description or its relationship to other items. Always verify against the git history (e.g. `git log -S "<item_name>" -- "*.py"` to find when it was implemented, and `git log -S "<item_name>" -- "*.md"` to find when it was added to the specification).
 2. After determining the correct count, perform a spec-wide search for every instance of the old count that appears in the context of the thing being counted (e.g. search for `\b44\b` when correcting a logging event count from 44 to 45). Verify each match to determine whether it refers to the count being corrected or to something else (such as a requirement number), and update all stale instances.
 
+SPECIFICATION NORMATIVE KEYWORD SCOPE
+
+When a specification section uses a normative keyword (such as 'shall', 'must', or 'should') to govern a collection of items that serve different purposes — for example, a directory tree containing both application source files and operational deployment templates — the normative keyword must be scoped to each category individually rather than applied as a blanket over the entire collection.
+
 SPECIFICATION REQUIREMENTS
 
 The specification is a purely prescriptive document that defines the target state of the system. It must never comment on what is or is not currently implemented. Every requirement, stage, and configuration example shall be written as a normative statement of what the system shall do, not annotated with implementation status.
