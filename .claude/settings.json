@@ -1,0 +1,31 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 .claude/hooks/verify_readme_project_structure_includes_added_files.py"
+          },
+          {
+            "type": "command",
+            "command": "python3 .claude/hooks/verify_no_stale_references_to_renamed_files.py"
+          },
+          {
+            "type": "command",
+            "command": "python3 .claude/hooks/verify_no_stale_references_to_deleted_files.py"
+          },
+          {
+            "type": "command",
+            "command": "python3 .claude/hooks/verify_markdown_heading_references_are_hyperlinked.py"
+          },
+          {
+            "type": "command",
+            "command": "python3 .claude/hooks/verify_no_dead_anchor_links_in_markdown.py"
+          }
+        ]
+      }
+    ]
+  }
+}

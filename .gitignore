@@ -1,7 +1,9 @@
 __pycache__/
 *.pyc
 .env
-.claude/
+.claude/*
+!.claude/hooks/
+!.claude/settings.json
 virtual_environment/
 .venv/
 venv/
