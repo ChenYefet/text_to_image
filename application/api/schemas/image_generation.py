@@ -2,7 +2,7 @@
 Pydantic schemas for the image generation endpoint.
 
 These schemas define the request and response bodies for
-POST /v1/images/generations, aligned with the v5.2.2 specification
+POST /v1/images/generations, aligned with the v5.2.3 specification
 (Section 11 — Data Model and Schema Definition).
 
 Conditional field presence

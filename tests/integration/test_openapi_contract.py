@@ -10,7 +10,7 @@ actual implementation.
 
 Why this test exists
 --------------------
-The v5.2.2 specification (FR46) requires the CI pipeline to validate the
+The v5.2.3 specification (FR46) requires the CI pipeline to validate the
 API contract.  A naïve approach (running model-related unit tests) does
 not detect drift between the committed OpenAPI document and the live
 schema.  For example, a developer could add a new error response to a

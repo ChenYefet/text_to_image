@@ -1,6 +1,6 @@
 # Technical Specification: Text-to-Image Generation Service with Prompt Enhancement
 
-**Document Version:** 5.2.2
+**Document Version:** 5.2.3
 **Status:** Final — Panel Review Ready
 **Target Audience:** Senior Engineering Panel, Implementation Teams
 **Specification Authority:** Principal Technical Specification Authority
@@ -4359,7 +4359,7 @@ The following `docker-compose.yml` provides a reference configuration for testin
 ```yaml
 services:
   llama-cpp:
-    image: ghcr.io/ggerganov/llama.cpp:server
+    image: ghcr.io/ggml-org/llama.cpp:server
     command: >
       --host 0.0.0.0 --port 8080
       --model /models/llama-2-7b-chat.Q4_K_M.gguf
@@ -4508,7 +4508,7 @@ Examples:
 | Property | Value | Rationale |
 |----------|-------|-----------|
 | Replicas (minimum) | 2 | Ensures availability during rolling updates |
-| Container image | `ghcr.io/ggerganov/llama.cpp:server` | Official llama.cpp server image |
+| Container image | `ghcr.io/ggml-org/llama.cpp:server` | Official llama.cpp server image |
 | Container port | 8080 | Standard llama.cpp server port |
 | CPU request | `2000m` | CPU-intensive large language model inference requires substantial compute |
 | CPU limit | `4000m` | Upper bound for inference bursts |
@@ -5405,6 +5405,7 @@ This section documents failure modes commonly encountered during initial setup a
 | 5.2.0 | 25 Feb 2026 | Expanded normative logging taxonomy from 32 to 45 events; removed rate limiting from specification scope. See detailed v5.2.0 changelog below. |
 | 5.2.1 | 1 Mar 2026 | Added advisory on the absence of server-side retry; corrected thread pool executor specification from default to dedicated; added `HF_HOME` environment variable to Dockerfile Stage 2; corrected device-agnostic wording from "CPU-bound" to "synchronous and blocking" throughout concurrency architecture; added [normative scope of the directory structure](#normative-scope-of-the-directory-structure) classification distinguishing normative items from reference artefacts. Changed Kubernetes API service type from `LoadBalancer` to `ClusterIP` with rationale; updated all NFR4 verification procedure references and the deployment verification checklist to reflect `ClusterIP` behind an Ingress controller. See detailed v5.2.1 changelog below. |
 | 5.2.2 | 3 Mar 2026 | Changed the Dockerfile CMD and the quick-start example from `uvicorn main:fastapi_application` to `uvicorn application.main:fastapi_application`, eliminating the root-level re-export shim in favour of a direct entry point into the application package. |
+| 5.2.3 | 3 Mar 2026 | Updated the llama.cpp container image reference from `ghcr.io/ggerganov/llama.cpp:server` to `ghcr.io/ggml-org/llama.cpp:server` in the [reference docker-compose for multi-instance evaluation](#reference-docker-compose-for-multi-instance-evaluation) and the [Deployment: llama-cpp-server](#deployment-llama-cpp-server) table, reflecting the upstream organisation migration from the `ggerganov` personal account to the `ggml-org` organisation on GitHub. |
 
 #### v4.0.0 Detailed Changelog
 
