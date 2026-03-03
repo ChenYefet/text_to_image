@@ -1,6 +1,7 @@
 """Tests for middleware modules — InFlightRequestCounter,
 CorrelationIdMiddleware, RequestTimeoutMiddleware,
-ContentTypeValidationMiddleware, and RequestPayloadSizeLimitMiddleware."""
+ContentTypeValidationMiddleware, RequestPayloadSizeLimitMiddleware,
+and RequestLoggingMiddleware."""
 
 import asyncio
 import uuid
@@ -13,6 +14,7 @@ import pytest_asyncio
 import application.api.middleware.content_type_validation
 import application.api.middleware.correlation_identifier
 import application.api.middleware.request_payload_size_limit
+import application.api.middleware.request_logging
 import application.api.middleware.request_timeout
 
 
@@ -1365,3 +1367,22 @@ class TestRequestPayloadSizeLimitStreamingGuard:
         # The response should be 200 (from the inner app), confirming
         # the malformed Content-Length did not cause a rejection.
         assert sent_messages[0]["status"] == 200
+
+
+class TestRequestLoggingMiddleware:
+    """Tests for ``RequestLoggingMiddleware``."""
+
+    @pytest.mark.asyncio
+    async def test_non_http_scope_passed_through(self) -> None:
+        """Non-HTTP scopes (e.g. lifespan) bypass the middleware."""
+        inner_called = False
+
+        async def inner_app(scope, receive, send):
+            nonlocal inner_called
+            inner_called = True
+
+        middleware = application.api.middleware.request_logging.RequestLoggingMiddleware(
+            inner_app,
+        )
+        await middleware({"type": "lifespan"}, None, None)
+        assert inner_called
