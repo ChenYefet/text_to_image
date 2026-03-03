@@ -126,6 +126,8 @@ Every implementation change must be preceded by a corresponding specification ch
 
 When bumping the specification document version, the specification file shall be renamed to reflect the new version number, following the established pattern `text-to-image-spec-v{major}_{minor}_{patch}.md`. The rename shall be included in the same commit that updates the document version and changelog.
 
+When bumping the specification document version, every reference to the previous specification version that appears in code comments, docstrings, inline annotations, configuration file comments, and CI workflow comments shall be updated to cite the new version number in the same commit that bumps the version. References to the specification version inside the specification file's own changelog table are historical records and shall not be updated.
+
 SPECIFICATION AUTHORITY AND EXTERNAL ASSESSMENTS
 
 The specification is the authoritative source of truth for what constitutes correct system behaviour, but it is not infallible. When an external document — including audit reports, review feedback, or third-party assessments — characterises a spec-compliant behaviour as a deficiency, defect, or design issue, do not silently accept the finding as actionable and do not silently reject it either. Instead, verify the finding against the specification and present both perspectives to the user:
