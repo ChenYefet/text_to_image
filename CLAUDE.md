@@ -87,9 +87,9 @@ When a variable, field, or property represents a boundary value that determines 
 
 REFACTORING REQUIREMENTS
 
-After every rename of a class, function, variable, exception, fixture, or configuration field, perform the following verification procedure before considering that rename complete. Do not batch multiple renames and then verify them together — each rename must be individually verified before moving on to the next.
+After every rename of a class, function, variable, exception, fixture, or configuration field — or every change to a value that may be referenced elsewhere, such as a version number, a configuration default, or an enumerated count — perform the following verification procedure before considering that change complete. Do not batch multiple changes and then verify them together — each change must be individually verified before moving on to the next.
 
-For each rename, execute a repository-wide search for every occurrence of the old name across all five case variants:
+For each change, execute a repository-wide search for every occurrence of the old name or value across all applicable case variants. For identifier renames, search all five case variants:
 
 1. snake_case (e.g. language_model_service)
 2. PascalCase (e.g. LanguageModelService)
@@ -99,7 +99,7 @@ For each rename, execute a repository-wide search for every occurrence of the ol
 
 The search must cover all file types without exception: .py, .yaml, .yml, .env, .env.example, .md, .toml, .cfg, .ini, and .json files. Within those files, the search must cover string literals, docstrings, comments, log event keyword arguments, test assertions, configuration examples, section headings, and prose descriptions.
 
-A rename is not complete until all five case-variant searches return zero results for the old name. If any search returns a match, update that occurrence before proceeding. If the rename affects any module that contributes to the OpenAPI schema, regenerate openapi.yaml before considering the rename complete.
+For value changes (version numbers, configuration defaults, counts), search for the literal old value across all file types. A change is not complete until all searches return zero results for the old name or value. If any search returns a match, evaluate whether it refers to the thing being changed and update it if so before proceeding. If the change affects any module that contributes to the OpenAPI schema, regenerate openapi.yaml before considering the change complete.
 
 SPECIFICATION COUNT AND CHANGELOG INTEGRITY
 
