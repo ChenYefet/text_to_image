@@ -57,9 +57,7 @@ WELL_FORMED_RESPONSE_BODY_FROM_LLAMA_CPP: dict = {
 }
 
 
-def _build_llama_cpp_client_for_contract_testing() -> (
-    application.integrations.llama_cpp_client.LlamaCppClient
-):
+def _build_llama_cpp_client_for_contract_testing() -> application.integrations.llama_cpp_client.LlamaCppClient:
     """
     Construct a ``LlamaCppClient`` with minimal configuration for use in
     contract tests.  The HTTP client is replaced by a mock in each test,
@@ -128,9 +126,7 @@ async def test_llama_cpp_response_contract() -> None:
     # Assertion 1: well-formed response → correct extraction
     # ------------------------------------------------------------------
     mock_http_client.post = AsyncMock(
-        return_value=_build_mock_of_successful_http_response(
-            WELL_FORMED_RESPONSE_BODY_FROM_LLAMA_CPP
-        )
+        return_value=_build_mock_of_successful_http_response(WELL_FORMED_RESPONSE_BODY_FROM_LLAMA_CPP)
     )
     extracted_enhanced_prompt = await client.enhance_prompt("a mountain at sunset")
     expected_content = WELL_FORMED_RESPONSE_BODY_FROM_LLAMA_CPP["choices"][0]["message"]["content"]
@@ -142,27 +138,21 @@ async def test_llama_cpp_response_contract() -> None:
     # ------------------------------------------------------------------
     # Assertion 2: connection error → upstream_service_unavailable
     # ------------------------------------------------------------------
-    mock_http_client.post = AsyncMock(
-        side_effect=httpx.ConnectError("Connection refused")
-    )
+    mock_http_client.post = AsyncMock(side_effect=httpx.ConnectError("Connection refused"))
     with pytest.raises(application.exceptions.LargeLanguageModelServiceUnavailableError):
         await client.enhance_prompt("a mountain at sunset")
 
     # ------------------------------------------------------------------
     # Assertion 3: missing choices field → upstream_service_unavailable
     # ------------------------------------------------------------------
-    mock_http_client.post = AsyncMock(
-        return_value=_build_mock_of_successful_http_response({})
-    )
+    mock_http_client.post = AsyncMock(return_value=_build_mock_of_successful_http_response({}))
     with pytest.raises(application.exceptions.PromptEnhancementError):
         await client.enhance_prompt("a mountain at sunset")
 
     # ------------------------------------------------------------------
     # Assertion 4: empty choices array → upstream_service_unavailable
     # ------------------------------------------------------------------
-    mock_http_client.post = AsyncMock(
-        return_value=_build_mock_of_successful_http_response({"choices": []})
-    )
+    mock_http_client.post = AsyncMock(return_value=_build_mock_of_successful_http_response({"choices": []}))
     with pytest.raises(application.exceptions.PromptEnhancementError):
         await client.enhance_prompt("a mountain at sunset")
 
