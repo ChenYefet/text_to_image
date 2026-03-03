@@ -155,6 +155,8 @@ When a commit modifies a specific artefact whose identity is not self-evident fr
 
 Following an interactive rebase that edits files, each edited commit's message shall be reassessed for accuracy against the updated diff. If any commit message no longer accurately describes the commit's content, a follow-up interactive rebase shall be used to correct it.
 
+When an interactive rebase stops due to a merge conflict, never use `git commit --amend` to finalise the resolution. During a conflict, HEAD still points to the last successfully applied commit — the conflicted commit has not yet been created. Running `--amend` in this state replaces that previous commit with the merged result, losing the previous commit as a distinct entry in the history. Instead, stage the resolved files with `git add` and run `git rebase --continue`, which creates the conflicted commit as a new entry. This prohibition does not apply to `edit` marker stops without a conflict, where HEAD is the commit being edited and `git commit --amend` is correct.
+
 MARKDOWN ANCHOR LINK REQUIREMENTS
 
 Every internal anchor reference in all markdown files (`.md`) must correspond to a markdown heading with a valid anchor. When adding cross-references anywhere in the codebase's markdown documentation, verify the target heading exists before committing. A markdown link checker (such as markdown-link-check) may be used to validate all references before submission. Dead anchor links in any markdown file violate clarity requirements and must be caught during review.
