@@ -647,19 +647,40 @@ curl -X POST http://localhost:8000/v1/images/generations \
 
 ```
 text_to_image/
-├── requirements.txt                               # Python dependencies
+├── Makefile                                       # Local development targets (run, lint, test, continuous-integration)
+├── requirements.in                                # Top-level dependency declarations (pip-tools source)
+├── requirements.txt                               # Pinned Python dependencies (generated from requirements.in)
 ├── requirements-dev.txt                           # Development dependencies (pytest, ruff, etc.)
 ├── pyproject.toml                                 # Tool configuration (ruff, pytest)
+├── openapi.yaml                                   # OpenAPI contract (validated by CI)
 ├── .env.example                                   # Example environment variables
 ├── .env                                           # Your local environment config (not in git)
 ├── Dockerfile                                     # Multi-stage container build for the API service
 ├── docker-compose.yml                             # Runs API + llama.cpp together
+├── docker-compose.override.yml                    # Local overrides for Docker Compose
+├── nginx.conf                                     # Nginx reverse proxy configuration
 ├── .dockerignore                                  # Files excluded from the Docker build context
 ├── README.md                                      # This file
 ├── text-to-image-spec-v5_2_3.md                   # Project specification
 ├── .github/
 │   └── workflows/
 │       └── continuous-integration.yml              # Continuous integration pipeline (lint, format, type check, audit, test, contract validation)
+├── k8s/                                           # Kubernetes deployment manifests
+│   ├── base/
+│   │   ├── kustomization.yaml
+│   │   ├── namespace.yaml
+│   │   ├── network-policy.yaml
+│   │   ├── persistent-volume-claims.yaml
+│   │   ├── text-to-image-api-deployment.yaml
+│   │   ├── text-to-image-api-service.yaml
+│   │   ├── text-to-image-api-hpa.yaml
+│   │   ├── llama-cpp-server-deployment.yaml
+│   │   └── llama-cpp-server-service.yaml
+│   └── overlays/
+│       ├── development/
+│       │   └── kustomization.yaml
+│       └── production/
+│           └── kustomization.yaml
 ├── llama.cpp/                                     # llama.cpp binaries (not in git)
 │   ├── llama-server.exe (Windows) or llama-server (Linux/macOS)
 │   └── ggml*.dll / *.so files
@@ -710,14 +731,18 @@ text_to_image/
     │   ├── test_middleware.py
     │   ├── test_schemas.py
     │   └── test_stable_diffusion_pipeline.py
-    └── integration/
-        ├── conftest.py
-        ├── test_error_handling.py
-        ├── test_health_endpoints.py
-        ├── test_image_generation_endpoint.py
-        ├── test_integration.py
-        ├── test_openapi_contract.py
-        └── test_prompt_enhancement_endpoint.py
+    ├── integration/
+    │   ├── conftest.py
+    │   ├── test_error_handling.py
+    │   ├── test_health_endpoints.py
+    │   ├── test_image_generation_endpoint.py
+    │   ├── test_integration.py
+    │   ├── test_llama_cpp_response_contract.py
+    │   ├── test_openapi_contract.py
+    │   └── test_prompt_enhancement_endpoint.py
+    └── load/
+        ├── k6_fault_injection.js                  # k6 fault injection load test
+        └── k6_prompt_enhancement.js               # k6 prompt enhancement load test
 ```
 
 **Note:** The `llama.cpp/` directory and `.env` file are excluded from git (via `.gitignore`) as they contain platform-specific binaries and local configuration. You must set these up manually as described in the setup instructions above.
