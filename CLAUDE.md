@@ -71,8 +71,6 @@ All configuration examples must use explicit, fully expanded names. This applies
 
 I want all references to be totally unambiguous. For example, if 'see 95th percentile advisory below' references a heading called '95th percentile calculation algorithm advisory', it should instead say 'see 95th percentile calculation algorithm advisory below'.
 
-For .md files, I want all references to headings to be hyperlinked.
-
 In programming languages without case conventions (such as SQL), use snake_case exclusively.
 
 All example code must be readable by a layperson with minimal programming knowledge.
@@ -162,7 +160,3 @@ When an interactive rebase stops due to a merge conflict, never use `git commit 
 PLANNING REQUIREMENTS
 
 Every plan must end with a section titled "Unresolved questions", if any exist. An unresolved question is any ambiguity, missing requirement, undetermined design choice, or dependency on information not yet available that could affect the correctness or completeness of the plan's implementation. If no unresolved questions exist, the section shall state "None." explicitly. This section ensures that the user can identify and resolve open issues before approving the plan for implementation.
-
-MARKDOWN ANCHOR LINK REQUIREMENTS
-
-Every internal anchor reference in all markdown files (`.md`) must correspond to a markdown heading with a valid anchor. When adding cross-references anywhere in the codebase's markdown documentation, verify the target heading exists before committing. A markdown link checker (such as markdown-link-check) may be used to validate all references before submission. Dead anchor links in any markdown file violate clarity requirements and must be caught during review.
