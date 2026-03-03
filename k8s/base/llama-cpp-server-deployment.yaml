@@ -27,7 +27,7 @@ spec:
       restartPolicy: Always
       containers:
         - name: llama-cpp-server
-          image: "ghcr.io/ggerganov/llama.cpp:server"
+          image: "ghcr.io/ggml-org/llama.cpp:server"
           ports:
             - containerPort: 8080
               protocol: TCP
