@@ -23,6 +23,10 @@
           {
             "type": "command",
             "command": "python3 .claude/hooks/verify_no_dead_anchor_links_in_markdown.py"
+          },
+          {
+            "type": "command",
+            "command": "python3 .claude/hooks/verify_no_import_aliasing_in_python.py"
           }
         ]
       }
