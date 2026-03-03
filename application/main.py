@@ -7,7 +7,7 @@ registration. Using a factory function (rather than a module-level global)
 makes the application straightforward to test and re-create.
 
 The module-level ``fastapi_application`` instance is the entry point for
-Uvicorn and is re-exported by the root ``main.py`` shim.
+Uvicorn (``application.main:fastapi_application``).
 """
 
 import collections.abc

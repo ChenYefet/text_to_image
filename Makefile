@@ -1,7 +1,7 @@
 .PHONY: run test lint format format-check typecheck audit coverage contract continuous-integration clean docker-build docker-up docker-down
 
 run:
-	uvicorn main:fastapi_application --host 127.0.0.1 --port 8000 --reload
+	uvicorn application.main:fastapi_application --host 127.0.0.1 --port 8000 --reload
 
 test:
 	pytest tests/ -q

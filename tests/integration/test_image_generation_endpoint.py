@@ -231,9 +231,9 @@ class TestImageGenerationEndpoint:
         body = response.json()
 
         # ── Verify the warnings array ────────────────────────────────
-        assert "warnings" in body, (
-            "The response must include a 'warnings' field when the content safety checker flags any images."
-        )
+        assert (
+            "warnings" in body
+        ), "The response must include a 'warnings' field when the content safety checker flags any images."
         warnings = body["warnings"]
         assert len(warnings) == 2
 
@@ -247,13 +247,13 @@ class TestImageGenerationEndpoint:
         data = body["data"]
         assert len(data) == 4
 
-        assert data[0]["base64_json"] == "base64encodedimage_0", (
-            "Unflagged images must retain their base64-encoded data."
-        )
+        assert (
+            data[0]["base64_json"] == "base64encodedimage_0"
+        ), "Unflagged images must retain their base64-encoded data."
         assert data[1]["base64_json"] is None, "Content-safety-flagged images must have base64_json set to null."
-        assert data[2]["base64_json"] == "base64encodedimage_2", (
-            "Unflagged images must retain their base64-encoded data."
-        )
+        assert (
+            data[2]["base64_json"] == "base64encodedimage_2"
+        ), "Unflagged images must retain their base64-encoded data."
         assert data[3]["base64_json"] is None, "Content-safety-flagged images must have base64_json set to null."
 
     @pytest.mark.asyncio

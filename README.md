@@ -267,7 +267,7 @@ These commands use the standard model folder created during Pre-Setup. If you ch
 Open a **new terminal window** (keep the llama.cpp server running in the first), activate the virtual environment again, and run:
 
 ```bash
-python main.py
+uvicorn application.main:fastapi_application --host 127.0.0.1 --port 8000 --reload
 ```
 
 ⏱️ **First-time startup:** The Stable Diffusion model weights (~4 GB) will be downloaded automatically from HuggingFace Hub and cached locally. This can take 5-15 minutes depending on your internet connection. Subsequent starts load from cache and take only 10-30 seconds.
@@ -376,7 +376,7 @@ Once you've completed the Pre-Setup and Setup steps above, here's the quick work
 
 # Terminal 2: Activate venv and start API service
 source virtual_environment/bin/activate
-python main.py
+uvicorn application.main:fastapi_application --host 127.0.0.1 --port 8000 --reload
 
 # Terminal 3: Test the service
 curl -X POST http://localhost:8000/v1/prompts/enhance \
@@ -392,7 +392,7 @@ curl -X POST http://localhost:8000/v1/prompts/enhance \
 
 # Terminal 2: Activate venv and start API service
 virtual_environment\Scripts\Activate.ps1
-python main.py
+uvicorn application.main:fastapi_application --host 127.0.0.1 --port 8000 --reload
 
 # Terminal 3: Test the service
 curl.exe --% -X POST http://localhost:8000/v1/prompts/enhance -H "Content-Type: application/json" -d "{\"prompt\": \"a cat\"}"
@@ -647,7 +647,6 @@ curl -X POST http://localhost:8000/v1/images/generations \
 
 ```
 text_to_image/
-├── main.py                                        # Application entry point
 ├── requirements.txt                               # Python dependencies
 ├── requirements-dev.txt                           # Development dependencies (pytest, ruff, etc.)
 ├── pyproject.toml                                 # Tool configuration (ruff, pytest)

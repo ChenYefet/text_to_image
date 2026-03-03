@@ -102,7 +102,6 @@ RUN mkdir -p /home/service_user/.cache/huggingface && chown service_user:service
 WORKDIR /home/service_user/application
 
 # Copy the application source code into the image.
-COPY --chown=service_user:service_user main.py ./
 COPY --chown=service_user:service_user application/ ./application/
 
 # Switch to the non-root user for all subsequent commands.
@@ -131,10 +130,10 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
 # The command that runs when the container starts.
 #
 #   uvicorn            : the ASGI server that serves the FastAPI app
-#   main:fastapi_application : import path (file:variable)
+#   application.main:fastapi_application : import path (package.module:variable)
 #   --host 0.0.0.0     : listen on ALL interfaces (required in containers;
 #                         127.0.0.1 would only be reachable from inside)
 #   --port 8000         : match the EXPOSE above
 #   --timeout-graceful-shutdown 60 : give in-flight requests 60s to finish
 #                                    when the container is stopped
-CMD ["uvicorn", "main:fastapi_application", "--host", "0.0.0.0", "--port", "8000", "--timeout-graceful-shutdown", "60"]
+CMD ["uvicorn", "application.main:fastapi_application", "--host", "0.0.0.0", "--port", "8000", "--timeout-graceful-shutdown", "60"]
