@@ -1,10 +1,10 @@
 # Technical Specification: Text-to-Image Generation Service with Prompt Enhancement
 
-**Document Version:** 5.2.1
+**Document Version:** 5.2.2
 **Status:** Final — Panel Review Ready
 **Target Audience:** Senior Engineering Panel, Implementation Teams
 **Specification Authority:** Principal Technical Specification Authority
-**Date:** 1 March 2026
+**Date:** 3 March 2026
 
 ---
 
@@ -4302,10 +4302,10 @@ The Text-to-Image API Service shall be packaged as a container image using a mul
   6. Create a non-root user: `useradd --create-home --shell /bin/bash service_user`
   7. Create the Hugging Face cache directory and assign ownership to `service_user`
   8. Set the working directory to `/home/service_user/application`
-  9. Copy the application source code (`main.py`, `configuration.py`, `application/`) into the working directory with `service_user` ownership
+  9. Copy the application source code (`application/`) into the working directory with `service_user` ownership
   10. Switch to the non-root user: `USER service_user`
   11. Expose port 8000
-  12. Define the default command: `uvicorn main:fastapi_application --host 0.0.0.0 --port 8000 --timeout-graceful-shutdown 60`
+  12. Define the default command: `uvicorn application.main:fastapi_application --host 0.0.0.0 --port 8000 --timeout-graceful-shutdown 60`
 
 **Rationale:** Multi-stage builds minimise the final image size by excluding build tools. Running as a non-root user adheres to the principle of least privilege and prevents container escape escalation. This approach supports horizontal scaling by ensuring that every container instance is identical and stateless, enabling Kubernetes to schedule pods freely across nodes without configuration drift.
 
@@ -5246,7 +5246,7 @@ export TEXT_TO_IMAGE_BASE_URL_OF_LARGE_LANGUAGE_MODEL_SERVER=http://localhost:80
 export TEXT_TO_IMAGE_ID_OF_STABLE_DIFFUSION_MODEL=stable-diffusion-v1-5/stable-diffusion-v1-5
 export TEXT_TO_IMAGE_LOG_LEVEL=INFO
 
-uvicorn main:fastapi_application --host 0.0.0.0 --port 8000
+uvicorn application.main:fastapi_application --host 0.0.0.0 --port 8000
 ```
 
 Verify the service is running:
@@ -5404,6 +5404,7 @@ This section documents failure modes commonly encountered during initial setup a
 | 5.1.0 | 25 Feb 2026 | Circuit breaker for communication with the large language model service; continuous integration pipeline documentation corrections. See detailed v5.1.0 changelog below. |
 | 5.2.0 | 25 Feb 2026 | Expanded normative logging taxonomy from 32 to 45 events; removed rate limiting from specification scope. See detailed v5.2.0 changelog below. |
 | 5.2.1 | 1 Mar 2026 | Added advisory on the absence of server-side retry; corrected thread pool executor specification from default to dedicated; added `HF_HOME` environment variable to Dockerfile Stage 2; corrected device-agnostic wording from "CPU-bound" to "synchronous and blocking" throughout concurrency architecture; added [normative scope of the directory structure](#normative-scope-of-the-directory-structure) classification distinguishing normative items from reference artefacts. Changed Kubernetes API service type from `LoadBalancer` to `ClusterIP` with rationale; updated all NFR4 verification procedure references and the deployment verification checklist to reflect `ClusterIP` behind an Ingress controller. See detailed v5.2.1 changelog below. |
+| 5.2.2 | 3 Mar 2026 | Changed the Dockerfile CMD and the quick-start example from `uvicorn main:fastapi_application` to `uvicorn application.main:fastapi_application`, eliminating the root-level re-export shim in favour of a direct entry point into the application package. |
 
 #### v4.0.0 Detailed Changelog
 

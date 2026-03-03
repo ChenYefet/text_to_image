@@ -10,7 +10,7 @@ the model to produce an enhanced, image-generation-optimised prompt.
 Defensive handling
 ------------------
 This client implements several defensive measures prescribed by the
-v5.2.1 specification (Section 15 — Upstream Communication) to protect
+v5.2.2 specification (Section 15 — Upstream Communication) to protect
 against misconfigured or misbehaving upstream servers:
 
 - The request body includes ``"stream": false`` to explicitly request a

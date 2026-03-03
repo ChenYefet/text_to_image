@@ -7,7 +7,7 @@ the mandatory fields required by the specification (NFR9): timestamp
 
 The log output destination is stdout (not stderr), consistent with the
 twelve-factor app methodology (factor XI — Logs) and container logging
-best practices as mandated by the v5.2.1 specification (Section 18,
+best practices as mandated by the v5.2.2 specification (Section 18,
 Log Output Destination).
 
 Both structlog-native loggers and standard library loggers (used by
@@ -55,7 +55,7 @@ def configure_logging(log_level: str = "INFO") -> None:
 
     The output stream is stdout (not stderr), consistent with the
     twelve-factor app methodology (factor XI — Logs) as required by
-    the v5.2.1 specification (Section 18).
+    the v5.2.2 specification (Section 18).
 
     Should be called once during application startup, before any log
     messages are emitted.
