@@ -101,6 +101,10 @@ The search must cover all file types without exception: .py, .yaml, .yml, .env, 
 
 For value changes (version numbers, configuration defaults, counts), search for the literal old value across all file types. A change is not complete until all searches return zero results for the old name or value. If any search returns a match, evaluate whether it refers to the thing being changed and update it if so before proceeding. If the change affects any module that contributes to the OpenAPI schema, regenerate openapi.yaml before considering the change complete.
 
+For version numbers specifically, search across all formatting variants — dotted (`5.3.0`), underscored (`5_3_0`), and hyphenated (`5-3-0`) — because version numbers appear in different formats depending on context: dotted in prose and document metadata, underscored in filenames, and hyphenated in kebab-case anchors or URL segments.
+
+When an interactive rebase modifies version numbers across multiple commits, searches for superseded versions must be cumulative at each stop. Each stop must verify not only the version it directly supersedes, but all previously superseded versions as well.
+
 SPECIFICATION COUNT AND CHANGELOG INTEGRITY
 
 When correcting a count in the specification (such as the number of logging events, the number of requirements, or any other enumerated total):
@@ -119,6 +123,8 @@ SPECIFICATION REQUIREMENTS
 The specification is a purely prescriptive document that defines the target state of the system. It must never comment on what is or is not currently implemented. Every requirement, stage, and configuration example shall be written as a normative statement of what the system shall do, not annotated with implementation status.
 
 Every implementation change must be preceded by a corresponding specification change. If a feature, behaviour, or configuration parameter is not yet documented in the specification, the specification must be updated and committed first, and only then may the implementation be written. The specification commit must always appear before the implementation commit in the git history.
+
+When bumping the specification document version, the specification file shall be renamed to reflect the new version number, following the established pattern `text-to-image-spec-v{major}_{minor}_{patch}.md`. The rename shall be included in the same commit that updates the document version and changelog.
 
 SPECIFICATION AUTHORITY AND EXTERNAL ASSESSMENTS
 
@@ -146,6 +152,8 @@ COMMIT MESSAGE REQUIREMENTS
 Commit messages must describe the changes in terms of the specification and the codebase. They must never reference external documents such as audit reports, review feedback, or third-party assessments. The motivation for a change is the specification requirement it satisfies or the defect it corrects — not the external document that identified it. This prohibition extends to organisational terminology, sequencing labels, and structural vocabulary inherited from external documents — such as phase numbers, finding identifiers, priority tiers, or evaluation categories. When a series of commits implements a multi-step change, describe each step in terms of what it does to the codebase (e.g. "Split application/models.py into application/api/schemas/ subpackage"), not in terms of where it falls in an externally defined plan.
 
 When a commit modifies a specific artefact whose identity is not self-evident from the change description, the commit message must name that artefact explicitly. For example, a message that says "Add directive to recommend specification improvements" is ambiguous — it could refer to a change in the specification, in CLAUDE.md, in a CI workflow, or in application code. The correct form names the file or artefact: "Add directive to CLAUDE.md to recommend specification improvements". This applies to all artefacts — the specification, CLAUDE.md, the Makefile, the Dockerfile, Kubernetes manifests, CI workflows, and any other file where the subject line alone does not make the target unambiguous.
+
+Following an interactive rebase that edits files, each edited commit's message shall be reassessed for accuracy against the updated diff. If any commit message no longer accurately describes the commit's content, a follow-up interactive rebase shall be used to correct it.
 
 MARKDOWN ANCHOR LINK REQUIREMENTS
 
