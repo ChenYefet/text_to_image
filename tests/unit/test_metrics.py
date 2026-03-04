@@ -4,7 +4,7 @@ Tests for the in-memory request metrics collector (application/metrics.py).
 Validates that the MetricsCollector correctly:
 
 - Returns ISO 8601 UTC timestamps for ``collected_at`` and
-  ``service_started_at`` as required by the v5.2.3 specification (FR38).
+  ``service_started_at`` as required by the v5.2.4 specification (FR38).
 - Records request counts grouped by method, path, and status code.
 - Computes latency statistics (count, minimum, maximum, average, and
   95th percentile) from accumulated observations.
@@ -18,7 +18,7 @@ import re
 import application.metrics
 
 # A regular expression pattern that matches ISO 8601 UTC timestamps with
-# microsecond precision and the 'Z' suffix, as required by the v5.2.3
+# microsecond precision and the 'Z' suffix, as required by the v5.2.4
 # specification (FR38, Section 11).
 #
 # Example match: "2026-02-23T14:32:10.123456Z"
@@ -175,7 +175,7 @@ class TestMetricsCollectorLatencyStatistics:
 
     def test_latency_aggregates_across_status_codes(self):
         """Latency statistics must aggregate across all status codes for
-        the same method and path combination, as prescribed by the v5.2.3
+        the same method and path combination, as prescribed by the v5.2.4
         specification."""
         collector = application.metrics.MetricsCollector()
         collector.record_request("POST", "/v1/prompts/enhance", 200, 100.0)
@@ -244,7 +244,7 @@ class TestMetricsCollectorBoundedRetention:
 
     def test_default_maximum_number_of_observations_matches_specification(self):
         """The default maximum observation count must be 10,000, matching
-        the v5.2.3 specification's expected evaluation scope."""
+        the v5.2.4 specification's expected evaluation scope."""
         assert application.metrics.DEFAULT_MAXIMUM_NUMBER_OF_OBSERVATIONS_PER_ENDPOINT == 10_000
 
     def test_separate_endpoints_have_independent_observation_limits(self):

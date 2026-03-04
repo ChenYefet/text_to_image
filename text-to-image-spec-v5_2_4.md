@@ -1,6 +1,6 @@
 # Technical Specification: Text-to-Image Generation Service with Prompt Enhancement
 
-**Document Version:** 5.2.3
+**Document Version:** 5.2.4
 **Status:** Final — Panel Review Ready
 **Target Audience:** Senior Engineering Panel, Implementation Teams
 **Specification Authority:** Principal Technical Specification Authority
@@ -4496,7 +4496,7 @@ Examples:
 | Readiness probe | `GET /health/ready`, period 10s, timeout 5s, failure threshold 3 | Routes traffic only to instances with fully loaded models ([FR37](#readiness-check-endpoint)) |
 | Liveness probe | `GET /health`, period 30s, timeout 5s, failure threshold 3 | Restarts instances that become unresponsive; longer period avoids false positives during inference |
 | Strategy | `RollingUpdate`, maxSurge 1, maxUnavailable 0 | Zero-downtime deployments; new pods must pass readiness before old pods are terminated |
-| Termination grace period | 60 seconds | Allows in-flight image generation requests to complete before pod termination |
+| Termination grace period | 90 seconds | Provides a 30-second buffer beyond the application-level 60-second drain period to accommodate Python interpreter shutdown, final log flushing, and timing skew between `SIGTERM` delivery and the Uvicorn timeout |
 | Restart policy | `Always` | Ensures automatic recovery from process crashes ([NFR8](#stability-of-the-service-process-under-upstream-failure)) |
 
 **Environment variables:** Injected via ConfigMap (`text-to-image-api-configmap`) for non-sensitive values and via Secret (`text-to-image-api-secrets`) for any future sensitive values. See Appendix A for the complete variable list.
@@ -5406,6 +5406,7 @@ This section documents failure modes commonly encountered during initial setup a
 | 5.2.1 | 1 Mar 2026 | Added advisory on the absence of server-side retry; corrected thread pool executor specification from default to dedicated; added `HF_HOME` environment variable to Dockerfile Stage 2; corrected device-agnostic wording from "CPU-bound" to "synchronous and blocking" throughout concurrency architecture; added [normative scope of the directory structure](#normative-scope-of-the-directory-structure) classification distinguishing normative items from reference artefacts. Changed Kubernetes API service type from `LoadBalancer` to `ClusterIP` with rationale; updated all NFR4 verification procedure references and the deployment verification checklist to reflect `ClusterIP` behind an Ingress controller. See detailed v5.2.1 changelog below. |
 | 5.2.2 | 3 Mar 2026 | Changed the Dockerfile CMD and the quick-start example from `uvicorn main:fastapi_application` to `uvicorn application.main:fastapi_application`, eliminating the root-level re-export shim in favour of a direct entry point into the application package. |
 | 5.2.3 | 3 Mar 2026 | Updated the llama.cpp container image reference from `ghcr.io/ggerganov/llama.cpp:server` to `ghcr.io/ggml-org/llama.cpp:server` in the [reference docker-compose for multi-instance evaluation](#reference-docker-compose-for-multi-instance-evaluation) and the [Deployment: llama-cpp-server](#deployment-llama-cpp-server) table, reflecting the upstream organisation migration from the `ggerganov` personal account to the `ggml-org` organisation on GitHub. |
+| 5.2.4 | 4 Mar 2026 | Corrected the [Deployment: text-to-image-api](#deployment-text-to-image-api) table's termination grace period from 60 seconds to 90 seconds, resolving an internal contradiction with the [Kubernetes interaction advisory](#graceful-shutdown) which correctly prescribes 90 seconds to provide a 30-second buffer beyond the application-level 60-second drain period. |
 
 #### v4.0.0 Detailed Changelog
 

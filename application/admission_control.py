@@ -1,7 +1,7 @@
 """
 Concurrency-limiting admission control for image generation requests.
 
-This module implements NFR44 from the v5.2.3 specification: a configurable
+This module implements NFR44 from the v5.2.4 specification: a configurable
 concurrency limit that immediately rejects overflow requests with HTTP 429
 (``service_busy``) rather than queuing them.  Queued requests under load
 would accumulate timeout debt and waste compute on operations the client
@@ -54,7 +54,7 @@ class AdmissionControllerForImageGeneration:
         Args:
             maximum_number_of_concurrent_operations: The maximum number of
                 image generation operations that may execute concurrently.
-                The v5.2.3 specification default is 1, which serialises
+                The v5.2.4 specification default is 1, which serialises
                 inference to prevent GPU memory contention on single-GPU
                 hosts.
         """
