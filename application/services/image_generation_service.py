@@ -18,7 +18,7 @@ import typing
 
 import structlog
 
-import application.api.schemas.image_generation
+import application.contracts_shared_across_layers.image_generation
 import application.integrations.stable_diffusion_pipeline
 import application.services.prompt_enhancement_service
 
@@ -65,7 +65,7 @@ class ImageGenerationService:
         image_width: int,
         image_height: int,
         number_of_images: int,
-    ) -> application.api.schemas.image_generation.ImageGenerationResponse:
+    ) -> application.contracts_shared_across_layers.image_generation.ImageGenerationResponse:
         """
         Generate images from a text prompt, optionally enhancing the prompt first.
 
@@ -124,7 +124,9 @@ class ImageGenerationService:
         # Resolve the seed: use the client-provided seed or generate a random one.
         # Seed 0 is a valid deterministic seed with no special semantics.
         seed_for_generation: int = (
-            seed if seed is not None else random.randint(0, application.api.schemas.image_generation.MAXIMUM_SEED_VALUE)
+            seed
+            if seed is not None
+            else random.randint(0, application.contracts_shared_across_layers.image_generation.MAXIMUM_SEED_VALUE)
         )
 
         generation_result = await self._stable_diffusion_pipeline.generate_images(
@@ -136,7 +138,7 @@ class ImageGenerationService:
         )
 
         list_of_generated_image_data = [
-            application.api.schemas.image_generation.GeneratedImageData(
+            application.contracts_shared_across_layers.image_generation.GeneratedImageData(
                 base64_json=base64_image_string,
             )
             for base64_image_string in generation_result.base64_encoded_images
@@ -159,14 +161,14 @@ class ImageGenerationService:
         # one or more images, per FR45.
         if generation_result.indices_flagged_by_content_safety_checker:
             keyword_arguments_for_response["warnings"] = [
-                application.api.schemas.image_generation.ImageGenerationWarning(
+                application.contracts_shared_across_layers.image_generation.ImageGenerationWarning(
                     index=flagged_index,
                     reason="content_policy_violation",
                 )
                 for flagged_index in generation_result.indices_flagged_by_content_safety_checker
             ]
 
-        return application.api.schemas.image_generation.ImageGenerationResponse(
+        return application.contracts_shared_across_layers.image_generation.ImageGenerationResponse(
             **keyword_arguments_for_response,
         )
 

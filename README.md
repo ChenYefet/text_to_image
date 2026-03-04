@@ -713,9 +713,11 @@ text_to_image/
 │   ├── services/
 │   │   ├── prompt_enhancement_service.py          # Orchestrator wrapping the llama.cpp client
 │   │   └── image_generation_service.py            # Orchestrator wrapping the Stable Diffusion pipeline
-│   └── integrations/
-│       ├── llama_cpp_client.py                    # llama.cpp HTTP client integration
-│       └── stable_diffusion_pipeline.py           # Stable Diffusion pipeline (diffusers)
+│   ├── integrations/
+│   │   ├── llama_cpp_client.py                    # llama.cpp HTTP client integration
+│   │   └── stable_diffusion_pipeline.py           # Stable Diffusion pipeline (diffusers)
+│   └── contracts_shared_across_layers/
+│       └── image_generation.py                    # Cross-layer data transfer types for image generation
 └── tests/
     ├── __init__.py
     ├── conftest.py

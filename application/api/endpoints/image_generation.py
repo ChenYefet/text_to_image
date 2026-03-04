@@ -31,6 +31,7 @@ import application.admission_control
 import application.api.dependencies
 import application.api.schemas.error
 import application.api.schemas.image_generation
+import application.contracts_shared_across_layers.image_generation
 import application.services.image_generation_service
 
 image_generation_router = fastapi.APIRouter(
@@ -41,7 +42,7 @@ image_generation_router = fastapi.APIRouter(
 
 @image_generation_router.post(
     "/generations",
-    response_model=application.api.schemas.image_generation.ImageGenerationResponse,
+    response_model=application.contracts_shared_across_layers.image_generation.ImageGenerationResponse,
     response_model_exclude_unset=True,
     summary="Generate images from a text prompt",
     description=(

@@ -6,6 +6,7 @@ import pytest
 import application.api.schemas.error
 import application.api.schemas.image_generation
 import application.api.schemas.prompt_enhancement
+import application.contracts_shared_across_layers.image_generation
 
 
 class TestPromptEnhancementRequest:
@@ -95,15 +96,15 @@ class TestImageGenerationRequest:
     def test_seed_maximum_accepted(self) -> None:
         request = application.api.schemas.image_generation.ImageGenerationRequest(
             prompt="A sunset",
-            seed=application.api.schemas.image_generation.MAXIMUM_SEED_VALUE,
+            seed=application.contracts_shared_across_layers.image_generation.MAXIMUM_SEED_VALUE,
         )
-        assert request.seed == application.api.schemas.image_generation.MAXIMUM_SEED_VALUE
+        assert request.seed == application.contracts_shared_across_layers.image_generation.MAXIMUM_SEED_VALUE
 
     def test_seed_above_maximum_rejected(self) -> None:
         with pytest.raises(pydantic.ValidationError):
             application.api.schemas.image_generation.ImageGenerationRequest(
                 prompt="A sunset",
-                seed=application.api.schemas.image_generation.MAXIMUM_SEED_VALUE + 1,
+                seed=application.contracts_shared_across_layers.image_generation.MAXIMUM_SEED_VALUE + 1,
             )
 
     def test_seed_negative_rejected(self) -> None:
@@ -162,17 +163,17 @@ class TestPromptEnhancementResponse:
 
 class TestGeneratedImageData:
     def test_instantiation(self) -> None:
-        data = application.api.schemas.image_generation.GeneratedImageData(base64_json="abc123")
+        data = application.contracts_shared_across_layers.image_generation.GeneratedImageData(base64_json="abc123")
         assert data.base64_json == "abc123"
 
     def test_null_base64_json_for_filtered_image(self) -> None:
-        data = application.api.schemas.image_generation.GeneratedImageData(base64_json=None)
+        data = application.contracts_shared_across_layers.image_generation.GeneratedImageData(base64_json=None)
         assert data.base64_json is None
 
 
 class TestImageGenerationWarning:
     def test_instantiation(self) -> None:
-        warning = application.api.schemas.image_generation.ImageGenerationWarning(
+        warning = application.contracts_shared_across_layers.image_generation.ImageGenerationWarning(
             index=0,
             reason="content_policy_violation",
         )
@@ -181,13 +182,15 @@ class TestImageGenerationWarning:
 
     def test_negative_index_rejected(self) -> None:
         with pytest.raises(pydantic.ValidationError):
-            application.api.schemas.image_generation.ImageGenerationWarning(index=-1, reason="test")
+            application.contracts_shared_across_layers.image_generation.ImageGenerationWarning(index=-1, reason="test")
 
 
 class TestImageGenerationResponse:
     def test_instantiation_with_required_fields(self) -> None:
-        image_data = application.api.schemas.image_generation.GeneratedImageData(base64_json="abc123")
-        response = application.api.schemas.image_generation.ImageGenerationResponse(
+        image_data = application.contracts_shared_across_layers.image_generation.GeneratedImageData(
+            base64_json="abc123"
+        )
+        response = application.contracts_shared_across_layers.image_generation.ImageGenerationResponse(
             created=1700000000,
             seed=42,
             data=[image_data],
@@ -197,8 +200,10 @@ class TestImageGenerationResponse:
         assert len(response.data) == 1
 
     def test_enhanced_prompt_defaults_to_none(self) -> None:
-        image_data = application.api.schemas.image_generation.GeneratedImageData(base64_json="abc123")
-        response = application.api.schemas.image_generation.ImageGenerationResponse(
+        image_data = application.contracts_shared_across_layers.image_generation.GeneratedImageData(
+            base64_json="abc123"
+        )
+        response = application.contracts_shared_across_layers.image_generation.ImageGenerationResponse(
             created=1700000000,
             seed=42,
             data=[image_data],
@@ -206,8 +211,10 @@ class TestImageGenerationResponse:
         assert response.enhanced_prompt is None
 
     def test_enhanced_prompt_included_when_set(self) -> None:
-        image_data = application.api.schemas.image_generation.GeneratedImageData(base64_json="abc123")
-        response = application.api.schemas.image_generation.ImageGenerationResponse(
+        image_data = application.contracts_shared_across_layers.image_generation.GeneratedImageData(
+            base64_json="abc123"
+        )
+        response = application.contracts_shared_across_layers.image_generation.ImageGenerationResponse(
             created=1700000000,
             seed=42,
             data=[image_data],
@@ -216,8 +223,10 @@ class TestImageGenerationResponse:
         assert response.enhanced_prompt == "A detailed sunset prompt"
 
     def test_warnings_defaults_to_none(self) -> None:
-        image_data = application.api.schemas.image_generation.GeneratedImageData(base64_json="abc123")
-        response = application.api.schemas.image_generation.ImageGenerationResponse(
+        image_data = application.contracts_shared_across_layers.image_generation.GeneratedImageData(
+            base64_json="abc123"
+        )
+        response = application.contracts_shared_across_layers.image_generation.ImageGenerationResponse(
             created=1700000000,
             seed=42,
             data=[image_data],
@@ -225,12 +234,12 @@ class TestImageGenerationResponse:
         assert response.warnings is None
 
     def test_warnings_included_when_set(self) -> None:
-        image_data = application.api.schemas.image_generation.GeneratedImageData(base64_json=None)
-        warning = application.api.schemas.image_generation.ImageGenerationWarning(
+        image_data = application.contracts_shared_across_layers.image_generation.GeneratedImageData(base64_json=None)
+        warning = application.contracts_shared_across_layers.image_generation.ImageGenerationWarning(
             index=0,
             reason="content_policy_violation",
         )
-        response = application.api.schemas.image_generation.ImageGenerationResponse(
+        response = application.contracts_shared_across_layers.image_generation.ImageGenerationResponse(
             created=1700000000,
             seed=42,
             data=[image_data],
@@ -243,8 +252,10 @@ class TestImageGenerationResponse:
     def test_exclude_unset_omits_optional_fields(self) -> None:
         """When enhanced_prompt and warnings are not set, they should be
         excluded from the serialised dict when using exclude_unset=True."""
-        image_data = application.api.schemas.image_generation.GeneratedImageData(base64_json="abc123")
-        response = application.api.schemas.image_generation.ImageGenerationResponse(
+        image_data = application.contracts_shared_across_layers.image_generation.GeneratedImageData(
+            base64_json="abc123"
+        )
+        response = application.contracts_shared_across_layers.image_generation.ImageGenerationResponse(
             created=1700000000,
             seed=42,
             data=[image_data],
@@ -256,8 +267,10 @@ class TestImageGenerationResponse:
     def test_exclude_unset_includes_set_optional_fields(self) -> None:
         """When enhanced_prompt is explicitly set, it should appear in the
         serialised dict even with exclude_unset=True."""
-        image_data = application.api.schemas.image_generation.GeneratedImageData(base64_json="abc123")
-        response = application.api.schemas.image_generation.ImageGenerationResponse(
+        image_data = application.contracts_shared_across_layers.image_generation.GeneratedImageData(
+            base64_json="abc123"
+        )
+        response = application.contracts_shared_across_layers.image_generation.ImageGenerationResponse(
             created=1700000000,
             seed=42,
             data=[image_data],
@@ -271,7 +284,7 @@ class TestImageGenerationResponse:
         """The data array must contain at least one element (minItems: 1
         per §11 of the v5.2.4 specification)."""
         with pytest.raises(pydantic.ValidationError):
-            application.api.schemas.image_generation.ImageGenerationResponse(
+            application.contracts_shared_across_layers.image_generation.ImageGenerationResponse(
                 created=1700000000,
                 seed=42,
                 data=[],
@@ -280,9 +293,12 @@ class TestImageGenerationResponse:
     def test_data_list_exceeding_maximum_rejected(self) -> None:
         """The data array must not exceed four elements (maxItems: 4
         per §11 of the v5.2.4 specification)."""
-        five_images = [application.api.schemas.image_generation.GeneratedImageData(base64_json="abc") for _ in range(5)]
+        five_images = [
+            application.contracts_shared_across_layers.image_generation.GeneratedImageData(base64_json="abc")
+            for _ in range(5)
+        ]
         with pytest.raises(pydantic.ValidationError):
-            application.api.schemas.image_generation.ImageGenerationResponse(
+            application.contracts_shared_across_layers.image_generation.ImageGenerationResponse(
                 created=1700000000,
                 seed=42,
                 data=five_images,
@@ -290,8 +306,11 @@ class TestImageGenerationResponse:
 
     def test_data_list_at_maximum_accepted(self) -> None:
         """Exactly four images (the maximum) must be accepted."""
-        four_images = [application.api.schemas.image_generation.GeneratedImageData(base64_json="abc") for _ in range(4)]
-        response = application.api.schemas.image_generation.ImageGenerationResponse(
+        four_images = [
+            application.contracts_shared_across_layers.image_generation.GeneratedImageData(base64_json="abc")
+            for _ in range(4)
+        ]
+        response = application.contracts_shared_across_layers.image_generation.ImageGenerationResponse(
             created=1700000000,
             seed=42,
             data=four_images,
@@ -299,9 +318,11 @@ class TestImageGenerationResponse:
         assert len(response.data) == 4
 
     def test_seed_is_required(self) -> None:
-        image_data = application.api.schemas.image_generation.GeneratedImageData(base64_json="abc123")
+        image_data = application.contracts_shared_across_layers.image_generation.GeneratedImageData(
+            base64_json="abc123"
+        )
         with pytest.raises(pydantic.ValidationError):
-            application.api.schemas.image_generation.ImageGenerationResponse(
+            application.contracts_shared_across_layers.image_generation.ImageGenerationResponse(
                 created=1700000000,
                 data=[image_data],
             )  # type: ignore[call-arg]
