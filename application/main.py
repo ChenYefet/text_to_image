@@ -278,13 +278,6 @@ def create_application() -> fastapi.FastAPI:
 
     # ── Middleware registration ───────────────────────────────────────
     #
-    # ASGI middleware executes in reverse registration order: the last
-    # call to ``add_middleware`` produces the outermost layer.  The
-    # resulting execution order is:
-    #
-    #   Request → CorrelationId → RequestTimeout → ContentType
-    #           → PayloadSizeLimit → CORS → App
-    #
     # ASGI middleware executes in reverse registration order (last
     # registered = outermost).  The resulting execution order is:
     #
