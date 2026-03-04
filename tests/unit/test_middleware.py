@@ -13,8 +13,8 @@ import pytest_asyncio
 
 import application.api.middleware.content_type_validation
 import application.api.middleware.correlation_identifier
-import application.api.middleware.request_payload_size_limit
 import application.api.middleware.request_logging
+import application.api.middleware.request_payload_size_limit
 import application.api.middleware.request_timeout
 
 
@@ -458,12 +458,12 @@ class TestRequestTimeoutMiddleware:
         # response should be present.
         response_start_messages = [message for message in sent_messages if message.get("type") == "http.response.start"]
 
-        assert (
-            len(response_start_messages) == 1
-        ), "The middleware must not send a second http.response.start when headers have already been committed."
-        assert (
-            response_start_messages[0]["status"] == 200
-        ), "The already-committed 200 status code must not be replaced with 504."
+        assert len(response_start_messages) == 1, (
+            "The middleware must not send a second http.response.start when headers have already been committed."
+        )
+        assert response_start_messages[0]["status"] == 200, (
+            "The already-committed 200 status code must not be replaced with 504."
+        )
 
     @pytest.mark.asyncio
     async def test_non_http_scope_passed_through(self):
