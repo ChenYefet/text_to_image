@@ -26,6 +26,7 @@ import application.api.error_handlers
 import application.api.middleware.correlation_identifier
 import application.exceptions
 import application.integrations.stable_diffusion_pipeline
+import application.integrations.stable_diffusion_pipeline_pool
 import application.metrics
 import application.services.image_generation_service
 import application.services.prompt_enhancement_service
@@ -537,8 +538,11 @@ class TestServiceBusyErrorHandler:
         fixture_prompt_enhancement_service = application.services.prompt_enhancement_service.PromptEnhancementService(
             llama_cpp_client=mock_of_llama_cpp_client,
         )
+        fixture_pipeline_pool = application.integrations.stable_diffusion_pipeline_pool.StableDiffusionPipelinePool(
+            pipeline_instances=[mock_of_stable_diffusion_pipeline],
+        )
         fixture_image_generation_service = application.services.image_generation_service.ImageGenerationService(
-            stable_diffusion_pipeline=mock_of_stable_diffusion_pipeline,
+            stable_diffusion_pipeline_pool=fixture_pipeline_pool,
             prompt_enhancement_service=fixture_prompt_enhancement_service,
         )
 

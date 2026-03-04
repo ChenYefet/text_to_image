@@ -19,6 +19,7 @@ import application.api.middleware.request_logging
 import application.api.middleware.request_payload_size_limit
 import application.api.middleware.request_timeout
 import application.integrations.stable_diffusion_pipeline
+import application.integrations.stable_diffusion_pipeline_pool
 import application.metrics
 import application.services.image_generation_service
 import application.services.prompt_enhancement_service
@@ -63,12 +64,23 @@ def prompt_enhancement_service(mock_of_llama_cpp_client):
 
 
 @pytest.fixture
+def mock_of_stable_diffusion_pipeline_pool(mock_of_stable_diffusion_pipeline):
+    """
+    Wrap the mock pipeline in a real pool so that the service acquires it
+    via the same acquire/release path used in production.
+    """
+    return application.integrations.stable_diffusion_pipeline_pool.StableDiffusionPipelinePool(
+        pipeline_instances=[mock_of_stable_diffusion_pipeline],
+    )
+
+
+@pytest.fixture
 def image_generation_service(
-    mock_of_stable_diffusion_pipeline,
+    mock_of_stable_diffusion_pipeline_pool,
     prompt_enhancement_service,
 ):
     """
-    Create a real ImageGenerationService wrapping the mock pipeline and
+    Create a real ImageGenerationService wrapping the mock pipeline pool and
     the real PromptEnhancementService (which itself wraps a mock client).
 
     This allows route-level integration tests to exercise the full
@@ -76,7 +88,7 @@ def image_generation_service(
     dependencies mocked.
     """
     return application.services.image_generation_service.ImageGenerationService(
-        stable_diffusion_pipeline=mock_of_stable_diffusion_pipeline,
+        stable_diffusion_pipeline_pool=mock_of_stable_diffusion_pipeline_pool,
         prompt_enhancement_service=prompt_enhancement_service,
     )
 

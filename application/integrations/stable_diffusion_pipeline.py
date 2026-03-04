@@ -180,6 +180,7 @@ class StableDiffusionPipeline:
         inference_timeout_per_baseline_unit_in_seconds: float = (
             DEFAULT_TIMEOUT_OF_INFERENCE_PER_BASELINE_UNIT_IN_SECONDS
         ),
+        slot_index: int = 0,
     ) -> "StableDiffusionPipeline":
         """
         Download (or load from cache) a Stable Diffusion model and return
@@ -219,6 +220,7 @@ class StableDiffusionPipeline:
             model_revision=model_revision,
             device=str(device),
             torch_data_type=str(torch_data_type),
+            slot_index=slot_index,
         )
 
         pipeline_loading_start_time = time.monotonic()
@@ -251,6 +253,7 @@ class StableDiffusionPipeline:
             "stable_diffusion_pipeline_loaded",
             device=str(device),
             duration_in_milliseconds=pipeline_loading_duration_in_milliseconds,
+            slot_index=slot_index,
         )
 
         return cls(

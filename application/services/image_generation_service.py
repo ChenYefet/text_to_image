@@ -19,7 +19,7 @@ import typing
 import structlog
 
 import application.contracts_shared_across_layers.image_generation
-import application.integrations.stable_diffusion_pipeline
+import application.integrations.stable_diffusion_pipeline_pool
 import application.services.prompt_enhancement_service
 
 logger = structlog.get_logger()
@@ -29,7 +29,7 @@ class ImageGenerationService:
     """
     Orchestrate image generation with optional prompt enhancement.
 
-    This service coordinates between the ``StableDiffusionPipeline`` (for
+    This service coordinates between the ``StableDiffusionPipelinePool`` (for
     image generation) and the ``PromptEnhancementService`` (for optional
     prompt enhancement before generation).  It serves as the single entry
     point for the image generation endpoint, encapsulating all business
@@ -42,19 +42,21 @@ class ImageGenerationService:
 
     def __init__(
         self,
-        stable_diffusion_pipeline: application.integrations.stable_diffusion_pipeline.StableDiffusionPipeline,
+        stable_diffusion_pipeline_pool: (
+            application.integrations.stable_diffusion_pipeline_pool.StableDiffusionPipelinePool
+        ),
         prompt_enhancement_service: application.services.prompt_enhancement_service.PromptEnhancementService,
     ) -> None:
         """
         Initialise the image generation service.
 
         Args:
-            stable_diffusion_pipeline: The Stable Diffusion pipeline
-                instance used for image generation.
+            stable_diffusion_pipeline_pool: The pool of Stable Diffusion
+                pipeline instances used for image generation.
             prompt_enhancement_service: The prompt enhancement service
                 used when ``use_enhancer`` is ``True``.
         """
-        self._stable_diffusion_pipeline = stable_diffusion_pipeline
+        self._stable_diffusion_pipeline_pool = stable_diffusion_pipeline_pool
         self._prompt_enhancement_service = prompt_enhancement_service
 
     async def generate_images(
@@ -129,13 +131,14 @@ class ImageGenerationService:
             else random.randint(0, application.contracts_shared_across_layers.image_generation.MAXIMUM_SEED_VALUE)
         )
 
-        generation_result = await self._stable_diffusion_pipeline.generate_images(
-            prompt=prompt_for_generation,
-            image_width=image_width,
-            image_height=image_height,
-            number_of_images=number_of_images,
-            seed=seed_for_generation,
-        )
+        async with self._stable_diffusion_pipeline_pool.acquire() as acquired_pipeline:
+            generation_result = await acquired_pipeline.generate_images(
+                prompt=prompt_for_generation,
+                image_width=image_width,
+                image_height=image_height,
+                number_of_images=number_of_images,
+                seed=seed_for_generation,
+            )
 
         list_of_generated_image_data = [
             application.contracts_shared_across_layers.image_generation.GeneratedImageData(
@@ -174,20 +177,13 @@ class ImageGenerationService:
 
     def check_health(self) -> bool:
         """
-        Check whether the Stable Diffusion pipeline is loaded and available.
+        Check whether at least one Stable Diffusion pipeline instance in the
+        pool is loaded and available for inference.
 
-        Delegates to ``StableDiffusionPipeline.check_health()``.
+        Delegates to ``StableDiffusionPipelinePool.check_health()``.
 
         Returns:
-            ``True`` if the pipeline is loaded and ready for inference,
-            ``False`` otherwise.
+            ``True`` if at least one pipeline instance is loaded and ready
+            for inference, ``False`` otherwise.
         """
-        return self._stable_diffusion_pipeline.check_health()
-
-    async def close(self) -> None:
-        """
-        Release the Stable Diffusion pipeline and free GPU memory.
-
-        Delegates to ``StableDiffusionPipeline.close()``.
-        """
-        await self._stable_diffusion_pipeline.close()
+        return self._stable_diffusion_pipeline_pool.check_health()

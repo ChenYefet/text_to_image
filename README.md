@@ -715,7 +715,8 @@ text_to_image/
 │   │   └── image_generation_service.py            # Orchestrator wrapping the Stable Diffusion pipeline
 │   ├── integrations/
 │   │   ├── llama_cpp_client.py                    # llama.cpp HTTP client integration
-│   │   └── stable_diffusion_pipeline.py           # Stable Diffusion pipeline (diffusers)
+│   │   ├── stable_diffusion_pipeline.py           # Stable Diffusion pipeline (diffusers)
+│   │   └── stable_diffusion_pipeline_pool.py      # Queue-based pool for concurrent pipeline access
 │   └── contracts_shared_across_layers/
 │       └── image_generation.py                    # Cross-layer data transfer types for image generation
 └── tests/
@@ -732,7 +733,8 @@ text_to_image/
     │   ├── test_metrics.py
     │   ├── test_middleware.py
     │   ├── test_schemas.py
-    │   └── test_stable_diffusion_pipeline.py
+    │   ├── test_stable_diffusion_pipeline.py
+    │   └── test_stable_diffusion_pipeline_pool.py
     ├── integration/
     │   ├── conftest.py
     │   ├── test_error_handling.py

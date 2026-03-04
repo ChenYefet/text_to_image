@@ -34,6 +34,7 @@ import application.circuit_breaker
 import application.configuration
 import application.integrations.llama_cpp_client
 import application.integrations.stable_diffusion_pipeline
+import application.integrations.stable_diffusion_pipeline_pool
 import application.logging_config
 import application.metrics
 import application.services.image_generation_service
@@ -140,22 +141,29 @@ def create_application() -> fastapi.FastAPI:
             )
         )
 
-        instance_of_stable_diffusion_pipeline = None
+        number_of_concurrency_slots = (
+            application_configuration.maximum_number_of_concurrent_operations_of_image_generation
+        )
+        loaded_pipeline_instances: list[application.integrations.stable_diffusion_pipeline.StableDiffusionPipeline] = []
         try:
-            instance_of_stable_diffusion_pipeline = (
-                application.integrations.stable_diffusion_pipeline.StableDiffusionPipeline.load_pipeline(
-                    model_id=(application_configuration.id_of_stable_diffusion_model),
-                    thread_pool_executor_for_inference=thread_pool_executor_for_inference,
-                    model_revision=(application_configuration.revision_of_stable_diffusion_model),
-                    device_preference=(application_configuration.stable_diffusion_device),
-                    enable_safety_checker=(application_configuration.safety_checker_for_stable_diffusion),
-                    number_of_inference_steps=(application_configuration.number_of_inference_steps_of_stable_diffusion),
-                    guidance_scale=(application_configuration.guidance_scale_of_stable_diffusion),
-                    inference_timeout_per_baseline_unit_in_seconds=(
-                        application_configuration.inference_timeout_by_stable_diffusion_per_baseline_unit_in_seconds
-                    ),
+            for slot_index in range(number_of_concurrency_slots):
+                loaded_pipeline_instances.append(
+                    application.integrations.stable_diffusion_pipeline.StableDiffusionPipeline.load_pipeline(
+                        model_id=(application_configuration.id_of_stable_diffusion_model),
+                        thread_pool_executor_for_inference=thread_pool_executor_for_inference,
+                        model_revision=(application_configuration.revision_of_stable_diffusion_model),
+                        device_preference=(application_configuration.stable_diffusion_device),
+                        enable_safety_checker=(application_configuration.safety_checker_for_stable_diffusion),
+                        number_of_inference_steps=(
+                            application_configuration.number_of_inference_steps_of_stable_diffusion
+                        ),
+                        guidance_scale=(application_configuration.guidance_scale_of_stable_diffusion),
+                        inference_timeout_per_baseline_unit_in_seconds=(
+                            application_configuration.inference_timeout_by_stable_diffusion_per_baseline_unit_in_seconds
+                        ),
+                        slot_index=slot_index,
+                    )
                 )
-            )
         except Exception as model_loading_error:
             logger.critical(
                 "model_validation_at_startup_failed",
@@ -163,13 +171,26 @@ def create_application() -> fastapi.FastAPI:
                 model_revision=application_configuration.revision_of_stable_diffusion_model,
                 error=str(model_loading_error),
             )
+            # Clean up any instances that were successfully loaded before
+            # the failure, to avoid leaking GPU memory.
+            for previously_loaded_instance in loaded_pipeline_instances:
+                await previously_loaded_instance.close()
+            loaded_pipeline_instances.clear()
 
-        if instance_of_stable_diffusion_pipeline is not None:
+        instance_of_stable_diffusion_pipeline_pool = None
+        if loaded_pipeline_instances:
             logger.info(
                 "model_validation_at_startup_passed",
                 model_id=application_configuration.id_of_stable_diffusion_model,
                 model_revision=application_configuration.revision_of_stable_diffusion_model,
-                device=str(instance_of_stable_diffusion_pipeline._device),
+                device=str(loaded_pipeline_instances[0]._device),
+                number_of_pool_instances=len(loaded_pipeline_instances),
+            )
+
+            instance_of_stable_diffusion_pipeline_pool = (
+                application.integrations.stable_diffusion_pipeline_pool.StableDiffusionPipelinePool(
+                    pipeline_instances=loaded_pipeline_instances,
+                )
             )
 
         # ── Startup warmup (SA-3) ────────────────────────────────────
@@ -179,21 +200,21 @@ def create_application() -> fastapi.FastAPI:
         # sequence rather than on the first real user request.  This
         # is a best-effort optimisation: if the warmup fails, the
         # first user request absorbs the warmup cost instead.
-        if instance_of_stable_diffusion_pipeline is not None:
-            await instance_of_stable_diffusion_pipeline.run_startup_warmup()
+        if loaded_pipeline_instances:
+            await loaded_pipeline_instances[0].run_startup_warmup()
 
         # ── ImageGenerationService construction ──────────────────────
         #
-        # The ImageGenerationService wraps the StableDiffusionPipeline
+        # The ImageGenerationService wraps the StableDiffusionPipelinePool
         # and PromptEnhancementService, absorbing orchestration logic
         # (seed resolution, prompt enhancement coordination, response
         # construction) that the endpoint handler delegates to it.
         # When the pipeline failed to load, the service is None and
         # the dependency provider raises ImageGenerationServiceUnavailableError.
         instance_of_image_generation_service = None
-        if instance_of_stable_diffusion_pipeline is not None:
+        if instance_of_stable_diffusion_pipeline_pool is not None:
             instance_of_image_generation_service = application.services.image_generation_service.ImageGenerationService(
-                stable_diffusion_pipeline=instance_of_stable_diffusion_pipeline,
+                stable_diffusion_pipeline_pool=instance_of_stable_diffusion_pipeline_pool,
                 prompt_enhancement_service=instance_of_prompt_enhancement_service,
             )
 
@@ -248,8 +269,8 @@ def create_application() -> fastapi.FastAPI:
         )
 
         await instance_of_prompt_enhancement_service.close()
-        if instance_of_image_generation_service is not None:
-            await instance_of_image_generation_service.close()
+        if instance_of_stable_diffusion_pipeline_pool is not None:
+            await instance_of_stable_diffusion_pipeline_pool.close()
         thread_pool_executor_for_inference.shutdown(wait=True)
         logger.info("services_shutdown_complete")
 
