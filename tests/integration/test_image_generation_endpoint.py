@@ -57,7 +57,7 @@ class TestImageGenerationEndpoint:
         Successful image generation responses must include a
         ``Cache-Control: no-store`` header to prevent intermediate proxies
         and CDNs from caching dynamically generated content (§12 of the
-        v5.2.4 specification, SHOULD-level advisory).
+        v5.2.5 specification, SHOULD-level advisory).
         """
         response = await client.post(
             "/v1/images/generations",

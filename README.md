@@ -661,7 +661,7 @@ text_to_image/
 ├── nginx.conf                                     # Nginx reverse proxy configuration
 ├── .dockerignore                                  # Files excluded from the Docker build context
 ├── README.md                                      # This file
-├── text-to-image-spec-v5_2_4.md                   # Project specification
+├── text-to-image-spec-v5_2_5.md                   # Project specification
 ├── .github/
 │   └── workflows/
 │       └── continuous-integration.yml              # Continuous integration pipeline (lint, format, type check, audit, test, contract validation)

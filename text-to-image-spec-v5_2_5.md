@@ -1,10 +1,10 @@
 # Technical Specification: Text-to-Image Generation Service with Prompt Enhancement
 
-**Document Version:** 5.2.4
+**Document Version:** 5.2.5
 **Status:** Final — Panel Review Ready
 **Target Audience:** Senior Engineering Panel, Implementation Teams
 **Specification Authority:** Principal Technical Specification Authority
-**Date:** 3 March 2026
+**Date:** 4 March 2026
 
 ---
 
@@ -4495,6 +4495,7 @@ Examples:
 | Memory limit | `8Gi` | Upper bound accommodating peak inference memory (model weights, intermediate tensors, and encoded image buffers) |
 | Readiness probe | `GET /health/ready`, period 10s, timeout 5s, failure threshold 3 | Routes traffic only to instances with fully loaded models ([FR37](#readiness-check-endpoint)) |
 | Liveness probe | `GET /health`, period 30s, timeout 5s, failure threshold 3 | Restarts instances that become unresponsive; longer period avoids false positives during inference |
+| Startup probe | `GET /health`, period 10s, timeout 5s, failure threshold 60 | Allows up to 600 seconds (10 minutes) for model loading before the liveness probe activates; prevents liveness-probe crash loops during the expected multi-minute model loading phase |
 | Strategy | `RollingUpdate`, maxSurge 1, maxUnavailable 0 | Zero-downtime deployments; new pods must pass readiness before old pods are terminated |
 | Termination grace period | 90 seconds | Provides a 30-second buffer beyond the application-level 60-second drain period to accommodate Python interpreter shutdown, final log flushing, and timing skew between `SIGTERM` delivery and the Uvicorn timeout |
 | Restart policy | `Always` | Ensures automatic recovery from process crashes ([NFR8](#stability-of-the-service-process-under-upstream-failure)) |
@@ -5407,6 +5408,7 @@ This section documents failure modes commonly encountered during initial setup a
 | 5.2.2 | 3 Mar 2026 | Changed the Dockerfile CMD and the quick-start example from `uvicorn main:fastapi_application` to `uvicorn application.main:fastapi_application`, eliminating the root-level re-export shim in favour of a direct entry point into the application package. |
 | 5.2.3 | 3 Mar 2026 | Updated the llama.cpp container image reference from `ghcr.io/ggerganov/llama.cpp:server` to `ghcr.io/ggml-org/llama.cpp:server` in the [reference docker-compose for multi-instance evaluation](#reference-docker-compose-for-multi-instance-evaluation) and the [Deployment: llama-cpp-server](#deployment-llama-cpp-server) table, reflecting the upstream organisation migration from the `ggerganov` personal account to the `ggml-org` organisation on GitHub. |
 | 5.2.4 | 4 Mar 2026 | Corrected the [Deployment: text-to-image-api](#deployment-text-to-image-api) table's termination grace period from 60 seconds to 90 seconds, resolving an internal contradiction with the [Kubernetes interaction advisory](#graceful-shutdown) which correctly prescribes 90 seconds to provide a 30-second buffer beyond the application-level 60-second drain period. |
+| 5.2.5 | 4 Mar 2026 | Added a startup probe to the [Deployment: text-to-image-api](#deployment-text-to-image-api) table to prevent liveness-probe crash loops during model loading. Without a startup probe, the liveness probe's `periodSeconds × failureThreshold` (30s × 3 = 90s) window is shorter than the expected model loading time (60–300 seconds depending on hardware and cache state), causing Kubernetes to kill and restart pods before they finish loading the model. |
 
 #### v4.0.0 Detailed Changelog
 
