@@ -41,6 +41,8 @@ before — every request is sent to the upstream regardless of prior
 failure history.
 """
 
+import json
+
 import httpx
 import structlog
 
@@ -220,11 +222,69 @@ class LlamaCppClient:
         }
 
         try:
-            http_response = await self.http_client.post(
+            async with self.http_client.stream(
+                "POST",
                 "/v1/chat/completions",
                 json=request_body_for_chat_completion,
-            )
-            http_response.raise_for_status()
+            ) as http_response:
+                http_response.raise_for_status()
+
+                # ── Streaming response detection ──────────────────────────
+                #
+                # A misconfigured llama.cpp server may ignore the
+                # "stream": false setting in the request body and return
+                # Server-Sent Events (Content-Type: text/event-stream)
+                # regardless.  This client does not implement an SSE
+                # parser, so a streaming response would cause a JSON parse
+                # failure downstream.  Headers are available immediately
+                # after the response status line is received.
+                upstream_content_type = http_response.headers.get("content-type", "")
+                if upstream_content_type.startswith("text/event-stream"):
+                    await self._record_circuit_breaker_failure()
+                    logger.error(
+                        "llama_cpp_unexpected_streaming_response",
+                        content_type=upstream_content_type,
+                    )
+                    raise application.exceptions.LargeLanguageModelServiceUnavailableError(
+                        detail=(
+                            "The large language model server returned a streaming"
+                            " response despite stream: false being set in the"
+                            " request."
+                        ),
+                    )
+
+                # ── Streaming body read with size enforcement ─────────────
+                #
+                # Read the response body incrementally, checking the
+                # accumulated byte count against the configured maximum
+                # during receipt.  This ensures that an oversized response
+                # is detected and the connection closed as soon as the
+                # limit is exceeded, rather than buffering the full body
+                # into memory before checking its size.
+                chunks_of_response_body: list[bytes] = []
+                number_of_bytes_read = 0
+                async for chunk in http_response.aiter_bytes():
+                    number_of_bytes_read += len(chunk)
+                    if number_of_bytes_read > self._maximum_number_of_bytes_of_response_body:
+                        await self._record_circuit_breaker_failure()
+                        logger.error(
+                            "llama_cpp_response_too_large",
+                            number_of_bytes_of_response_body=number_of_bytes_read,
+                            maximum_number_of_bytes_of_response_body=self._maximum_number_of_bytes_of_response_body,
+                        )
+                        raise application.exceptions.LargeLanguageModelServiceUnavailableError(
+                            detail=(
+                                f"The large language model response body"
+                                f" ({number_of_bytes_read} bytes) exceeds the"
+                                f" configured maximum"
+                                f" ({self._maximum_number_of_bytes_of_response_body}"
+                                f" bytes)."
+                            ),
+                        )
+                    chunks_of_response_body.append(chunk)
+
+                raw_response_body = b"".join(chunks_of_response_body)
+
         except httpx.ConnectError as connection_error:
             await self._record_circuit_breaker_failure()
             logger.error(
@@ -256,6 +316,11 @@ class LlamaCppClient:
             raise application.exceptions.LargeLanguageModelServiceUnavailableError(
                 detail="The request to the large language model server timed out.",
             ) from timeout_error
+        except application.exceptions.LargeLanguageModelServiceUnavailableError:
+            # Re-raise errors already converted to the application
+            # exception type (streaming detection, size enforcement)
+            # without wrapping them in the catch-all below.
+            raise
         except httpx.RequestError as request_error:
             # Catch-all for uncommon httpx failure modes such as
             # TooManyRedirects, DecodingError, ProxyError, and
@@ -263,7 +328,7 @@ class LlamaCppClient:
             # llama.cpp deployment scenario (local network, no proxies,
             # no redirects) but mapping them to HTTP 502 is semantically
             # correct rather than letting them propagate to the 500
-            # catch-all handler (audit finding P-2).
+            # catch-all handler.
             await self._record_circuit_breaker_failure()
             logger.error(
                 "llama_cpp_request_failed",
@@ -278,60 +343,18 @@ class LlamaCppClient:
                 ),
             ) from request_error
 
-        # ── Streaming response detection ──────────────────────────────────
+        # ── Parse JSON from raw bytes ─────────────────────────────────────
         #
-        # A misconfigured llama.cpp server may ignore the "stream": false
-        # setting in the request body and return Server-Sent Events
-        # (Content-Type: text/event-stream) regardless.  This client
-        # does not implement an SSE parser, so a streaming response would
-        # cause a JSON parse failure downstream.  Instead, we detect it
-        # early by inspecting the Content-Type header and raise a clear
-        # error that identifies the root cause.
-        upstream_content_type = http_response.headers.get("content-type", "")
-        if upstream_content_type.startswith("text/event-stream"):
-            await self._record_circuit_breaker_failure()
-            logger.error(
-                "llama_cpp_unexpected_streaming_response",
-                content_type=upstream_content_type,
-            )
-            raise application.exceptions.LargeLanguageModelServiceUnavailableError(
-                detail=(
-                    "The large language model server returned a streaming"
-                    " response despite stream: false being set in the request."
-                ),
-            )
-
-        # ── Response body size enforcement ────────────────────────────────
-        #
-        # Enforce a maximum response body size to prevent memory exhaustion
-        # from unexpectedly large upstream responses.  The llama.cpp server
-        # should produce responses of a few kilobytes at most, but a
-        # misconfigured server or proxy could return arbitrarily large
-        # bodies.  The default limit is 1 MB.
-        number_of_bytes_of_response_body = len(http_response.content)
-        if number_of_bytes_of_response_body > self._maximum_number_of_bytes_of_response_body:
-            await self._record_circuit_breaker_failure()
-            logger.error(
-                "llama_cpp_response_too_large",
-                number_of_bytes_of_response_body=number_of_bytes_of_response_body,
-                maximum_number_of_bytes_of_response_body=self._maximum_number_of_bytes_of_response_body,
-            )
-            raise application.exceptions.LargeLanguageModelServiceUnavailableError(
-                detail=(
-                    f"The large language model response body"
-                    f" ({number_of_bytes_of_response_body} bytes) exceeds the configured"
-                    f" maximum ({self._maximum_number_of_bytes_of_response_body} bytes)."
-                ),
-            )
-
+        # In streaming mode, response.json() is not available.  Parse the
+        # collected bytes directly via json.loads().
         try:
-            response_body = http_response.json()
-        except ValueError as json_decode_error:
+            response_body = json.loads(raw_response_body)
+        except (ValueError, UnicodeDecodeError) as json_decode_error:
             await self._record_circuit_breaker_failure()
             logger.error(
                 "llama_cpp_response_parsing_failed",
                 error="Response body is not valid JSON",
-                content_type=http_response.headers.get("content-type", ""),
+                content_type=upstream_content_type,
             )
             raise application.exceptions.LargeLanguageModelServiceUnavailableError(
                 detail="The large language model server returned a non-JSON response.",

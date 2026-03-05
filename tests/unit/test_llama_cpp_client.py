@@ -6,13 +6,14 @@ Covers all public methods and defensive handling paths:
 - Network-level failures: connection error, HTTP status error, timeout.
 - Malformed upstream responses and empty completions.
 - Streaming response detection (text/event-stream Content-Type → HTTP 502).
-- Response body size limit enforcement (oversized body → HTTP 502).
+- Response body size limit enforcement via streaming reads (oversized body → HTTP 502).
 - Token-limit truncation monitoring (finish_reason: "length" → warning log).
 - Health check connectivity probing.
 - HTTP client lifecycle (close).
 """
 
 import json
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
@@ -47,23 +48,55 @@ def _build_llama_cpp_client(
     )
 
 
-def _build_mock_of_json_response(
+def _build_mock_of_streaming_response(
+    body_bytes: bytes,
+    status_code: int = 200,
+    headers: dict[str, str] | None = None,
+    raise_for_status_side_effect: Exception | None = None,
+) -> MagicMock:
+    """
+    Create a mock that behaves as an httpx streaming response context manager.
+
+    The mock provides ``__aenter__``/``__aexit__`` (via the
+    ``_mock_stream_context`` helper), ``headers``,
+    ``raise_for_status()``, and ``aiter_bytes()`` (yielding the body
+    as a single chunk).
+
+    The ``raise_for_status_side_effect`` parameter allows tests to
+    simulate HTTP status errors raised inside the stream context.
+    """
+    if headers is None:
+        headers = {"content-type": "application/json"}
+
+    mock_response = MagicMock()
+    mock_response.headers = headers
+    mock_response.status_code = status_code
+
+    if raise_for_status_side_effect is not None:
+        mock_response.raise_for_status.side_effect = raise_for_status_side_effect
+    else:
+        mock_response.raise_for_status = MagicMock()
+
+    async def _async_iter_bytes():
+        yield body_bytes
+
+    mock_response.aiter_bytes = _async_iter_bytes
+
+    return mock_response
+
+
+def _build_mock_of_json_streaming_response(
     content_text: str,
     status_code: int = 200,
     finish_reason: str = "stop",
     content_type: str = "application/json",
 ) -> MagicMock:
     """
-    Create a mock httpx.Response with the standard chat-completion shape.
+    Create a mock streaming response with the standard chat-completion shape.
 
-    Includes the ``headers`` and ``content`` attributes that the
-    LlamaCppClient inspects for streaming response detection (checking
-    Content-Type for ``text/event-stream``) and response body size
-    enforcement (checking ``len(response.content)``).
-
-    The ``content_type`` parameter allows tests to simulate misconfigured
-    upstream servers that return ``text/event-stream`` despite the
-    ``stream: false`` directive.
+    This is the streaming equivalent of the former ``_build_mock_of_json_response``.
+    The response body is serialised to bytes and yielded as a single chunk
+    via ``aiter_bytes()``.
     """
     response_body = {
         "choices": [
@@ -76,34 +109,67 @@ def _build_mock_of_json_response(
 
     serialised_body = json.dumps(response_body).encode("utf-8")
 
-    response = MagicMock(spec=httpx.Response)
-    response.status_code = status_code
-    response.json.return_value = response_body
-    response.raise_for_status = MagicMock()
-    response.headers = {"content-type": content_type}
-    response.content = serialised_body
-    return response
+    return _build_mock_of_streaming_response(
+        body_bytes=serialised_body,
+        status_code=status_code,
+        headers={"content-type": content_type},
+    )
+
+
+@asynccontextmanager
+async def _mock_stream_context(mock_response):
+    """
+    Async context manager wrapper that yields the mock response.
+
+    Used to replace ``http_client.stream()`` which returns an async
+    context manager in production code.
+    """
+    yield mock_response
+
+
+def _configure_stream_mock(service, mock_response):
+    """
+    Configure the service's http_client to return the given mock response
+    when ``stream()`` is called as an async context manager.
+    """
+    service.http_client = AsyncMock()
+    service.http_client.stream = MagicMock(
+        return_value=_mock_stream_context(mock_response),
+    )
+
+
+def _configure_stream_error(service, error):
+    """
+    Configure the service's http_client.stream to raise an error when
+    entering the async context manager.
+    """
+
+    @asynccontextmanager
+    async def _error_context(*args, **kwargs):
+        raise error
+        yield  # pragma: no cover
+
+    service.http_client = AsyncMock()
+    service.http_client.stream = MagicMock(side_effect=_error_context)
 
 
 class TestEnhancePrompt:
     @pytest.mark.asyncio
     async def test_success(self):
         service = _build_llama_cpp_client()
-        mock_response = _build_mock_of_json_response("Enhanced prompt text")
-        service.http_client = AsyncMock()
-        service.http_client.post = AsyncMock(return_value=mock_response)
+        mock_response = _build_mock_of_json_streaming_response("Enhanced prompt text")
+        _configure_stream_mock(service, mock_response)
 
         result = await service.enhance_prompt("A cat")
 
         assert result == "Enhanced prompt text"
-        service.http_client.post.assert_awaited_once()
+        service.http_client.stream.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_strips_whitespace(self):
         service = _build_llama_cpp_client()
-        mock_response = _build_mock_of_json_response("  Enhanced with spaces  ")
-        service.http_client = AsyncMock()
-        service.http_client.post = AsyncMock(return_value=mock_response)
+        mock_response = _build_mock_of_json_streaming_response("  Enhanced with spaces  ")
+        _configure_stream_mock(service, mock_response)
 
         result = await service.enhance_prompt("A cat")
 
@@ -112,8 +178,7 @@ class TestEnhancePrompt:
     @pytest.mark.asyncio
     async def test_connection_error(self):
         service = _build_llama_cpp_client()
-        service.http_client = AsyncMock()
-        service.http_client.post = AsyncMock(side_effect=httpx.ConnectError("Connection refused"))
+        _configure_stream_error(service, httpx.ConnectError("Connection refused"))
 
         with pytest.raises(application.exceptions.LargeLanguageModelServiceUnavailableError):
             await service.enhance_prompt("A cat")
@@ -121,16 +186,18 @@ class TestEnhancePrompt:
     @pytest.mark.asyncio
     async def test_http_status_error(self):
         service = _build_llama_cpp_client()
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 500
-        service.http_client = AsyncMock()
-        service.http_client.post = AsyncMock(
-            side_effect=httpx.HTTPStatusError(
+        mock_error_response = MagicMock(spec=httpx.Response)
+        mock_error_response.status_code = 500
+        mock_response = _build_mock_of_streaming_response(
+            body_bytes=b"",
+            status_code=500,
+            raise_for_status_side_effect=httpx.HTTPStatusError(
                 "Server error",
                 request=MagicMock(),
-                response=mock_response,
-            )
+                response=mock_error_response,
+            ),
         )
+        _configure_stream_mock(service, mock_response)
 
         with pytest.raises(application.exceptions.LargeLanguageModelServiceUnavailableError):
             await service.enhance_prompt("A cat")
@@ -138,8 +205,7 @@ class TestEnhancePrompt:
     @pytest.mark.asyncio
     async def test_timeout(self):
         service = _build_llama_cpp_client()
-        service.http_client = AsyncMock()
-        service.http_client.post = AsyncMock(side_effect=httpx.TimeoutException("Timed out"))
+        _configure_stream_error(service, httpx.TimeoutException("Timed out"))
 
         with pytest.raises(application.exceptions.LargeLanguageModelServiceUnavailableError):
             await service.enhance_prompt("A cat")
@@ -149,34 +215,32 @@ class TestEnhancePrompt:
         """Uncommon httpx failure modes such as TooManyRedirects must be
         caught by the httpx.RequestError catch-all and mapped to
         LargeLanguageModelServiceUnavailableError (HTTP 502) rather than
-        propagating as unhandled 500 errors (audit finding P-2)."""
+        propagating as unhandled 500 errors."""
         service = _build_llama_cpp_client()
-        service.http_client = AsyncMock()
-        service.http_client.post = AsyncMock(
-            side_effect=httpx.TooManyRedirects(
+        _configure_stream_error(
+            service,
+            httpx.TooManyRedirects(
                 "Exceeded maximum redirects",
                 request=MagicMock(),
-            )
+            ),
         )
 
-        with pytest.raises(application.exceptions.LargeLanguageModelServiceUnavailableError, match="TooManyRedirects"):
+        with pytest.raises(
+            application.exceptions.LargeLanguageModelServiceUnavailableError,
+            match="TooManyRedirects",
+        ):
             await service.enhance_prompt("A cat")
 
     @pytest.mark.asyncio
     async def test_malformed_response(self):
         service = _build_llama_cpp_client()
         malformed_body = {"unexpected": "structure"}
-        import json
-
         serialised_malformed_body = json.dumps(malformed_body).encode("utf-8")
 
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.raise_for_status = MagicMock()
-        mock_response.json.return_value = malformed_body
-        mock_response.headers = {"content-type": "application/json"}
-        mock_response.content = serialised_malformed_body
-        service.http_client = AsyncMock()
-        service.http_client.post = AsyncMock(return_value=mock_response)
+        mock_response = _build_mock_of_streaming_response(
+            body_bytes=serialised_malformed_body,
+        )
+        _configure_stream_mock(service, mock_response)
 
         with pytest.raises(application.exceptions.PromptEnhancementError):
             await service.enhance_prompt("A cat")
@@ -184,9 +248,8 @@ class TestEnhancePrompt:
     @pytest.mark.asyncio
     async def test_empty_content(self):
         service = _build_llama_cpp_client()
-        mock_response = _build_mock_of_json_response("")
-        service.http_client = AsyncMock()
-        service.http_client.post = AsyncMock(return_value=mock_response)
+        mock_response = _build_mock_of_json_streaming_response("")
+        _configure_stream_mock(service, mock_response)
 
         with pytest.raises(application.exceptions.PromptEnhancementError):
             await service.enhance_prompt("A cat")
@@ -199,13 +262,11 @@ class TestEnhancePrompt:
         service = _build_llama_cpp_client()
         html_body = b"<html><body>502 Bad Gateway</body></html>"
 
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.raise_for_status = MagicMock()
-        mock_response.headers = {"content-type": "text/html"}
-        mock_response.content = html_body
-        mock_response.json.side_effect = ValueError("No JSON object could be decoded")
-        service.http_client = AsyncMock()
-        service.http_client.post = AsyncMock(return_value=mock_response)
+        mock_response = _build_mock_of_streaming_response(
+            body_bytes=html_body,
+            headers={"content-type": "text/html"},
+        )
+        _configure_stream_mock(service, mock_response)
 
         with pytest.raises(
             application.exceptions.LargeLanguageModelServiceUnavailableError,
@@ -226,19 +287,20 @@ class TestStreamingResponseDetection:
     """
 
     @pytest.mark.asyncio
-    async def test_text_event_stream_content_type_raises_unavailable_error(self) -> None:
+    async def test_text_event_stream_content_type_raises_unavailable_error(
+        self,
+    ) -> None:
         """
         When the upstream returns ``text/event-stream`` despite
         ``stream: false``, the service raises
         ``LargeLanguageModelServiceUnavailableError``.
         """
         service = _build_llama_cpp_client()
-        mock_response = _build_mock_of_json_response(
+        mock_response = _build_mock_of_json_streaming_response(
             "Enhanced text",
             content_type="text/event-stream",
         )
-        service.http_client = AsyncMock()
-        service.http_client.post = AsyncMock(return_value=mock_response)
+        _configure_stream_mock(service, mock_response)
 
         with pytest.raises(
             application.exceptions.LargeLanguageModelServiceUnavailableError,
@@ -247,18 +309,19 @@ class TestStreamingResponseDetection:
             await service.enhance_prompt("A cat")
 
     @pytest.mark.asyncio
-    async def test_text_event_stream_with_charset_raises_unavailable_error(self) -> None:
+    async def test_text_event_stream_with_charset_raises_unavailable_error(
+        self,
+    ) -> None:
         """
         The detection must match Content-Type values that include
         parameters (e.g., ``text/event-stream; charset=utf-8``).
         """
         service = _build_llama_cpp_client()
-        mock_response = _build_mock_of_json_response(
+        mock_response = _build_mock_of_json_streaming_response(
             "Enhanced text",
             content_type="text/event-stream; charset=utf-8",
         )
-        service.http_client = AsyncMock()
-        service.http_client.post = AsyncMock(return_value=mock_response)
+        _configure_stream_mock(service, mock_response)
 
         with pytest.raises(
             application.exceptions.LargeLanguageModelServiceUnavailableError,
@@ -266,18 +329,19 @@ class TestStreamingResponseDetection:
             await service.enhance_prompt("A cat")
 
     @pytest.mark.asyncio
-    async def test_application_json_content_type_does_not_trigger_detection(self) -> None:
+    async def test_application_json_content_type_does_not_trigger_detection(
+        self,
+    ) -> None:
         """
         A well-behaved upstream returning ``application/json`` must not
         trigger the streaming response detection path.
         """
         service = _build_llama_cpp_client()
-        mock_response = _build_mock_of_json_response(
+        mock_response = _build_mock_of_json_streaming_response(
             "Enhanced text",
             content_type="application/json",
         )
-        service.http_client = AsyncMock()
-        service.http_client.post = AsyncMock(return_value=mock_response)
+        _configure_stream_mock(service, mock_response)
 
         result = await service.enhance_prompt("A cat")
 
@@ -287,12 +351,14 @@ class TestStreamingResponseDetection:
 class TestResponseBodySizeLimit:
     """
     Verify that the service rejects upstream responses whose body exceeds
-    the configured maximum size (spec §15, upstream response size limiting).
+    the configured maximum size (spec §15, upstream response size limiting)
+    using streaming reads that enforce the limit during receipt.
 
     An unexpectedly large response from a misconfigured llama.cpp server
     could exhaust memory. The service enforces a configurable ceiling
-    (``maximum_number_of_bytes_of_response_body``) and raises
-    ``LargeLanguageModelServiceUnavailableError`` when the ceiling is breached.
+    (``maximum_number_of_bytes_of_response_body``) via incremental byte
+    iteration and raises ``LargeLanguageModelServiceUnavailableError``
+    when the ceiling is breached.
     """
 
     @pytest.mark.asyncio
@@ -306,9 +372,8 @@ class TestResponseBodySizeLimit:
 
         # Create a response whose serialised body exceeds 100 bytes.
         large_content_text = "A" * 200
-        mock_response = _build_mock_of_json_response(large_content_text)
-        service.http_client = AsyncMock()
-        service.http_client.post = AsyncMock(return_value=mock_response)
+        mock_response = _build_mock_of_json_streaming_response(large_content_text)
+        _configure_stream_mock(service, mock_response)
 
         with pytest.raises(
             application.exceptions.LargeLanguageModelServiceUnavailableError,
@@ -323,9 +388,8 @@ class TestResponseBodySizeLimit:
         and parsed normally.
         """
         service = _build_llama_cpp_client(maximum_number_of_bytes_of_response_body=10_000)
-        mock_response = _build_mock_of_json_response("Short enhanced text")
-        service.http_client = AsyncMock()
-        service.http_client.post = AsyncMock(return_value=mock_response)
+        mock_response = _build_mock_of_json_streaming_response("Short enhanced text")
+        _configure_stream_mock(service, mock_response)
 
         result = await service.enhance_prompt("A cat")
 
@@ -338,16 +402,56 @@ class TestResponseBodySizeLimit:
         must be accepted — the limit is exclusive (greater than, not
         greater than or equal to).
         """
-        mock_response = _build_mock_of_json_response("test content")
-        response_body_size = len(mock_response.content)
+        response_body = {
+            "choices": [
+                {
+                    "message": {"content": "test content"},
+                    "finish_reason": "stop",
+                },
+            ],
+        }
+        serialised_body = json.dumps(response_body).encode("utf-8")
+        response_body_size = len(serialised_body)
 
         service = _build_llama_cpp_client(maximum_number_of_bytes_of_response_body=response_body_size)
-        service.http_client = AsyncMock()
-        service.http_client.post = AsyncMock(return_value=mock_response)
+        mock_response = _build_mock_of_streaming_response(
+            body_bytes=serialised_body,
+        )
+        _configure_stream_mock(service, mock_response)
 
         result = await service.enhance_prompt("A cat")
 
         assert result == "test content"
+
+    @pytest.mark.asyncio
+    async def test_oversized_response_detected_during_streaming(self) -> None:
+        """
+        Verify that the size limit is enforced incrementally during
+        streaming: the service detects the oversized response during
+        byte iteration rather than after buffering the full body.
+        Multiple chunks are yielded to simulate realistic streaming.
+        """
+        service = _build_llama_cpp_client(maximum_number_of_bytes_of_response_body=50)
+
+        chunk_one = b"A" * 30
+        chunk_two = b"B" * 30  # Total 60 bytes, exceeding the 50-byte limit.
+
+        mock_response = MagicMock()
+        mock_response.headers = {"content-type": "application/json"}
+        mock_response.raise_for_status = MagicMock()
+
+        async def _multi_chunk_iter():
+            yield chunk_one
+            yield chunk_two
+
+        mock_response.aiter_bytes = _multi_chunk_iter
+        _configure_stream_mock(service, mock_response)
+
+        with pytest.raises(
+            application.exceptions.LargeLanguageModelServiceUnavailableError,
+            match="exceeds the configured maximum",
+        ):
+            await service.enhance_prompt("A cat")
 
 
 class TestFinishReasonTruncationDetection:
@@ -373,12 +477,11 @@ class TestFinishReasonTruncationDetection:
         the stdout stream directly via ``capsys``.
         """
         service = _build_llama_cpp_client()
-        mock_response = _build_mock_of_json_response(
+        mock_response = _build_mock_of_json_streaming_response(
             "Truncated enhanced prompt text",
             finish_reason="length",
         )
-        service.http_client = AsyncMock()
-        service.http_client.post = AsyncMock(return_value=mock_response)
+        _configure_stream_mock(service, mock_response)
 
         result = await service.enhance_prompt("A cat")
 
@@ -393,12 +496,11 @@ class TestFinishReasonTruncationDetection:
         is informational, not a hard failure.
         """
         service = _build_llama_cpp_client()
-        mock_response = _build_mock_of_json_response(
+        mock_response = _build_mock_of_json_streaming_response(
             "Truncated but usable prompt",
             finish_reason="length",
         )
-        service.http_client = AsyncMock()
-        service.http_client.post = AsyncMock(return_value=mock_response)
+        _configure_stream_mock(service, mock_response)
 
         result = await service.enhance_prompt("A cat")
 
@@ -411,12 +513,11 @@ class TestFinishReasonTruncationDetection:
         truncation warning.
         """
         service = _build_llama_cpp_client()
-        mock_response = _build_mock_of_json_response(
+        mock_response = _build_mock_of_json_streaming_response(
             "Complete enhanced prompt",
             finish_reason="stop",
         )
-        service.http_client = AsyncMock()
-        service.http_client.post = AsyncMock(return_value=mock_response)
+        _configure_stream_mock(service, mock_response)
 
         await service.enhance_prompt("A cat")
 
@@ -441,15 +542,10 @@ class TestFinishReasonTruncationDetection:
         }
         serialised_body = json.dumps(response_body).encode("utf-8")
 
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.json.return_value = response_body
-        mock_response.raise_for_status = MagicMock()
-        mock_response.headers = {"content-type": "application/json"}
-        mock_response.content = serialised_body
-
-        service.http_client = AsyncMock()
-        service.http_client.post = AsyncMock(return_value=mock_response)
+        mock_response = _build_mock_of_streaming_response(
+            body_bytes=serialised_body,
+        )
+        _configure_stream_mock(service, mock_response)
 
         result = await service.enhance_prompt("A cat")
 
@@ -462,14 +558,11 @@ class TestFinishReasonTruncationDetection:
         self,
     ) -> None:
         """
-        The ``finish_reason`` extraction (llama_cpp_client.py lines
-        212–215) is wrapped in a defensive ``try/except (KeyError,
-        IndexError)`` guard.  This guard protects against the unlikely
-        scenario where the ``choices`` list is accessible during prompt
-        extraction (line 190) but becomes inaccessible during the
-        subsequent ``finish_reason`` lookup (line 213) — for example,
-        due to a non-standard JSON-like object returned by an
-        intermediary proxy.
+        The ``finish_reason`` extraction is wrapped in a defensive
+        ``try/except (KeyError, IndexError)`` guard.  This guard
+        protects against the unlikely scenario where the ``choices``
+        list is accessible during prompt extraction but becomes
+        inaccessible during the subsequent ``finish_reason`` lookup.
 
         This test uses a custom list subclass that empties itself after
         the first index access, simulating a consumable-once data
@@ -487,10 +580,6 @@ class TestFinishReasonTruncationDetection:
             A list that clears itself after the first ``__getitem__``
             call, causing subsequent index operations to raise
             ``IndexError``.
-
-            This simulates a non-standard response object whose
-            ``choices`` array is consumable only once — an extreme edge
-            case that the defensive guard protects against.
             """
 
             def __init__(self, *args):
@@ -501,10 +590,6 @@ class TestFinishReasonTruncationDetection:
                 result = super().__getitem__(index)
                 if not self._first_access_completed:
                     self._first_access_completed = True
-                    # Schedule clearing after the first successful access.
-                    # The caller (line 190) receives the value normally.
-                    # On the next __getitem__ call (line 213), the list
-                    # is empty, triggering IndexError.
                     self.clear()
                 return result
 
@@ -513,26 +598,32 @@ class TestFinishReasonTruncationDetection:
             "finish_reason": "stop",
         }
 
-        response_body = {
-            "choices": SingleAccessList([choices_entry]),
-        }
+        # The raw bytes use a normal list for valid JSON serialisation.
         serialised_body = json.dumps({"choices": [choices_entry]}).encode("utf-8")
 
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 200
-        mock_response.json.return_value = response_body
-        mock_response.raise_for_status = MagicMock()
-        mock_response.headers = {"content-type": "application/json"}
-        mock_response.content = serialised_body
+        mock_response = _build_mock_of_streaming_response(
+            body_bytes=serialised_body,
+        )
+        _configure_stream_mock(service := _build_llama_cpp_client(), mock_response)
 
-        service = _build_llama_cpp_client()
-        service.http_client = AsyncMock()
-        service.http_client.post = AsyncMock(return_value=mock_response)
+        # After json.loads produces the dict, we replace the choices
+        # list with the SingleAccessList so that the second index
+        # access (for finish_reason) raises IndexError.
+        import unittest.mock
 
-        result = await service.enhance_prompt("A cat")
+        original_json_loads = json.loads
 
-        # The enhanced prompt must still be returned — the finish_reason
-        # guard is purely informational and must not block delivery.
+        def _patched_json_loads(data, **kwargs):
+            result = original_json_loads(data, **kwargs)
+            result["choices"] = SingleAccessList([choices_entry])
+            return result
+
+        with unittest.mock.patch(
+            "application.integrations.llama_cpp_client.json.loads",
+            side_effect=_patched_json_loads,
+        ):
+            result = await service.enhance_prompt("A cat")
+
         assert result == "Enhanced prompt from corrupted response"
 
 
@@ -605,7 +696,7 @@ class TestCircuitBreakerIntegration:
             await service.enhance_prompt("A cat")
 
         # The HTTP client should never have been called.
-        service.http_client.post.assert_not_awaited()
+        service.http_client.stream.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_success_records_with_circuit_breaker(self) -> None:
@@ -621,9 +712,8 @@ class TestCircuitBreakerIntegration:
         assert breaker.number_of_consecutive_failures == 2
 
         service = _build_llama_cpp_client(circuit_breaker=breaker)
-        mock_response = _build_mock_of_json_response("Enhanced prompt text")
-        service.http_client = AsyncMock()
-        service.http_client.post = AsyncMock(return_value=mock_response)
+        mock_response = _build_mock_of_json_streaming_response("Enhanced prompt text")
+        _configure_stream_mock(service, mock_response)
 
         await service.enhance_prompt("A cat")
 
@@ -638,10 +728,7 @@ class TestCircuitBreakerIntegration:
         )
 
         service = _build_llama_cpp_client(circuit_breaker=breaker)
-        service.http_client = AsyncMock()
-        service.http_client.post = AsyncMock(
-            side_effect=httpx.ConnectError("Connection refused"),
-        )
+        _configure_stream_error(service, httpx.ConnectError("Connection refused"))
 
         with pytest.raises(application.exceptions.LargeLanguageModelServiceUnavailableError):
             await service.enhance_prompt("A cat")
@@ -657,10 +744,7 @@ class TestCircuitBreakerIntegration:
         )
 
         service = _build_llama_cpp_client(circuit_breaker=breaker)
-        service.http_client = AsyncMock()
-        service.http_client.post = AsyncMock(
-            side_effect=httpx.TimeoutException("Timed out"),
-        )
+        _configure_stream_error(service, httpx.TimeoutException("Timed out"))
 
         with pytest.raises(application.exceptions.LargeLanguageModelServiceUnavailableError):
             await service.enhance_prompt("A cat")
@@ -676,16 +760,18 @@ class TestCircuitBreakerIntegration:
         )
 
         service = _build_llama_cpp_client(circuit_breaker=breaker)
-        mock_response = MagicMock(spec=httpx.Response)
-        mock_response.status_code = 500
-        service.http_client = AsyncMock()
-        service.http_client.post = AsyncMock(
-            side_effect=httpx.HTTPStatusError(
+        mock_error_response = MagicMock(spec=httpx.Response)
+        mock_error_response.status_code = 500
+        mock_response = _build_mock_of_streaming_response(
+            body_bytes=b"",
+            status_code=500,
+            raise_for_status_side_effect=httpx.HTTPStatusError(
                 "Server error",
                 request=MagicMock(),
-                response=mock_response,
+                response=mock_error_response,
             ),
         )
+        _configure_stream_mock(service, mock_response)
 
         with pytest.raises(application.exceptions.LargeLanguageModelServiceUnavailableError):
             await service.enhance_prompt("A cat")
@@ -701,9 +787,9 @@ class TestCircuitBreakerIntegration:
         )
 
         service = _build_llama_cpp_client(circuit_breaker=breaker)
-        service.http_client = AsyncMock()
-        service.http_client.post = AsyncMock(
-            side_effect=httpx.TooManyRedirects(
+        _configure_stream_error(
+            service,
+            httpx.TooManyRedirects(
                 "Too many redirects",
                 request=MagicMock(),
             ),
@@ -718,9 +804,8 @@ class TestCircuitBreakerIntegration:
     async def test_no_circuit_breaker_operates_normally(self) -> None:
         """When no circuit breaker is configured, the service operates normally."""
         service = _build_llama_cpp_client(circuit_breaker=None)
-        mock_response = _build_mock_of_json_response("Enhanced prompt text")
-        service.http_client = AsyncMock()
-        service.http_client.post = AsyncMock(return_value=mock_response)
+        mock_response = _build_mock_of_json_streaming_response("Enhanced prompt text")
+        _configure_stream_mock(service, mock_response)
 
         result = await service.enhance_prompt("A cat")
 
@@ -739,14 +824,14 @@ class TestCircuitBreakerIntegration:
         )
 
         service = _build_llama_cpp_client(circuit_breaker=breaker)
-        service.http_client = AsyncMock()
-        service.http_client.post = AsyncMock(
-            side_effect=httpx.ConnectError("Connection refused"),
-        )
+        _configure_stream_error(service, httpx.ConnectError("Connection refused"))
 
         # First two failures should still attempt the upstream call.
         with pytest.raises(application.exceptions.LargeLanguageModelServiceUnavailableError):
             await service.enhance_prompt("A cat")
+
+        # Re-configure because _configure_stream_error creates a new context each call.
+        _configure_stream_error(service, httpx.ConnectError("Connection refused"))
 
         with pytest.raises(application.exceptions.LargeLanguageModelServiceUnavailableError):
             await service.enhance_prompt("A dog")
@@ -755,7 +840,7 @@ class TestCircuitBreakerIntegration:
 
         # Third request should be rejected by the circuit breaker
         # without calling the upstream.
-        service.http_client.post.reset_mock()
+        service.http_client = AsyncMock()
 
         with pytest.raises(
             application.exceptions.LargeLanguageModelServiceUnavailableError,
@@ -763,7 +848,7 @@ class TestCircuitBreakerIntegration:
         ):
             await service.enhance_prompt("A bird")
 
-        service.http_client.post.assert_not_awaited()
+        service.http_client.stream.assert_not_called()
 
 
 class TestClose:

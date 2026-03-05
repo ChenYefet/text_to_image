@@ -1580,9 +1580,9 @@ class TestCustomiseOpenApiSchema:
             for path, path_item in schema.get("paths", {}).items():
                 for method, operation in path_item.items():
                     if isinstance(operation, dict) and "responses" in operation:
-                        assert (
-                            "422" not in operation["responses"]
-                        ), f"Phantom 422 response found in {method.upper()} {path}"
+                        assert "422" not in operation["responses"], (
+                            f"Phantom 422 response found in {method.upper()} {path}"
+                        )
 
     def test_unused_validation_error_schemas_are_removed(
         self, mock_of_llama_cpp_client, mock_of_stable_diffusion_pipeline
@@ -1621,6 +1621,6 @@ class TestCustomiseOpenApiSchema:
                 for method, operation in path_item.items():
                     if isinstance(operation, dict) and "responses" in operation:
                         for expected_status_code in ("404", "405", "500"):
-                            assert (
-                                expected_status_code in operation["responses"]
-                            ), f"Missing {expected_status_code} response in {method.upper()} {path}"
+                            assert expected_status_code in operation["responses"], (
+                                f"Missing {expected_status_code} response in {method.upper()} {path}"
+                            )
