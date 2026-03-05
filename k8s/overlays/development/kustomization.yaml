@@ -4,6 +4,9 @@ kind: Kustomization
 resources:
   - ../../base
 
+components:
+  - ../../components/cpu
+
 patches:
   - target:
       kind: Deployment

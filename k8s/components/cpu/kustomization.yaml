@@ -1,0 +1,10 @@
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+# The base manifests already use CPU-tier resource values (500m CPU,
+# 2Gi memory for the API; 2000m CPU for llama-cpp-server).  This
+# component exists as the explicit counterpart to the GPU component
+# and serves as the natural location for CPU-specific environment
+# variable patches (for example, concurrency=1, extended timeouts)
+# if a future specification version adds a ConfigMap to the base
+# manifests.

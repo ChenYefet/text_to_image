@@ -1,0 +1,41 @@
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+patches:
+  # text-to-image-api: GPU-tier resources per v5.4.0 specification section 21
+  - target:
+      kind: Deployment
+      name: text-to-image-api-deployment
+    patch: |
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: "1000m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: "4Gi"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: "12Gi"
+      - op: add
+        path: /spec/template/spec/containers/0/resources/limits/nvidia.com~1gpu
+        value: 1
+      - op: add
+        path: /spec/template/spec/nodeSelector
+        value:
+          accelerator: nvidia-gpu
+
+  # llama-cpp-server: GPU-tier resources per v5.4.0 specification section 21
+  - target:
+      kind: Deployment
+      name: llama-cpp-server-deployment
+    patch: |
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: "1000m"
+      - op: add
+        path: /spec/template/spec/containers/0/resources/limits/nvidia.com~1gpu
+        value: 1
+      - op: add
+        path: /spec/template/spec/nodeSelector
+        value:
+          accelerator: nvidia-gpu
