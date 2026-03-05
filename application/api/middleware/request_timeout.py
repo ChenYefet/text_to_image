@@ -3,7 +3,7 @@ Request timeout middleware.
 
 The ``RequestTimeoutMiddleware`` enforces the operator-configured
 end-to-end request timeout (``request_timeout_in_seconds``, default
-300 s).  Requests exceeding this ceiling are aborted with HTTP 504
+60 s).  Requests exceeding this ceiling are aborted with HTTP 504
 (``request_timeout``).  This middleware implements NFR48 from the v5.4.0
 specification.
 
@@ -50,7 +50,7 @@ class RequestTimeoutMiddleware:
     def __init__(
         self,
         app: starlette.types.ASGIApp,
-        request_timeout_in_seconds: float = 300.0,
+        request_timeout_in_seconds: float = 60.0,
     ) -> None:
         self._asgi_application = app
         self._request_timeout_in_seconds = request_timeout_in_seconds

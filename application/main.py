@@ -200,8 +200,8 @@ def create_application() -> fastapi.FastAPI:
         # sequence rather than on the first real user request.  This
         # is a best-effort optimisation: if the warmup fails, the
         # first user request absorbs the warmup cost instead.
-        if loaded_pipeline_instances:
-            await loaded_pipeline_instances[0].run_startup_warmup()
+        for pipeline_instance_to_warm_up in loaded_pipeline_instances:
+            await pipeline_instance_to_warm_up.run_startup_warmup()
 
         # ── ImageGenerationService construction ──────────────────────
         #
