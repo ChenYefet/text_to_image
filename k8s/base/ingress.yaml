@@ -1,0 +1,33 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: text-to-image-api-ingress
+  namespace: text-to-image-service
+  labels:
+    app.kubernetes.io/name: text-to-image-api
+    app.kubernetes.io/component: ingress
+  annotations:
+    # Operators shall replace the ingress class annotation with the
+    # ingress controller deployed in their cluster (e.g. nginx, traefik,
+    # aws-alb).
+    # kubernetes.io/ingress.class: nginx
+spec:
+  # Operators shall replace the placeholder host with the actual domain
+  # name assigned to the service.
+  rules:
+    - host: "text-to-image.example.com"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: text-to-image-api-service
+                port:
+                  number: 80
+  # Operators shall replace the placeholder TLS secret name with the
+  # actual secret containing the TLS certificate and private key.
+  tls:
+    - hosts:
+        - "text-to-image.example.com"
+      secretName: text-to-image-tls-secret

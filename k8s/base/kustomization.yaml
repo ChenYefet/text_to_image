@@ -12,6 +12,7 @@ resources:
   - text-to-image-api-hpa.yaml
   - network-policy.yaml
   - persistent-volume-claims.yaml
+  - ingress.yaml
 
 commonLabels:
   app.kubernetes.io/part-of: text-to-image-service
