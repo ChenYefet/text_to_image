@@ -101,6 +101,10 @@ For version numbers specifically, search across all formatting variants — dott
 
 When an interactive rebase modifies version numbers across multiple commits, searches for superseded versions must be cumulative at each stop. Each stop must verify not only the version it directly supersedes, but all previously superseded versions as well.
 
+This verification procedure also applies when introducing a new value — such as a version constraint, a compatibility requirement, a tool target version, or a configuration default — that defines or constrains something already stated elsewhere in the repository. Search for existing references to the same concept across all file types to ensure they are consistent with the newly introduced value. For example, when adding `target-version = "py312"` to a tool configuration file, search for plausible existing version references (such as "3.11", "3.10", and "Python 3") to identify any that now contradict the newly authoritative value.
+
+When a commit adds, removes, or renames a file or directory, every manually maintained inventory of files in the repository — such as a project structure tree in README.md, a component listing in documentation, or a table of modules in the specification — must be updated in the same commit. A file addition, removal, or rename is not complete until all such inventories reflect the current state of the filesystem.
+
 SPECIFICATION COUNT AND CHANGELOG INTEGRITY
 
 When correcting a count in the specification (such as the number of logging events, the number of requirements, or any other enumerated total):
