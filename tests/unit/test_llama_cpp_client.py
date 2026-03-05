@@ -18,6 +18,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
+import structlog.testing
 
 import application.circuit_breaker
 import application.exceptions
@@ -467,14 +468,10 @@ class TestFinishReasonTruncationDetection:
     """
 
     @pytest.mark.asyncio
-    async def test_finish_reason_length_logs_warning(self, capsys: pytest.CaptureFixture[str]) -> None:
+    async def test_finish_reason_length_logs_warning(self) -> None:
         """
         When the upstream returns ``finish_reason: "length"``, the
         service logs a WARNING containing ``prompt_enhancement_truncated``.
-
-        Note: structlog in the test environment writes to stdout rather
-        than through the standard ``caplog`` mechanism, so we capture
-        the stdout stream directly via ``capsys``.
         """
         service = _build_llama_cpp_client()
         mock_response = _build_mock_of_json_streaming_response(
@@ -483,11 +480,14 @@ class TestFinishReasonTruncationDetection:
         )
         _configure_stream_mock(service, mock_response)
 
-        result = await service.enhance_prompt("A cat")
+        with structlog.testing.capture_logs() as captured_log_events:
+            result = await service.enhance_prompt("A cat")
 
         assert result == "Truncated enhanced prompt text"
-        captured_output = capsys.readouterr()
-        assert "prompt_enhancement_truncated" in captured_output.out
+        truncation_events = [
+            event for event in captured_log_events if event.get("event") == "prompt_enhancement_truncated"
+        ]
+        assert len(truncation_events) == 1
 
     @pytest.mark.asyncio
     async def test_finish_reason_length_still_returns_prompt(self) -> None:

@@ -16,6 +16,7 @@ Covers all state transitions and edge cases of the circuit breaker pattern:
 import asyncio
 
 import pytest
+import structlog.testing
 
 import application.circuit_breaker
 
@@ -260,27 +261,22 @@ class TestCircuitBreakerLogging:
     """Verify that the circuit breaker emits structured log events for state transitions."""
 
     @pytest.mark.asyncio
-    async def test_opening_logs_warning(
-        self,
-        capsys: pytest.CaptureFixture[str],
-    ) -> None:
+    async def test_opening_logs_warning(self) -> None:
         """When the circuit opens, a 'circuit_breaker_opened' warning is logged."""
         breaker = application.circuit_breaker.CircuitBreaker(
             failure_threshold=1,
             name="test_logging",
         )
 
-        await breaker.record_failure()
+        with structlog.testing.capture_logs() as captured_log_events:
+            await breaker.record_failure()
 
-        captured_output = capsys.readouterr()
-        assert "circuit_breaker_opened" in captured_output.out
-        assert "test_logging" in captured_output.out
+        opened_events = [event for event in captured_log_events if event.get("event") == "circuit_breaker_opened"]
+        assert len(opened_events) == 1
+        assert opened_events[0]["circuit_name"] == "test_logging"
 
     @pytest.mark.asyncio
-    async def test_half_open_logs_info(
-        self,
-        capsys: pytest.CaptureFixture[str],
-    ) -> None:
+    async def test_half_open_logs_info(self) -> None:
         """When the circuit transitions to HALF_OPEN, an info event is logged."""
         breaker = application.circuit_breaker.CircuitBreaker(
             failure_threshold=1,
@@ -290,16 +286,15 @@ class TestCircuitBreakerLogging:
 
         await breaker.record_failure()
         await asyncio.sleep(0.15)
-        await breaker.ensure_circuit_is_not_open()
 
-        captured_output = capsys.readouterr()
-        assert "circuit_breaker_half_open" in captured_output.out
+        with structlog.testing.capture_logs() as captured_log_events:
+            await breaker.ensure_circuit_is_not_open()
+
+        half_open_events = [event for event in captured_log_events if event.get("event") == "circuit_breaker_half_open"]
+        assert len(half_open_events) == 1
 
     @pytest.mark.asyncio
-    async def test_closing_after_probe_logs_info(
-        self,
-        capsys: pytest.CaptureFixture[str],
-    ) -> None:
+    async def test_closing_after_probe_logs_info(self) -> None:
         """When a successful probe closes the circuit, an info event is logged."""
         breaker = application.circuit_breaker.CircuitBreaker(
             failure_threshold=1,
@@ -310,17 +305,16 @@ class TestCircuitBreakerLogging:
         await breaker.record_failure()
         await asyncio.sleep(0.15)
         await breaker.ensure_circuit_is_not_open()
-        await breaker.record_success()
 
-        captured_output = capsys.readouterr()
-        assert "circuit_breaker_closed" in captured_output.out
-        assert "probe_succeeded" in captured_output.out
+        with structlog.testing.capture_logs() as captured_log_events:
+            await breaker.record_success()
+
+        closed_events = [event for event in captured_log_events if event.get("event") == "circuit_breaker_closed"]
+        assert len(closed_events) == 1
+        assert closed_events[0]["reason"] == "probe_succeeded"
 
     @pytest.mark.asyncio
-    async def test_reopening_after_failed_probe_logs_warning(
-        self,
-        capsys: pytest.CaptureFixture[str],
-    ) -> None:
+    async def test_reopening_after_failed_probe_logs_warning(self) -> None:
         """When a failed probe reopens the circuit, a warning event is logged."""
         breaker = application.circuit_breaker.CircuitBreaker(
             failure_threshold=1,
@@ -331,11 +325,13 @@ class TestCircuitBreakerLogging:
         await breaker.record_failure()
         await asyncio.sleep(0.15)
         await breaker.ensure_circuit_is_not_open()
-        await breaker.record_failure()
 
-        captured_output = capsys.readouterr()
-        assert "circuit_breaker_reopened" in captured_output.out
-        assert "probe_failed" in captured_output.out
+        with structlog.testing.capture_logs() as captured_log_events:
+            await breaker.record_failure()
+
+        reopened_events = [event for event in captured_log_events if event.get("event") == "circuit_breaker_reopened"]
+        assert len(reopened_events) == 1
+        assert reopened_events[0]["reason"] == "probe_failed"
 
 
 class TestCircuitBreakerTimingEdgeCases:

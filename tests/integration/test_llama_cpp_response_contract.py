@@ -29,6 +29,7 @@ The four properties verified by ``test_llama_cpp_response_contract`` are:
 """
 
 import json
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
@@ -69,27 +70,52 @@ def _build_llama_cpp_client_for_contract_testing() -> application.integrations.l
     )
 
 
-def _build_mock_of_successful_http_response(
+def _build_mock_of_successful_streaming_response(
     response_body: dict,
 ) -> MagicMock:
     """
-    Build a mock ``httpx.Response`` that mimics a successful 200 reply
+    Build a mock streaming response that mimics a successful 200 reply
     from the llama.cpp server.
 
-    The mock includes the ``headers`` and ``content`` attributes that
-    ``LlamaCppClient`` inspects for streaming response detection
-    (Content-Type must not be ``text/event-stream``) and response body
-    size enforcement (``len(response.content)`` must not exceed the
-    configured maximum).
+    The mock provides ``headers``, ``raise_for_status()``, and
+    ``aiter_bytes()`` (yielding the body as a single chunk), matching
+    the interface that ``LlamaCppClient.enhance_prompt`` uses via
+    ``http_client.stream()``.
     """
     serialised_body = json.dumps(response_body).encode("utf-8")
-    mock_response = MagicMock(spec=httpx.Response)
+    mock_response = MagicMock()
     mock_response.status_code = 200
-    mock_response.json.return_value = response_body
     mock_response.raise_for_status = MagicMock()
     mock_response.headers = {"content-type": "application/json"}
-    mock_response.content = serialised_body
+
+    async def _async_iter_bytes():
+        yield serialised_body
+
+    mock_response.aiter_bytes = _async_iter_bytes
+
     return mock_response
+
+
+@asynccontextmanager
+async def _mock_stream_context(mock_response):
+    """
+    Async context manager wrapper that yields the mock response.
+
+    Used to replace ``http_client.stream()`` which returns an async
+    context manager in production code.
+    """
+    yield mock_response
+
+
+def _configure_stream_mock(client, mock_response):
+    """
+    Configure the client's ``http_client`` to return the given mock
+    response when ``stream()`` is called as an async context manager.
+    """
+    client.http_client = AsyncMock()
+    client.http_client.stream = MagicMock(
+        return_value=_mock_stream_context(mock_response),
+    )
 
 
 @pytest.mark.asyncio
@@ -119,14 +145,13 @@ async def test_llama_cpp_response_contract() -> None:
         ``upstream_service_unavailable`` (HTTP 502).
     """
     client = _build_llama_cpp_client_for_contract_testing()
-    mock_http_client = AsyncMock()
-    client.http_client = mock_http_client
 
     # ------------------------------------------------------------------
     # Assertion 1: well-formed response → correct extraction
     # ------------------------------------------------------------------
-    mock_http_client.post = AsyncMock(
-        return_value=_build_mock_of_successful_http_response(WELL_FORMED_RESPONSE_BODY_FROM_LLAMA_CPP)
+    _configure_stream_mock(
+        client,
+        _build_mock_of_successful_streaming_response(WELL_FORMED_RESPONSE_BODY_FROM_LLAMA_CPP),
     )
     extracted_enhanced_prompt = await client.enhance_prompt("a mountain at sunset")
     expected_content = WELL_FORMED_RESPONSE_BODY_FROM_LLAMA_CPP["choices"][0]["message"]["content"]
@@ -138,21 +163,28 @@ async def test_llama_cpp_response_contract() -> None:
     # ------------------------------------------------------------------
     # Assertion 2: connection error → upstream_service_unavailable
     # ------------------------------------------------------------------
-    mock_http_client.post = AsyncMock(side_effect=httpx.ConnectError("Connection refused"))
+    client.http_client = AsyncMock()
+    client.http_client.stream = MagicMock(side_effect=httpx.ConnectError("Connection refused"))
     with pytest.raises(application.exceptions.LargeLanguageModelServiceUnavailableError):
         await client.enhance_prompt("a mountain at sunset")
 
     # ------------------------------------------------------------------
     # Assertion 3: missing choices field → upstream_service_unavailable
     # ------------------------------------------------------------------
-    mock_http_client.post = AsyncMock(return_value=_build_mock_of_successful_http_response({}))
+    _configure_stream_mock(
+        client,
+        _build_mock_of_successful_streaming_response({}),
+    )
     with pytest.raises(application.exceptions.PromptEnhancementError):
         await client.enhance_prompt("a mountain at sunset")
 
     # ------------------------------------------------------------------
     # Assertion 4: empty choices array → upstream_service_unavailable
     # ------------------------------------------------------------------
-    mock_http_client.post = AsyncMock(return_value=_build_mock_of_successful_http_response({"choices": []}))
+    _configure_stream_mock(
+        client,
+        _build_mock_of_successful_streaming_response({"choices": []}),
+    )
     with pytest.raises(application.exceptions.PromptEnhancementError):
         await client.enhance_prompt("a mountain at sunset")
 
