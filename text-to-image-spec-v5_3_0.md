@@ -1,6 +1,6 @@
 # Technical Specification: Text-to-Image Generation Service with Prompt Enhancement
 
-**Document Version:** 5.2.7
+**Document Version:** 5.3.0
 **Status:** Final — Panel Review Ready
 **Target Audience:** Senior Engineering Panel, Implementation Teams
 **Specification Authority:** Principal Technical Specification Authority
@@ -85,11 +85,12 @@ This specification is designed for evaluation by a hiring panel assessing a cand
 - **Observability:** Structured JSON logging with correlation identifiers and inference telemetry
 - **Deployment model:** Containerised deployment with Kubernetes orchestration support
 - **Infrastructure:** Infrastructure-as-code using Kubernetes manifests
+- **Deployment tiers:** GPU-primary with CPU fallback; all configuration defaults are optimised for GPU-accelerated inference
 - **Fault tolerance:** Verified under sustained concurrent load with active fault injection
 
 #### Justification for the synchronous request model
 
-This specification mandates a synchronous request-response model where each HTTP request blocks until the full inference result (text enhancement or image generation) is available. Image generation on CPU hardware takes 30–90 seconds per image; during this time, the requesting client's HTTP connection remains open. This model is architecturally appropriate for the stated scale (1 concurrent image generation, 5 concurrent prompt enhancement virtual users) because: (a) the admission control concurrency limiter ([NFR44](#concurrency-control-for-image-generation), default concurrency 1) ensures that at most one image generation request occupies a Uvicorn worker thread at any time; (b) the asynchronous execution model (see [Concurrency Architecture (Asynchronous Execution Model)](#concurrency-architecture-asynchronous-execution-model) in §14) delegates blocking inference to a thread pool executor, preserving the event loop for concurrent health probes, validation responses, and prompt enhancement I/O; (c) the nginx reverse proxy's `proxy_read_timeout` of 300 seconds and the timeout for end-to-end requests ([NFR48](#timeout-for-end-to-end-requests), default 300 seconds) provide bounded connection lifetimes. At higher concurrency (3–5 simultaneous image generation clients), the synchronous model becomes untenable on CPU hardware: each in-flight generation consumes all available CPU cores for 30–60 seconds, exhausting the worker pool and causing health probe failures. Deployments expecting sustained generation of images by multiple clients should either use GPU acceleration (reducing per-image inference to 2–5 seconds) or adopt the asynchronous job-based pattern described in [future extensibility pathway 4 (Asynchronous generation)](#future-extensibility-pathways).
+This specification mandates a synchronous request-response model where each HTTP request blocks until the full inference result (text enhancement or image generation) is available. At GPU speeds (2–5 seconds per image), the synchronous model is well-suited for moderate concurrency (default 2 concurrent generations). On CPU, image generation takes 30–90 seconds per image, limiting practical concurrency to 1; during this time, the requesting client's HTTP connection remains open. This model is architecturally appropriate for the stated scale (2 concurrent image generations on GPU, 1 on CPU, 5 concurrent prompt enhancement virtual users) because: (a) the admission control concurrency limiter ([NFR44](#concurrency-control-for-image-generation), default concurrency 2) ensures that at most two image generation requests occupy Uvicorn worker threads at any time on GPU (CPU-only deployments should reduce to 1); (b) the asynchronous execution model (see [Concurrency Architecture (Asynchronous Execution Model)](#concurrency-architecture-asynchronous-execution-model) in §14) delegates blocking inference to a thread pool executor, preserving the event loop for concurrent health probes, validation responses, and prompt enhancement I/O; (c) the nginx reverse proxy's `proxy_read_timeout` of 300 seconds and the timeout for end-to-end requests ([NFR48](#timeout-for-end-to-end-requests), default 60 seconds) provide bounded connection lifetimes. At higher concurrency (3–5 simultaneous image generation clients), the synchronous model becomes untenable on CPU hardware: each in-flight generation consumes all available CPU cores for 30–60 seconds, exhausting the worker pool and causing health probe failures. Deployments expecting sustained generation of images by multiple clients on CPU should adopt the asynchronous job-based pattern described in [future extensibility pathway 4 (Asynchronous generation)](#future-extensibility-pathways).
 
 ### Document Structure
 
@@ -124,7 +125,7 @@ The following Core-tier requirements define the minimum viable service. A candid
 
 The following non-functional requirements must be satisfied by any passing implementation as a natural consequence of implementing the functional requirements above correctly:
 
-- **[NFR2](#latency-of-image-generation-single-image-512512)** (Latency of image generation) — Images generate within bounded time on CPU hardware
+- **[NFR2](#latency-of-image-generation-single-image-512512)** (Latency of image generation) — Images generate within bounded time on GPU or CPU hardware
 - **[NFR3](#latency-of-validation-responses)** (Latency of validation responses) — Validation failures respond within 1 second
 - **[NFR5](#stateless-processing-of-requests)** (Stateless processing of requests) — No request depends on prior request state
 - **[NFR10](#structured-logging)** (Structured logging) — Log entries are structured JSON with mandatory fields
@@ -716,7 +717,7 @@ curl -s -w "\nHTTP_STATUS:%{http_code}\nTOTAL_TIME:%{time_total}\n" \
 
 4. Record the HTTP status code (expected: 502).
 5. Record the total request time in seconds.
-6. Verify the total request time is ≤ 125 seconds (the configured upstream timeout of 120 seconds plus up to 5 seconds of processing overhead).
+6. Verify the total request time is ≤ the configured upstream timeout plus up to 5 seconds of processing overhead (with the default of 30 seconds, this is ≤ 35 seconds).
 7. Parse the response body and verify `error.code` equals `"upstream_service_unavailable"`.
 8. Verify the service remains responsive to other requests by executing: `curl http://localhost:8000/health` (expected: HTTP 200).
 9. Examine the service logs and verify an ERROR-level entry exists indicating a timeout or network failure, including the correlation identifier.
@@ -808,7 +809,7 @@ The non-functional requirements are specified before functional requirements bec
 
 ##### Latency of prompt enhancement under concurrent load
 
-1. The service shall complete prompt enhancement requests within bounded latency for prompts of up to 2000 characters on CPU-only hardware, verified under sustained concurrent load.
+1. The service shall complete prompt enhancement requests within bounded latency for prompts of up to 2000 characters on GPU-accelerated or CPU-only hardware, verified under sustained concurrent load.
 
 **Intent:** To ensure prompt enhancement provides acceptable response times under realistic multi-client conditions, not solely under sequential single-request testing. Bounding latency under concurrent load enables clients to implement predictable timeout and retry strategies and supports capacity planning based on empirical throughput data.
 
@@ -831,20 +832,40 @@ The non-functional requirements are specified before functional requirements bec
 
 - Success criteria:
 
+    **GPU tier (primary):**
+
+    - At least 95% of all requests return an HTTP 200 response with a syntactically valid JSON response body containing a valid `enhanced_prompt` field
+    - The 95th percentile latency across all requests is ≤ 10 seconds
+    - The maximum latency across all requests is ≤ 30 seconds
+    - No request returns a non-JSON response body
+
+    **CPU tier (fallback):**
+
     - At least 95% of all requests return an HTTP 200 response with a syntactically valid JSON response body containing a valid `enhanced_prompt` field
     - The 95th percentile latency across all requests is ≤ 30 seconds
     - The maximum latency across all requests is ≤ 60 seconds
     - No request returns a non-JSON response body
 
-**Mixed-workload concurrency advisory:** The latency targets above assume that prompt enhancement requests are the only compute-intensive workload executing during the test period. On CPU-only hardware, a concurrent image generation request (which typically saturates all available CPU cores for 30–60 seconds per image) will introduce significant CPU contention that may degrade llama.cpp response times to the point of exceeding the 120-second upstream timeout (`TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_TO_LARGE_LANGUAGE_MODEL_IN_SECONDS`). This is an inherent limitation of CPU-only deployments where both inference backends share the same physical compute resources. The [NFR1](#latency-of-prompt-enhancement-under-concurrent-load) load test (RO7) is intentionally scoped to prompt-enhancement-only traffic to provide a stable, reproducible performance baseline. Operators observing prompt enhancement timeouts during concurrent image generation should consider: (a) deploying llama.cpp on a separate machine or container with dedicated CPU resources; (b) increasing `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_TO_LARGE_LANGUAGE_MODEL_IN_SECONDS` to accommodate contention-induced latency; (c) using admission control ([NFR44](#concurrency-control-for-image-generation), default concurrency 1) to serialise image generation requests and limit sustained CPU pressure; or (d) enabling GPU-accelerated execution for llama.cpp via the `--gpu-layers` flag (see [llama.cpp Integration](#llamacpp-integration)), which moves prompt enhancement inference off the CPU and eliminates CPU contention with image generation.
+    **Preconditions for GPU-tier verification:** The llama.cpp server shall be running with all model layers offloaded to the GPU via the `--gpu-layers` flag (fully offloaded).
+
+**Mixed-workload concurrency advisory:** On GPU-accelerated deployments, prompt enhancement and image generation use separate compute resources (GPU for inference, CPU for HTTP handling), which eliminates the CPU contention problem inherent to CPU-only deployments. The latency targets above assume that prompt enhancement requests are the only compute-intensive workload executing during the test period. On CPU-only hardware, a concurrent image generation request (which typically saturates all available CPU cores for 30–60 seconds per image) will introduce significant CPU contention that may degrade llama.cpp response times to the point of exceeding the 30-second upstream timeout (`TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_TO_LARGE_LANGUAGE_MODEL_IN_SECONDS`; CPU-only operators should increase to 120 seconds). This is an inherent limitation of CPU-only deployments where both inference backends share the same physical compute resources. The [NFR1](#latency-of-prompt-enhancement-under-concurrent-load) load test (RO7) is intentionally scoped to prompt-enhancement-only traffic to provide a stable, reproducible performance baseline. Operators observing prompt enhancement timeouts during concurrent image generation should consider: (a) deploying llama.cpp on a separate machine or container with dedicated CPU resources; (b) increasing `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_TO_LARGE_LANGUAGE_MODEL_IN_SECONDS` to accommodate contention-induced latency; (c) using admission control ([NFR44](#concurrency-control-for-image-generation), default concurrency 2; CPU-only operators should reduce to 1) to serialise image generation requests and limit sustained CPU pressure; or (d) enabling GPU-accelerated execution for llama.cpp via the `--gpu-layers` flag (see [llama.cpp Integration](#llamacpp-integration)), which moves prompt enhancement inference off the CPU and eliminates CPU contention with image generation.
 
 ##### Latency of image generation (single image, 512×512)
 
-2. The service shall complete single-image generation requests at 512×512 resolution within bounded latency on CPU hardware with a minimum of 8 GB of RAM.
+2. The service shall complete single-image generation requests at 512×512 resolution within bounded latency on a CUDA-compatible GPU with a minimum of 8 GB of VRAM (GPU tier) or on CPU hardware with a minimum of 8 GB of RAM (CPU tier).
 
-**Intent:** To establish baseline performance expectations for Stable Diffusion inference on CPU, acknowledging that CPU-based image generation is significantly slower than GPU-accelerated alternatives. Bounded latency enables capacity planning and client-side timeout configuration.
+**Intent:** To establish baseline performance expectations for Stable Diffusion inference across both deployment tiers. GPU is the primary deployment target, offering 2–5 second inference; CPU is the fallback tier for environments without GPU access, where inference takes 30–90 seconds. Bounded latency enables capacity planning and client-side timeout configuration.
 
 **Preconditions:**
+
+**GPU tier (primary):**
+
+- The Text-to-Image API Service is running and accessible
+- The Stable Diffusion model has been fully loaded (verify via logs for service startup showing successful model initialisation)
+- The host system has a CUDA-compatible GPU with at least 8 GB of VRAM
+- The device is set to `cuda` or `auto` (which selects CUDA when available)
+
+**CPU tier (fallback):**
 
 - The Text-to-Image API Service is running and accessible
 - The Stable Diffusion model has been fully loaded (verify via logs for service startup showing successful model initialisation)
@@ -860,13 +881,21 @@ The non-functional requirements are specified before functional requirements bec
 
 - Success criteria:
 
+    **GPU tier (primary):**
+
+    - All 10 requests complete within 5 seconds each
+    - No single request exceeds 10 seconds (outlier safety net for transient system load)
+    - All 10 requests return HTTP 200 with a valid `data` array containing exactly 1 valid base64-encoded PNG image
+
+    **CPU tier (fallback):**
+
     - All 10 requests complete within 60 seconds each
     - No single request exceeds 90 seconds (outlier safety net for transient system load)
     - All 10 requests return HTTP 200 with a valid `data` array containing exactly 1 valid base64-encoded PNG image
 
-**Note on sample size:** Ten sequential requests provide sufficient confidence for baseline latency verification on CPU hardware, where inference variance is dominated by deterministic computation rather than contention. For statistically meaningful percentile measurements (95th percentile, 99th percentile), increase the sample size to at least 30 requests or use a load-testing tool; the 10-request sequential test is designed for rapid functional verification of baseline latency, not for production characterisation of service level agreements.
+**Note on sample size:** Ten sequential requests provide sufficient confidence for baseline latency verification, where inference variance is dominated by deterministic computation rather than contention. For statistically meaningful percentile measurements (95th percentile, 99th percentile), increase the sample size to at least 30 requests or use a load-testing tool; the 10-request sequential test is designed for rapid functional verification of baseline latency, not for production characterisation of service level agreements.
 
-**Rationale for sequential testing:** [Principle 7](#principle-7-verified-scalability-under-load) (Verified Scalability Under Load) mandates concurrent load verification for performance claims. [NFR2](#latency-of-image-generation-single-image-512512) is tested sequentially rather than under concurrent load because CPU-based Stable Diffusion inference for a single 512×512 image typically consumes all available CPU cores for 30–60 seconds, making concurrent image generation on a single host infeasible without exceeding memory or timeout limits. Concurrent load verification of prompt enhancement (which is I/O-bound rather than compute-bound) is addressed by [NFR1](#latency-of-prompt-enhancement-under-concurrent-load), and concurrent fault tolerance is addressed by [NFR9](#fault-tolerance-under-sustained-concurrent-load).
+**Rationale for sequential testing:** [Principle 7](#principle-7-verified-scalability-under-load) (Verified Scalability Under Load) mandates concurrent load verification for performance claims. [NFR2](#latency-of-image-generation-single-image-512512) is tested sequentially rather than under concurrent load to provide a cross-tier consistency baseline. On CPU, a single 512×512 image generation consumes all available CPU cores for 30–60 seconds, making concurrent image generation on a single host infeasible without exceeding memory or timeout limits. GPU-tier testing may also use concurrent load, but the sequential baseline is retained for cross-tier consistency. Concurrent load verification of prompt enhancement (which is I/O-bound rather than compute-bound) is addressed by [NFR1](#latency-of-prompt-enhancement-under-concurrent-load), and concurrent fault tolerance is addressed by [NFR9](#fault-tolerance-under-sustained-concurrent-load).
 
 ##### Latency of validation responses
 
@@ -898,12 +927,12 @@ The non-functional requirements are specified before functional requirements bec
 
 48. The service shall enforce a configurable maximum end-to-end duration for any single HTTP request. If the total elapsed time for a request — including prompt enhancement, image generation, and response serialisation — exceeds the configured ceiling, the service shall abort processing and return an HTTP 504 (Gateway Timeout) response with a structured error body conforming to the Schema for Error Responses.
 
-**Intent:** To provide a hard ceiling on maximum request duration, preventing unbounded resource consumption from worst-case request paths. Without an overall timeout, a request combining prompt enhancement (up to 120 seconds) with generation of images in batches at maximum resolution (up to 4 × 90 seconds) could theoretically consume 480 seconds — exceeding the nginx reverse proxy's `proxy_read_timeout` of 300 seconds and causing a client-visible error from the proxy rather than from the service itself. An explicit end-to-end timeout ensures that the service, not the infrastructure, controls timeout behaviour, producing a response for structured errors rather than an opaque proxy error. This also enables clients to set their own timeouts with confidence, as the service guarantees an upper bound on response time.
+**Intent:** To provide a hard ceiling on maximum request duration, preventing unbounded resource consumption from worst-case request paths. Without an overall timeout, a request on CPU combining prompt enhancement (up to 120 seconds with CPU-adjusted timeout) with generation of images in batches at maximum resolution (up to 4 × 90 seconds) could theoretically consume 480 seconds — exceeding the nginx reverse proxy's `proxy_read_timeout` of 300 seconds and causing a client-visible error from the proxy rather than from the service itself. On GPU, the default 60-second timeout accommodates prompt enhancement (up to 30 seconds) plus a single image generation (up to 10 seconds) with headroom. An explicit end-to-end timeout ensures that the service, not the infrastructure, controls timeout behaviour, producing a response for structured errors rather than an opaque proxy error. This also enables clients to set their own timeouts with confidence, as the service guarantees an upper bound on response time.
 
 **Preconditions:**
 
 - The Text-to-Image API Service is running and accessible
-- The timeout for end-to-end requests is configured (default: 300 seconds, configurable via `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS`)
+- The timeout for end-to-end requests is configured (default: 60 seconds, configurable via `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS`; CPU-only operators should increase to 300 seconds)
 
 **Verification:**
 
@@ -912,8 +941,8 @@ The non-functional requirements are specified before functional requirements bec
     1. Set `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS` to a low value for testing purposes (for example, `5` seconds)
     2. Restart the service to apply the configuration change
     3. Execute [RO3](#ro3-image-generation-with-enhancement) (which triggers both enhancement and generation, likely exceeding 5 seconds on CPU hardware) and record the HTTP status code, total request time, and response body (recommended tool: terminal with `curl -w "%{time_total}"`)
-    4. Restore `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS` to its default value (`300`) and restart the service
-    5. Set `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS` to `3` seconds and `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_TO_LARGE_LANGUAGE_MODEL_IN_SECONDS` to `120` seconds. Restart the service.
+    4. Restore `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS` to its default value (`60`) and restart the service
+    5. Set `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS` to `3` seconds and `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_TO_LARGE_LANGUAGE_MODEL_IN_SECONDS` to `30` seconds. Restart the service.
     6. Execute [RO1](#ro1-prompt-enhancement) and record the HTTP status code, total request time, and response body
     7. Verify the request returns HTTP 504 with `error.code` equal to `"request_timeout"` and a total request time approximately equal to 3 seconds (± 2 seconds)
     8. Restore both configuration values to their defaults and restart the service
@@ -927,7 +956,7 @@ The non-functional requirements are specified before functional requirements bec
     - Both error response bodies conform to the Schema for Error Responses (contains `error.code`, `error.message`, `error.correlation_id`)
     - The service remains responsive after each timeout (verified by `curl http://localhost:8000/health` returning HTTP 200)
 
-**Note on alignment with infrastructure timeouts:** The default value of 300 seconds is chosen to align with the nginx reverse proxy's `proxy_read_timeout` in the reference docker-compose configuration. Operators deploying behind alternative reverse proxies or load balancers should ensure that the reverse proxy timeout is greater than or equal to `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS` to avoid the proxy timing out before the service, which would produce an opaque proxy error rather than the service's response for structured errors.
+**Note on alignment with infrastructure timeouts:** The default value of 60 seconds is optimised for GPU inference. CPU-only operators should increase to 300 seconds to align with the nginx reverse proxy's `proxy_read_timeout` in the reference docker-compose configuration. Operators deploying behind alternative reverse proxies or load balancers should ensure that the reverse proxy timeout is greater than or equal to `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS` to avoid the proxy timing out before the service, which would produce an opaque proxy error rather than the service's response for structured errors.
 
 ---
 
@@ -1023,7 +1052,7 @@ The non-functional requirements are specified before functional requirements bec
 - Success criteria:
 
     - All RO6 success criteria are met
-    - The total request time is ≤ 125 seconds (the configured upstream timeout of 120 seconds plus up to 5 seconds of processing overhead)
+    - The total request time is ≤ the configured upstream timeout plus up to 5 seconds of processing overhead (with the default of 30 seconds, this is ≤ 35 seconds)
     - The service remains responsive to `GET /health` requests during and after the timed-out request
 
 ##### Partial availability under component failure
@@ -1130,7 +1159,7 @@ The non-functional requirements are specified before functional requirements bec
     - **OPEN** (fail-fast): All prompt enhancement requests are rejected immediately with HTTP 502 (`upstream_service_unavailable`) without contacting the llama.cpp server. After the configured recovery timeout (`TEXT_TO_IMAGE_RECOVERY_TIMEOUT_OF_CIRCUIT_BREAKER_FOR_LARGE_LANGUAGE_MODEL_IN_SECONDS`) elapses, the circuit transitions to HALF_OPEN.
     - **HALF_OPEN** (probing): The circuit allows a request through to test whether the llama.cpp server has recovered. If the request succeeds, the circuit transitions back to CLOSED and the failure counter is reset. If the request fails, the circuit transitions back to OPEN and the recovery timer restarts.
 
-**Intent:** When the llama.cpp server is consistently failing, every prompt enhancement request blocks for the full configured timeout (default 120 seconds) before returning HTTP 502. Under concurrent load, this exhausts connection pool resources and degrades response times for all clients, including those making requests that do not depend on llama.cpp (image generation with `use_enhancer: false`). The circuit breaker detects sustained upstream failure and transitions to fail-fast mode, rejecting enhancement requests immediately with HTTP 502 rather than waiting for a timeout that will inevitably fail. This preserves server resources for requests that can succeed and provides clients with faster failure signals.
+**Intent:** When the llama.cpp server is consistently failing, every prompt enhancement request blocks for the full configured timeout (default 30 seconds; CPU-only operators should increase to 120 seconds) before returning HTTP 502. Under concurrent load, this exhausts connection pool resources and degrades response times for all clients, including those making requests that do not depend on llama.cpp (image generation with `use_enhancer: false`). The circuit breaker detects sustained upstream failure and transitions to fail-fast mode, rejecting enhancement requests immediately with HTTP 502 rather than waiting for a timeout that will inevitably fail. This preserves server resources for requests that can succeed and provides clients with faster failure signals.
 
 **Preconditions:**
 
@@ -1158,7 +1187,7 @@ The non-functional requirements are specified before functional requirements bec
 
 - Success criteria:
 
-    - Requests 1–3 each take approximately the configured upstream timeout duration (120 seconds with default configuration) before returning HTTP 502
+    - Requests 1–3 each take approximately the configured upstream timeout duration (30 seconds with default configuration) before returning HTTP 502
     - Request 4 returns HTTP 502 in under 1 second (fail-fast while circuit is in the OPEN state)
     - Request 5 (HALF_OPEN probe after recovery timeout) takes approximately the configured upstream timeout duration before returning HTTP 502 (the probe was allowed through but failed)
     - Request 6 (HALF_OPEN probe after llama.cpp restart) returns HTTP 200 with a valid enhanced prompt
@@ -1175,13 +1204,13 @@ The non-functional requirements are specified before functional requirements bec
 
 - The Text-to-Image API Service is running and accessible
 - The Stable Diffusion model has been fully loaded
-- The concurrency limit is configured (default: 1, configurable via `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION`)
+- The concurrency limit is configured (default: 2, configurable via `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION`; CPU-only deployments should reduce to 1)
 
 **Verification:**
 
 - Test procedure:
 
-    1. Set `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION` to `1` (or use the default)
+    1. Set `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION` to `1` (the default is `2`; setting to `1` simplifies verification by ensuring the second request is immediately rejected)
     2. In one terminal, initiate an image generation request that will occupy the concurrency slot for the duration of inference: `curl -s -X POST http://localhost:8000/v1/images/generations -H "Content-Type: application/json" -d '{"prompt": "a landscape", "use_enhancer": false, "n": 1, "size": "512x512"}' -o response_first.json &`
     3. Wait 2 seconds for the first request to begin inference (verify via service logs showing `image_generation_initiated`)
     4. In a second terminal, send a concurrent image generation request: `curl -s -w "\nHTTP_STATUS:%{http_code}\nTOTAL_TIME:%{time_total}\n" -X POST http://localhost:8000/v1/images/generations -H "Content-Type: application/json" -d '{"prompt": "a portrait", "use_enhancer": false, "n": 1, "size": "512x512"}' -o response_second.json`
@@ -1204,7 +1233,7 @@ The non-functional requirements are specified before functional requirements bec
 
 **Prompt enhancement concurrency model:** No equivalent admission control is applied to `POST /v1/prompts/enhance`. Prompt enhancement is an I/O-bound operation (an HTTP call to the llama.cpp server) rather than a compute-bound in-process operation, making client-side concurrency limiters less critical for resource protection. When multiple prompt enhancement requests arrive concurrently, all are forwarded to the llama.cpp server simultaneously; the llama.cpp server's own internal queue serialises them. On CPU-only 7B-class models, llama.cpp typically processes one request at a time, so `k` concurrent enhancement requests will experience average latency of approximately `k × (per-request latency)` as they queue internally at llama.cpp. Operators observing excessive latency under concurrent prompt enhancement load should consider: (a) running multiple llama.cpp server instances behind a reverse proxy, (b) using a smaller or more aggressively quantised model, or (c) reducing llama.cpp's context length. This queueing behaviour is the intentional concurrency model for prompt enhancement in this specification. If a future operational profile demands explicit admission control for prompt enhancement, a new NFR shall be added following the categorisation guidance in the New Requirement Categorisation Guide.
 
-**llama.cpp capacity planning advisory:** In the Kubernetes production reference, 3–10 API service pods may all send concurrent prompt enhancement requests to a shared llama.cpp deployment. A single llama.cpp instance processing a 7B Q4_K_M model on 4 CPU threads typically sustains a throughput of approximately 1 request every 5–15 seconds (depending on prompt length and `max_tokens`), which means `k` concurrent API service pods can queue up to `k` simultaneous enhancement requests, with each request experiencing `k × 5–15 seconds` worst-case latency before the 120-second upstream timeout (`TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_TO_LARGE_LANGUAGE_MODEL_IN_SECONDS`) is reached. For example, with 5 API service pods each sending one concurrent enhancement request, the fifth request in the queue may wait 60–75 seconds. At 10 API service pods, queue depths approach the timeout ceiling. Operators should size the llama.cpp replica count relative to the API service pod count: as a general guideline, one llama.cpp replica per 3–5 API service pods maintains prompt enhancement latency within the [NFR1](#latency-of-prompt-enhancement-under-concurrent-load) success criteria (95th percentile ≤ 30 seconds) under sustained concurrent load. The llama.cpp server's own internal request queue does not return HTTP 429 or HTTP 503 when at capacity; requests queue silently until either the upstream timeout elapses (producing HTTP 502 from the API service) or a processing slot becomes available. This silent queueing behaviour is why external capacity planning — rather than reactive admission control — is the recommended approach for prompt enhancement scalability.
+**llama.cpp capacity planning advisory:** In the Kubernetes production reference, 3–10 API service pods may all send concurrent prompt enhancement requests to a shared llama.cpp deployment. On GPU-accelerated deployments, a single llama.cpp instance with full GPU offload typically sustains a throughput of approximately 1 request every 1–3 seconds (depending on prompt length and `max_tokens`). On CPU-only deployments, a single llama.cpp instance processing a 7B Q4_K_M model on 4 CPU threads typically sustains a throughput of approximately 1 request every 5–15 seconds (depending on prompt length and `max_tokens`). In either case, `k` concurrent API service pods can queue up to `k` simultaneous enhancement requests, with each request experiencing `k × (per-request latency)` worst-case latency before the 30-second upstream timeout (`TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_TO_LARGE_LANGUAGE_MODEL_IN_SECONDS`; CPU-only operators should increase to 120 seconds) is reached. For example, on GPU with 5 API service pods each sending one concurrent enhancement request, the fifth request in the queue may wait 5–15 seconds; on CPU, the same scenario may produce waits of 25–75 seconds. Operators should size the llama.cpp replica count relative to the API service pod count: as a general guideline, one llama.cpp replica per 3–5 API service pods maintains prompt enhancement latency within the [NFR1](#latency-of-prompt-enhancement-under-concurrent-load) success criteria (GPU tier: 95th percentile ≤ 10 seconds; CPU tier: 95th percentile ≤ 30 seconds) under sustained concurrent load. The llama.cpp server's own internal request queue does not return HTTP 429 or HTTP 503 when at capacity; requests queue silently until either the upstream timeout elapses (producing HTTP 502 from the API service) or a processing slot becomes available. This silent queueing behaviour is why external capacity planning — rather than reactive admission control — is the recommended approach for prompt enhancement scalability.
 
 **Connection pool sizing for multi-replica deployments:** Each API service pod maintains its own independent httpx connection pool of size `TEXT_TO_IMAGE_SIZE_OF_CONNECTION_POOL_FOR_LARGE_LANGUAGE_MODEL` (default 10). In a multi-replica deployment, the total number of connections from all API service pods to the llama.cpp deployment is bounded by `number_of_api_pods × pool_size_per_pod` — for example, 10 API pods × 10 connections = 100 total connections distributed across the llama.cpp replicas. Because prompt enhancement requests are I/O-bound and serialised at the llama.cpp server, most of these connections will be idle at any given moment; the pool size of 10 is therefore sufficient for typical deployments and does not require adjustment when scaling horizontally. Operators should consider reducing the pool size only if the total connection count approaches operating system or load balancer connection limits.
 
@@ -1662,7 +1691,7 @@ The non-functional requirements are specified before functional requirements bec
 
 - Success criteria:
 
-    - With default configuration (neither `TEXT_TO_IMAGE_RETRY_AFTER_BUSY_IN_SECONDS` nor `TEXT_TO_IMAGE_RETRY_AFTER_NOT_READY_IN_SECONDS` set), the HTTP 429 response includes a `Retry-After` header with an integer value of `30` and the HTTP 503 response includes a `Retry-After` header with an integer value of `10`
+    - With default configuration (neither `TEXT_TO_IMAGE_RETRY_AFTER_BUSY_IN_SECONDS` nor `TEXT_TO_IMAGE_RETRY_AFTER_NOT_READY_IN_SECONDS` set), the HTTP 429 response includes a `Retry-After` header with an integer value of `5` and the HTTP 503 response includes a `Retry-After` header with an integer value of `10`
     - Both `Retry-After` values are valid non-negative integers representing seconds, as specified by RFC 7231 §7.1.3
     - The `Retry-After` header is present alongside the structured JSON error body (i.e., the header supplements, not replaces, the error response)
     - Setting `TEXT_TO_IMAGE_RETRY_AFTER_BUSY_IN_SECONDS=60` and restarting the service causes the 429 response to carry `Retry-After: 60`
@@ -2903,7 +2932,7 @@ The following examples illustrate concrete error response bodies for representat
   "error": {
     "code": "service_busy",
     "message": "The image generation service is at capacity. Please retry after the duration indicated in the Retry-After header.",
-    "details": "Current concurrency limit: 1. All inference slots are occupied.",
+    "details": "Current concurrency limit: 2. All inference slots are occupied.",
     "correlation_id": "12345678-abcd-4ef0-9876-543210fedcba"
   }
 }
@@ -3192,11 +3221,11 @@ The following limits are configurable via environment variables and affect API v
 | Maximum prompt length (characters) | 2,000 | *(validated in Pydantic schema)* | [FR30](#request-validation-schema-compliance) (Request validation: schema compliance) |
 | Maximum images per request (`n`) | 4 | *(validated in Pydantic schema)* | [FR30](#request-validation-schema-compliance) (Request validation: schema compliance) |
 | Permitted image sizes | `512x512`, `768x768`, `1024x1024` | *(validated in Pydantic schema)* | [FR30](#request-validation-schema-compliance) (Request validation: schema compliance) |
-| Image generation concurrency limit | 1 | `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION` | [NFR44](#concurrency-control-for-image-generation) (Concurrency control for image generation) |
-| Upstream request timeout (seconds) | 120 | `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_TO_LARGE_LANGUAGE_MODEL_IN_SECONDS` | [NFR6](#enforcement-of-upstream-timeouts) (Enforcement of upstream timeouts) |
+| Image generation concurrency limit | 2 | `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION` | [NFR44](#concurrency-control-for-image-generation) (Concurrency control for image generation) |
+| Upstream request timeout (seconds) | 30 | `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_TO_LARGE_LANGUAGE_MODEL_IN_SECONDS` | [NFR6](#enforcement-of-upstream-timeouts) (Enforcement of upstream timeouts) |
 | Failure threshold of the circuit breaker for the large language model (consecutive failures) | 5 | `TEXT_TO_IMAGE_FAILURE_THRESHOLD_OF_CIRCUIT_BREAKER_FOR_LARGE_LANGUAGE_MODEL` | [NFR50](#circuit-breaker-for-communication-with-the-large-language-model-service) (Circuit breaker for communication with the large language model service) |
 | Recovery timeout of the circuit breaker for the large language model (seconds) | 30 | `TEXT_TO_IMAGE_RECOVERY_TIMEOUT_OF_CIRCUIT_BREAKER_FOR_LARGE_LANGUAGE_MODEL_IN_SECONDS` | [NFR50](#circuit-breaker-for-communication-with-the-large-language-model-service) (Circuit breaker for communication with the large language model service) |
-| Timeout for end-to-end requests (seconds) | 300 | `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS` | [NFR48](#timeout-for-end-to-end-requests) (Timeout for end-to-end requests) |
+| Timeout for end-to-end requests (seconds) | 60 | `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS` | [NFR48](#timeout-for-end-to-end-requests) (Timeout for end-to-end requests) |
 | CORS allowed origins | `[]` (none) | `TEXT_TO_IMAGE_CORS_ALLOWED_ORIGINS` | [NFR16](#cors-enforcement) (CORS enforcement) |
 
 Changes to these configured values modify the API's validation behaviour but do not constitute breaking changes within a major API version, provided that:
@@ -3272,7 +3301,7 @@ Error responses for this endpoint are organised by the stage of request processi
 | 405 | HTTP method not supported (for example, GET used instead of POST) | Do not retry — use POST |
 | 413 | Request payload exceeds maximum size | Do not retry — reduce payload |
 | 415 | Content-Type header missing or not `application/json` | Do not retry — set correct header |
-| 429 | concurrency limit for image generation reached | Retry with exponential backoff (recommended initial delay: 10–30 seconds for CPU inference) |
+| 429 | concurrency limit for image generation reached | Retry with exponential backoff (recommended initial delay: 2–5 seconds for GPU inference, 10–30 seconds for CPU inference) |
 | 502 | Upstream unavailable (llama.cpp or Stable Diffusion) | Retry with exponential backoff |
 | 500 | Unexpected internal error | Retry with exponential backoff; escalate if persistent |
 | 504 | Timeout for end-to-end requests exceeded | Retry with exponential backoff; consider reducing request complexity |
@@ -3485,13 +3514,13 @@ The following operations are synchronous and blocking. They **must** be delegate
 
 **Thread pool sizing:**
 
-A dedicated `ThreadPoolExecutor` shall be created and sized to match `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION` (default: 1). This executor shall be used exclusively for synchronous blocking operations — inference and image encoding — and shall be injected into `ImageGenerationService` as a constructor dependency. Using a dedicated executor — rather than sizing the asyncio event loop's default executor — isolates inference threads from any other asynchronous work that may use the default executor, preventing contention. With the default concurrency of 1, a single worker thread suffices. Increasing the concurrency limit requires a proportionally sized thread pool to avoid deadlocking inference tasks waiting for executor capacity.
+A dedicated `ThreadPoolExecutor` shall be created and sized to match `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION` (default: 2). This executor shall be used exclusively for synchronous blocking operations — inference and image encoding — and shall be injected into `ImageGenerationService` as a constructor dependency. Using a dedicated executor — rather than sizing the asyncio event loop's default executor — isolates inference threads from any other asynchronous work that may use the default executor, preventing contention. On GPU deployments with the default concurrency of 2, GPU inference (2–5 seconds) releases the thread pool executor slot much faster than CPU inference (30–90 seconds), improving effective concurrency. On CPU-only deployments with concurrency reduced to 1, a single worker thread suffices. Increasing the concurrency limit requires a proportionally sized thread pool to avoid deadlocking inference tasks waiting for executor capacity.
 
 **Uvicorn worker model:**
 
 For single-instance deployments, Uvicorn shall run with a single worker process (`--workers 1`). The single-worker model is appropriate because: (a) inference for image generation saturates all available CPU cores for a single request, making multi-worker deployments on the same host counterproductive; (b) each worker loads an independent copy of the Stable Diffusion pipeline into memory, and the 8 GB minimum RAM specification cannot accommodate multiple copies; (c) horizontal scaling across separate hosts or containers is the mandated scaling strategy ([Principle 1](#principle-1-statelessness-and-horizontal-scalability), [NFR4](#horizontal-scaling-under-concurrent-load)). For production deployments requiring multi-worker configurations on high-memory hosts, each worker operates as an independent process with its own event loop, thread pool, and pipeline instance — no inter-worker coordination is required due to the statelessness guarantee ([NFR5](#stateless-processing-of-requests)). Each worker maintains its own independent in-memory metrics ([FR38](#metrics-endpoint)) and its own independent circuit breaker instance ([NFR50](#circuit-breaker-for-communication-with-the-large-language-model-service)); this per-worker isolation is a direct consequence of the statelessness guarantee and requires no special handling.
 
-**Rationale:** This explicit concurrency architecture ensures that two independent implementers produce functionally equivalent services. Without this specification, a naive implementation that calls `StableDiffusionPipeline.__call__` directly from an `async def` endpoint handler would block the event loop for 30–60 seconds per image, freezing all concurrent request handling — including health probes (causing Kubernetes to kill the pod) and validation failures (violating [NFR3](#latency-of-validation-responses)'s 1-second response latency guarantee). The executor-based model preserves event loop responsiveness during inference.
+**Rationale:** This explicit concurrency architecture ensures that two independent implementers produce functionally equivalent services. Without this specification, a naive implementation that calls `StableDiffusionPipeline.__call__` directly from an `async def` endpoint handler would block the event loop for the duration of inference (2–5 seconds on GPU, 30–60 seconds on CPU), freezing all concurrent request handling — including health probes (causing Kubernetes to kill the pod) and validation failures (violating [NFR3](#latency-of-validation-responses)'s 1-second response latency guarantee). The executor-based model preserves event loop responsiveness during inference.
 
 ### Request Lifecycle Sequence Diagrams
 
@@ -3831,7 +3860,7 @@ The service shall extract `choices[0].message.content` and strip leading and tra
 | Failure Mode | Detection Method | Service Response |
 |--------------|------------------|------------------|
 | Server not running | Connection refused | HTTP 502, `upstream_service_unavailable` |
-| Request timeout | No response within configured timeout (120 s) | HTTP 502, `upstream_service_unavailable` |
+| Request timeout | No response within configured timeout (30 s default; CPU-only operators should increase to 120 s) | HTTP 502, `upstream_service_unavailable` |
 | Response body exceeds size limit | Response body exceeds `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_BYTES_OF_RESPONSE_BODY_FROM_LARGE_LANGUAGE_MODEL` | HTTP 502, `upstream_service_unavailable` |
 | Invalid response format | JSON parse failure or missing `choices` field | HTTP 502, `upstream_service_unavailable` |
 | HTTP error from llama.cpp | 4xx or 5xx status code | HTTP 502, `upstream_service_unavailable` |
@@ -3852,10 +3881,10 @@ The service shall extract `choices[0].message.content` and strip leading and tra
 
 | Parameter | Value | Justification |
 |-----------|-------|---------------|
-| `torch_dtype` | `torch.float16` (CUDA) / `torch.float32` (CPU) | Half-precision on GPU reduces memory consumption and improves throughput; full precision is required on CPU where float16 is not hardware-accelerated. |
+| `torch_dtype` | `torch.float16` (CUDA) / `torch.float32` (CPU fallback) | Half-precision on GPU (primary tier) reduces memory consumption and improves throughput; full precision is required on CPU (fallback tier) where float16 is not hardware-accelerated. |
 | `safety_checker` | Configurable (default: enabled) | Controlled via `TEXT_TO_IMAGE_SAFETY_CHECKER_FOR_STABLE_DIFFUSION`; enabled by default for safe operation, can be disabled for performance in controlled environments where content moderation is handled externally |
 | `attention_slicing` | Enabled | Reduces peak memory usage during inference on both GPU and CPU |
-| `num_inference_steps` | `20` | Optimised for acceptable output quality with significantly reduced latency, particularly on CPU hardware |
+| `num_inference_steps` | `20` | Optimised for acceptable output quality with significantly reduced latency. GPU deployments could sustain 30–50 steps within the 5-second bound, but 20 is retained for cross-tier consistency. |
 | `guidance_scale` | `7.0` | Balanced prompt adherence without over-constraining the diffusion process |
 
 **Prompt tokenisation and truncation advisory:** Stable Diffusion v1.5 uses a CLIP text encoder with a hard token limit of 77 tokens (approximately 250–350 characters for typical English text). Prompts exceeding this limit are silently truncated by the tokeniser — tokens beyond position 77 have zero effect on the generated image. This truncation is performed internally by the Diffusers library and is not interceptable by the service.
@@ -3868,15 +3897,15 @@ The service does not warn the client when a prompt (original or enhanced) exceed
 
 **Inference timeout advisory:** The `TEXT_TO_IMAGE_INFERENCE_TIMEOUT_BY_STABLE_DIFFUSION_PER_BASELINE_UNIT_IN_SECONDS` configuration variable specifies the per-image timeout used to derive a per-request timeout ceiling. Enforcing this timeout against a synchronous, blocking Python call (CPU-bound on CPU devices, GPU-bound on CUDA devices but still blocking the calling thread) requires the pipeline to run inside a thread pool executor (`asyncio.run_in_executor`) so that `asyncio.wait_for` can cancel the future if the deadline elapses. Without this pattern, the timeout has no effect on a blocking pipeline call, and the end-to-end ceiling enforced by [NFR48](#timeout-for-end-to-end-requests) (`TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS`) will serve as the effective limit. The `stable_diffusion_inference_timeout` logging event (see Logging and Observability section) shall be emitted whenever this per-request ceiling is exceeded, regardless of whether the timeout is enforced by the per-image mechanism or the end-to-end mechanism.
 
-**First-inference warm-up advisory:** The first image generation request after model loading is typically 20–50% slower than subsequent requests due to PyTorch's internal JIT compilation, memory allocation patterns, and CPU cache warming. Implementations should log this warm-up latency using the `first_warmup_of_inference_of_stable_diffusion` logging event. Evaluators should exclude the first inference from latency measurements when assessing [NFR2](#latency-of-image-generation-single-image-512512) compliance, or account for the warm-up overhead in their assessment. Implementations may optionally perform a single warm-up inference during startup (before reporting readiness via `GET /health/ready`) to absorb this overhead, but this is not required.
+**First-inference warm-up advisory:** The first image generation request after model loading is typically 20–50% slower than subsequent requests. On GPU deployments, this is primarily due to CUDA kernel compilation overhead; subsequent requests benefit from cached kernels. On CPU deployments, this is due to PyTorch's internal JIT compilation, memory allocation patterns, and CPU cache warming. Implementations should log this warm-up latency using the `first_warmup_of_inference_of_stable_diffusion` logging event. Evaluators should exclude the first inference from latency measurements when assessing [NFR2](#latency-of-image-generation-single-image-512512) compliance, or account for the warm-up overhead in their assessment. Implementations may optionally perform a single warm-up inference during startup (before reporting readiness via `GET /health/ready`) to absorb this overhead, but this is not required.
 
 #### Thread Safety and Concurrency Isolation
 
 The `StableDiffusionPipeline` object from the Hugging Face Diffusers library is **not inherently thread-safe**. Concurrent calls to a single shared pipeline instance with different parameters or seeds can produce non-deterministic outputs or raise runtime exceptions within PyTorch's internal state management.
 
-**Default deployment (CPU, `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION` = 1):** No special isolation is required. The admission control concurrency limiter defined by [NFR44](#concurrency-control-for-image-generation) ensures that only one inference operation executes at a time against the single pipeline instance. A single `StableDiffusionPipeline` object is sufficient.
+**GPU deployment (primary, `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION` = n, default 2):** The implementation **must** maintain a pool of `n` independent `StableDiffusionPipeline` instances, one per concurrency slot.
 
-**GPU deployment (`TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION` = n > 1):** The implementation **must** maintain a pool of `n` independent `StableDiffusionPipeline` instances, one per concurrency slot. Each inference call shall acquire an exclusive pipeline instance from the pool for the duration of the inference and release it upon completion. The following constraints apply:
+**CPU deployment (fallback, `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION` = 1):** No special isolation is required. The admission control concurrency limiter defined by [NFR44](#concurrency-control-for-image-generation) ensures that only one inference operation executes at a time against the single pipeline instance. A single `StableDiffusionPipeline` object is sufficient. CPU-only operators should reduce the concurrency limit to `1`. Each inference call shall acquire an exclusive pipeline instance from the pool for the duration of the inference and release it upon completion. The following constraints apply:
 
 1. A concurrency limiter alone is insufficient when `n > 1`; a dedicated pipeline instance per concurrency slot is mandatory to prevent shared-state corruption.
 2. Each pipeline instance in the pool consumes independent GPU memory. Operators must verify that available VRAM is sufficient for `n` simultaneous pipeline instances before increasing the concurrency limit (for example, a 7B-parameter model at `float16` precision occupies approximately 3.5 GB of VRAM per instance; a concurrency of 2 therefore requires approximately 7 GB of available VRAM).
@@ -3889,11 +3918,11 @@ Stable Diffusion inference with PyTorch allocates intermediate tensors (latent r
 
 **Mandatory cleanup:** After each inference for image generation completes (whether successfully or with an error), the implementation shall perform the following cleanup:
 
-1. Delete all references to intermediate PIL images and byte buffers used during base64 encoding.
-2. Invoke `gc.collect()` (Python's garbage collector) to release unreferenced tensors.
-3. On CUDA devices, additionally invoke `torch.cuda.empty_cache()` to release the GPU memory allocator's cached blocks back to the device.
+1. On CUDA devices, invoke `torch.cuda.empty_cache()` to release the GPU memory allocator's cached blocks back to the device. This is especially important for concurrency > 1, where multiple pipeline instances share GPU VRAM. Operators should monitor `torch.cuda.memory_allocated()` and `torch.cuda.memory_reserved()` to detect VRAM leaks across inference cycles.
+2. Delete all references to intermediate PIL images and byte buffers used during base64 encoding.
+3. Invoke `gc.collect()` (Python's garbage collector) to release unreferenced tensors.
 
-**Rationale:** Without explicit cleanup, a service running on 8 GB of RAM will typically survive 3–5 image generation cycles before the out-of-memory killer intervenes. This is not a hypothetical concern — it is an operational certainty on the minimum RAM specification. Explicit cleanup transforms memory growth from monotonically increasing to bounded, extending service lifetime indefinitely under normal operation.
+**Rationale:** On GPU deployments with concurrency > 1, unreleased VRAM from intermediate tensors accumulates across concurrent inference cycles, reducing the effective VRAM available and potentially causing CUDA out-of-memory errors. On CPU deployments, without explicit cleanup, a service running on 8 GB of RAM will typically survive 3–5 image generation cycles before the out-of-memory killer intervenes. This is not a hypothetical concern — it is an operational certainty on the minimum RAM specification. Explicit cleanup transforms memory growth from monotonically increasing to bounded, extending service lifetime indefinitely under normal operation.
 
 **Observability:** The `image_generation_completed` logging event should include a `number_of_bytes_of_resident_set_size_of_process` field reporting the process's current resident set size after cleanup, enabling operators to monitor memory trends and detect cleanup failures. Persistent growth of the resident set size across requests (after accounting for the initial model loading footprint) indicates that cleanup is not functioning correctly.
 
@@ -3910,7 +3939,7 @@ Stable Diffusion inference with PyTorch allocates intermediate tensors (latent r
 | 405 | Method error | HTTP method not supported for endpoint | Never retry — use correct method |
 | 413 | Payload too large | Request body exceeds maximum size | Never retry — reduce payload |
 | 415 | Media type error | Content-Type header missing or not `application/json` | Never retry — set correct Content-Type |
-| 429 | Service busy | concurrency limit for image generation reached | Retry with exponential backoff (initial delay 10–30 s) |
+| 429 | Service busy | concurrency limit for image generation reached | Retry with exponential backoff (initial delay 2–5 seconds for GPU inference, 10–30 seconds for CPU inference) |
 | 500 | Internal error | Unexpected service failure | Retry with exponential backoff; escalate if persistent |
 | 502 | Upstream failure | llama.cpp or Stable Diffusion unavailable | Retry with exponential backoff (base delay 1s, maximum 3 retries) |
 | 503 | Service not ready | One or more backend services have not completed initialisation | Retry with exponential backoff; wait for readiness |
@@ -3935,9 +3964,9 @@ Stable Diffusion inference with PyTorch allocates intermediate tensors (latent r
 
 The service does not retry failed upstream calls to llama.cpp or Stable Diffusion. When an upstream call fails — whether due to a connection refusal, a timeout, an HTTP error, or a circuit breaker rejection — the service maps the failure to an HTTP error response immediately and delegates retry responsibility to the client. This is a deliberate design decision, not an omission, and is motivated by the following considerations:
 
-1. **Latency amplification under tight timeout budgets.** The upstream timeout for llama.cpp is configurable with a default of 120 seconds ([NFR6](#enforcement-of-upstream-timeouts)). The end-to-end request timeout is configurable with a default of 300 seconds ([NFR48](#timeout-for-end-to-end-requests)). A single retry on a timeout failure would double the worst-case upstream latency to 240 seconds, leaving only 60 seconds of headroom for all remaining processing (image generation, middleware, serialisation). For image generation via Stable Diffusion, the timeout scales with the number of images requested and the resolution, making the budget even tighter.
+1. **Latency amplification under tight timeout budgets.** The upstream timeout for llama.cpp is configurable with a default of 30 seconds ([NFR6](#enforcement-of-upstream-timeouts); CPU-only operators should increase to 120 seconds). The end-to-end request timeout is configurable with a default of 60 seconds ([NFR48](#timeout-for-end-to-end-requests); CPU-only operators should increase to 300 seconds). A single retry on a timeout failure would double the worst-case upstream latency, leaving minimal headroom for all remaining processing (image generation, middleware, serialisation). For image generation via Stable Diffusion, the timeout scales with the number of images requested and the resolution, making the budget even tighter.
 
-2. **Resource occupation under constrained concurrency.** The default concurrency limit for image generation is 1 ([NFR44](#concurrency-control-for-image-generation)). A retry holds the inference slot longer, blocking all other clients. Every second spent retrying is a second during which an incoming request receives HTTP 429.
+2. **Resource occupation under constrained concurrency.** The default concurrency limit for image generation is 2 ([NFR44](#concurrency-control-for-image-generation); CPU-only operators should reduce to 1). A retry holds the inference slot longer, blocking all other clients. Every second spent retrying is a second during which an incoming request receives HTTP 429.
 
 3. **Retry storm risk from layered retry.** The [Error Classification](#error-classification) table already prescribes client-side exponential backoff for all transient error codes (429, 500, 502, 503, 504), and [NFR47](#retry-after-header-on-backpressure-and-unavailability-responses) provides server-supplied `Retry-After` headers on HTTP 429 and 503 responses. If the server also retried internally, a struggling upstream would receive amplified load from both layers — the server's internal retries and the client's external retries — producing exactly the retry storm that backpressure mechanisms are designed to prevent.
 
@@ -3994,12 +4023,12 @@ All configuration shall be expressed exclusively as environment variables with f
 | `TEXT_TO_IMAGE_APPLICATION_PORT` | HTTP bind port for the service | `8000` | No |
 | `TEXT_TO_IMAGE_BASE_URL_OF_LARGE_LANGUAGE_MODEL_SERVER` | Base URL of the llama.cpp server (OpenAI-compatible endpoint) | `http://localhost:8080` | No |
 | `TEXT_TO_IMAGE_LARGE_LANGUAGE_MODEL_PATH` | Path to GGUF model file. Reference only — not used at runtime by the Text-to-Image API Service. Provided for documentation, tooling, and deployment script visibility. | *(empty)* | No |
-| `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_TO_LARGE_LANGUAGE_MODEL_IN_SECONDS` | Maximum time in seconds to wait for a response from the llama.cpp server before treating the request as failed | `120` | No |
+| `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_TO_LARGE_LANGUAGE_MODEL_IN_SECONDS` | Maximum time in seconds to wait for a response from the llama.cpp server before treating the request as failed. The default is optimised for GPU-accelerated inference; CPU-only operators should increase to `120`. | `30` | No |
 | `TEXT_TO_IMAGE_SYSTEM_PROMPT_FOR_LARGE_LANGUAGE_MODEL` | System prompt sent to the llama.cpp server on every prompt enhancement request. Controls the enhancement style and output format. When set, this value overrides the built-in default (see [Model Integration Specifications](#model-integration-specifications), §14 for the default text). The default instructs the model to add artistic style, lighting, composition, and quality modifiers, and to return only the enhanced prompt with no additional commentary. Must be a non-empty string when set; the service shall fail to start if this variable is set to an empty string. | *(built-in default; see [Model Integration Specifications](#model-integration-specifications), §14)* | No |
 | `TEXT_TO_IMAGE_LARGE_LANGUAGE_MODEL_TEMPERATURE` | Sampling temperature for prompt enhancement; higher values produce more creative output | `0.7` | No |
 | `TEXT_TO_IMAGE_MAXIMUM_TOKENS_GENERATED_BY_LARGE_LANGUAGE_MODEL` | Maximum number of tokens the large language model may generate for an enhanced prompt | `512` | No |
 | `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_BYTES_OF_RESPONSE_BODY_FROM_LARGE_LANGUAGE_MODEL` | Maximum response body size in bytes the service will read from the llama.cpp server. Responses exceeding this limit are treated as upstream failures (HTTP 502). Protects against memory exhaustion from unexpectedly large upstream responses. | `1048576` (1 MB) | No |
-| `TEXT_TO_IMAGE_SIZE_OF_CONNECTION_POOL_FOR_LARGE_LANGUAGE_MODEL` | Maximum number of connections maintained in the httpx connection pool for the llama.cpp HTTP client. With default concurrency (`TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION` = 1) and sequential prompt enhancement, a pool size of 10 is sufficient. Increase if deploying multiple service instances against a single llama.cpp server or if concurrency is increased. | `10` | No |
+| `TEXT_TO_IMAGE_SIZE_OF_CONNECTION_POOL_FOR_LARGE_LANGUAGE_MODEL` | Maximum number of connections maintained in the httpx connection pool for the llama.cpp HTTP client. With default concurrency (`TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION` = 2) and sequential prompt enhancement, a pool size of 10 is sufficient. Increase if deploying multiple service instances against a single llama.cpp server or if concurrency is increased. | `10` | No |
 | `TEXT_TO_IMAGE_FAILURE_THRESHOLD_OF_CIRCUIT_BREAKER_FOR_LARGE_LANGUAGE_MODEL` | Number of consecutive failures to the llama.cpp large language model server required to open the circuit breaker and begin rejecting requests immediately without waiting for the full timeout duration. A value of 1 opens the circuit on the very first failure. Higher values tolerate transient errors before triggering fail-fast behaviour. See [NFR50](#circuit-breaker-for-communication-with-the-large-language-model-service) (Circuit breaker for communication with the large language model service). | `5` | No |
 | `TEXT_TO_IMAGE_RECOVERY_TIMEOUT_OF_CIRCUIT_BREAKER_FOR_LARGE_LANGUAGE_MODEL_IN_SECONDS` | Duration in seconds that the circuit breaker remains in the OPEN state (rejecting all requests immediately) before transitioning to the HALF_OPEN state and allowing a single probe request through to test whether the llama.cpp server has recovered. See [NFR50](#circuit-breaker-for-communication-with-the-large-language-model-service) (Circuit breaker for communication with the large language model service). | `30.0` | No |
 | `TEXT_TO_IMAGE_ID_OF_STABLE_DIFFUSION_MODEL` | Hugging Face model identifier or local filesystem path for the Stable Diffusion pipeline | `stable-diffusion-v1-5/stable-diffusion-v1-5` | No |
@@ -4008,12 +4037,12 @@ All configuration shall be expressed exclusively as environment variables with f
 | `TEXT_TO_IMAGE_NUMBER_OF_INFERENCE_STEPS_OF_STABLE_DIFFUSION` | Number of diffusion inference steps per image; lower values reduce latency at the cost of output quality | `20` | No |
 | `TEXT_TO_IMAGE_GUIDANCE_SCALE_OF_STABLE_DIFFUSION` | Classifier-free guidance scale; higher values follow the prompt more closely | `7.0` | No |
 | `TEXT_TO_IMAGE_SAFETY_CHECKER_FOR_STABLE_DIFFUSION` | Enable the NSFW safety checker (`true`/`false`); disabling removes content filtering from generated images | `true` | No |
-| `TEXT_TO_IMAGE_INFERENCE_TIMEOUT_BY_STABLE_DIFFUSION_PER_BASELINE_UNIT_IN_SECONDS` | Base timeout (seconds) for generating one 512×512 baseline unit image. The service scales automatically: `base × n_images × (w × h) / (512 × 512)`, with a 30× multiplier applied on CPU. GPU operators can usually leave the default; operators running on CPU without a GPU should increase it. **Implementation advisory:** Enforcing this timeout against a synchronous, blocking, in-process Python call is non-trivial. Unlike a network socket timeout, a `Diffusers` pipeline call running in the main thread cannot be interrupted by a simple `asyncio` cancellation. Correct enforcement requires running the pipeline in a thread pool executor (`asyncio.run_in_executor`) and cancelling the resulting `asyncio.Future` via `asyncio.wait_for`. Implementations that do not use this pattern will observe that the timeout has no effect on a blocking pipeline call, and the timeout for end-to-end requests ([NFR48](#timeout-for-end-to-end-requests) / `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS`) will serve as the effective ceiling instead. This configuration variable is therefore aspirational in the absence of executor-based implementation and is provided primarily to support future GPU deployments where cancellation via CUDA context destruction is feasible. | `60` | No |
-| `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION` | Maximum number of operations for inference during image generation permitted to execute concurrently within a single service instance. When this limit is reached, additional image generation requests are rejected immediately with HTTP 429 (`service_busy`). GPU deployments with sufficient VRAM may increase this value. A value of `1` is strongly recommended for CPU-only deployments where a single inference saturates all cores. | `1` | No |
-| `TEXT_TO_IMAGE_RETRY_AFTER_BUSY_IN_SECONDS` | Value (in seconds) of the `Retry-After` response header on HTTP 429 (Too Many Requests) responses. Operators should tune this to reflect the expected image generation duration for their deployment. | `30` | No |
+| `TEXT_TO_IMAGE_INFERENCE_TIMEOUT_BY_STABLE_DIFFUSION_PER_BASELINE_UNIT_IN_SECONDS` | Base timeout (seconds) for generating one 512×512 baseline unit image. The default is optimised for GPU-accelerated inference. The service scales automatically: `base × n_images × (w × h) / (512 × 512)`, with a 30× multiplier applied on CPU (yielding an effective timeout of 300 seconds per baseline unit on CPU). CPU-only operators should increase to `60`. **Implementation advisory:** Enforcing this timeout against a synchronous, blocking, in-process Python call is non-trivial. Unlike a network socket timeout, a `Diffusers` pipeline call running in the main thread cannot be interrupted by a simple `asyncio` cancellation. Correct enforcement requires running the pipeline in a thread pool executor (`asyncio.run_in_executor`) and cancelling the resulting `asyncio.Future` via `asyncio.wait_for`. Implementations that do not use this pattern will observe that the timeout has no effect on a blocking pipeline call, and the timeout for end-to-end requests ([NFR48](#timeout-for-end-to-end-requests) / `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS`) will serve as the effective ceiling instead. | `10` | No |
+| `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION` | Maximum number of operations for inference during image generation permitted to execute concurrently within a single service instance. The default of `2` is optimised for GPU deployments, where two concurrent pipeline instances occupy approximately 7 GB of VRAM at `float16` precision. When this limit is reached, additional image generation requests are rejected immediately with HTTP 429 (`service_busy`). CPU-only operators should reduce to `1`, as a single inference saturates all cores. | `2` | No |
+| `TEXT_TO_IMAGE_RETRY_AFTER_BUSY_IN_SECONDS` | Value (in seconds) of the `Retry-After` response header on HTTP 429 (Too Many Requests) responses. The default is optimised for GPU inference (2–5 seconds per image). CPU-only operators should increase to `30` to reflect the longer image generation duration. | `5` | No |
 | `TEXT_TO_IMAGE_RETRY_AFTER_NOT_READY_IN_SECONDS` | Value (in seconds) of the `Retry-After` response header on HTTP 503 (Service Unavailable) responses. Operators should tune this to reflect the expected service initialisation duration. | `10` | No |
 | `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_BYTES_OF_REQUEST_PAYLOAD` | Maximum request payload size in bytes. Requests exceeding this limit are rejected with HTTP 413 before the body is fully read. | `1048576` (1 MB) | No |
-| `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS` | Maximum end-to-end duration in seconds for any single HTTP request. Requests exceeding this ceiling are aborted with HTTP 504 (`request_timeout`). This value should be less than or equal to the reverse proxy's read timeout to ensure the service controls timeout behaviour rather than the infrastructure. | `300` | No |
+| `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS` | Maximum end-to-end duration in seconds for any single HTTP request. The default is optimised for GPU inference. Requests exceeding this ceiling are aborted with HTTP 504 (`request_timeout`). This value should be less than or equal to the reverse proxy's read timeout to ensure the service controls timeout behaviour rather than the infrastructure. CPU-only operators should increase to `300`. | `60` | No |
 | `TEXT_TO_IMAGE_CORS_ALLOWED_ORIGINS` | Allowed CORS origins (JSON list); empty list disables CORS | `[]` | No |
 | `TEXT_TO_IMAGE_LOG_LEVEL` | Minimum log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`) | `INFO` | No |
 
@@ -4092,12 +4121,12 @@ This subsection formalises the performance thresholds established by the Perform
 | Name of the Service Level Objective | Definition of the Service Level Indicator | Target | Measurement Window | Error Budget | Source Requirement |
 |----------|----------------|--------|--------------------|--------------|-------------------|
 | Availability of Prompt Enhancement | Percentage of `POST /v1/prompts/enhance` requests returning a non-5xx HTTP response (HTTP 200, 400, 413, 415, 429, 503, 504 are all non-5xx for this purpose) | ≥ 95% | Rolling 7-day | ≤ 5% of requests may return 5xx | [NFR1](#latency-of-prompt-enhancement-under-concurrent-load) |
-| Latency of Prompt Enhancement (95th percentile) | response latency at the 95th percentile of successful (HTTP 200) `POST /v1/prompts/enhance` requests | ≤ 30 seconds | Rolling 7-day | ≤ 5% of successful requests may exceed 30 seconds | [NFR1](#latency-of-prompt-enhancement-under-concurrent-load) |
-| Latency of Image Generation (Sequential) | Maximum latency of sequential single-image generation requests at 512×512 resolution, measured across a batch of 10 sequential requests | ≤ 60 seconds per request; no single request ≥ 90 seconds | Per-release qualification | 0 of 10 requests may exceed 60 seconds; 0 may exceed 90 seconds | [NFR2](#latency-of-image-generation-single-image-512512) |
+| Latency of Prompt Enhancement (95th percentile) | response latency at the 95th percentile of successful (HTTP 200) `POST /v1/prompts/enhance` requests | GPU tier: ≤ 10 seconds; CPU tier: ≤ 30 seconds | Rolling 7-day | GPU tier: ≤ 5% of successful requests may exceed 10 seconds; CPU tier: ≤ 5% may exceed 30 seconds | [NFR1](#latency-of-prompt-enhancement-under-concurrent-load) |
+| Latency of Image Generation (Sequential) | Maximum latency of sequential single-image generation requests at 512×512 resolution, measured across a batch of 10 sequential requests | GPU tier: ≤ 5 seconds per request; no single request ≥ 10 seconds. CPU tier: ≤ 60 seconds per request; no single request ≥ 90 seconds | Per-release qualification | GPU tier: 0 of 10 requests may exceed 5 seconds; 0 may exceed 10 seconds. CPU tier: 0 of 10 may exceed 60 seconds; 0 may exceed 90 seconds | [NFR2](#latency-of-image-generation-single-image-512512) |
 | Latency of Validation Responses | Maximum latency of requests rejected at JSON or schema validation (HTTP 400, 413, 415 responses) | ≤ 1 second per request | Rolling 7-day | No validation rejection may exceed 1 second, regardless of concurrent inference load | [NFR3](#latency-of-validation-responses) |
 | End-to-End Timeout Compliance | Percentage of all HTTP requests that receive a structured response (including HTTP 504) before the configured end-to-end timeout expires, with no proxy-layer timeout pre-empting the service-level response | 100% | Rolling 7-day | 0% breach permitted | [NFR48](#timeout-for-end-to-end-requests) |
 
-**Combined-workflow latency advisory:** The service level objective table above defines latency targets for prompt enhancement ([NFR1](#latency-of-prompt-enhancement-under-concurrent-load), 95th percentile ≤ 30 seconds) and image generation ([NFR2](#latency-of-image-generation-single-image-512512), ≤ 60 seconds per image) as independent measurements under their respective test conditions. When a client uses the combined workflow (`POST /v1/images/generations` with `use_enhancer: true`), the total request latency is the sum of the enhancement step and the generation step, executed sequentially within a single HTTP request. Clients configuring timeouts for the combined workflow should expect a 95th percentile latency in the range of 40–90 seconds under typical CPU-only conditions (enhancement latency is typically 10–30 seconds; generation latency is typically 30–60 seconds for a single 512×512 image). The individual [NFR1](#latency-of-prompt-enhancement-under-concurrent-load) and [NFR2](#latency-of-image-generation-single-image-512512) service level objectives cannot be arithmetically summed to produce a precise combined-workflow service level objective because they are measured under different conditions: [NFR1](#latency-of-prompt-enhancement-under-concurrent-load) under concurrent load (5 virtual users), [NFR2](#latency-of-image-generation-single-image-512512) under sequential single-request conditions. The timeout for end-to-end requests ([NFR48](#timeout-for-end-to-end-requests), default 300 seconds) provides the hard ceiling for any single request, including combined-workflow requests. Clients who require a tighter combined-workflow timeout should configure `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS` accordingly. A future version of this specification may introduce a dedicated combined-workflow service level objective verified via RO3 under controlled conditions; this is deferred from the current version because the component-level service level objectives and the end-to-end timeout ceiling together provide sufficient bounds for client timeout configuration.
+**Combined-workflow latency advisory:** The service level objective table above defines latency targets for prompt enhancement ([NFR1](#latency-of-prompt-enhancement-under-concurrent-load), GPU tier: 95th percentile ≤ 10 seconds; CPU tier: 95th percentile ≤ 30 seconds) and image generation ([NFR2](#latency-of-image-generation-single-image-512512), GPU tier: ≤ 5 seconds per image; CPU tier: ≤ 60 seconds per image) as independent measurements under their respective test conditions. When a client uses the combined workflow (`POST /v1/images/generations` with `use_enhancer: true`), the total request latency is the sum of the enhancement step and the generation step, executed sequentially within a single HTTP request. On GPU, clients configuring timeouts for the combined workflow should expect a 95th percentile latency in the range of 5–15 seconds (enhancement latency is typically 2–5 seconds; generation latency is typically 2–5 seconds for a single 512×512 image). On CPU, clients should expect a 95th percentile latency in the range of 40–90 seconds (enhancement latency is typically 10–30 seconds; generation latency is typically 30–60 seconds for a single 512×512 image). The individual [NFR1](#latency-of-prompt-enhancement-under-concurrent-load) and [NFR2](#latency-of-image-generation-single-image-512512) service level objectives cannot be arithmetically summed to produce a precise combined-workflow service level objective because they are measured under different conditions: [NFR1](#latency-of-prompt-enhancement-under-concurrent-load) under concurrent load (5 virtual users), [NFR2](#latency-of-image-generation-single-image-512512) under sequential single-request conditions. The timeout for end-to-end requests ([NFR48](#timeout-for-end-to-end-requests), default 60 seconds; CPU-only operators should increase to 300 seconds) provides the hard ceiling for any single request, including combined-workflow requests. Clients who require a tighter combined-workflow timeout should configure `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS` accordingly. A future version of this specification may introduce a dedicated combined-workflow service level objective verified via RO3 under controlled conditions; this is deferred from the current version because the component-level service level objectives and the end-to-end timeout ceiling together provide sufficient bounds for client timeout configuration.
 
 **measurement of the service level indicator:** Service level indicators are measured using data collected from the `/metrics` endpoint ([FR38](#metrics-endpoint)). The `request_counts` field provides the numerator for availability calculations (counts by endpoint path and HTTP status code), and the `request_latencies` field provides percentile latency data (`ninety_fifth_percentile_latency_in_milliseconds` per endpoint path). For rolling 7-day measurement, a time-series metrics system (for example, Prometheus with a custom JSON exporter, or an equivalent monitoring platform) is required to compute rolling aggregates.
 
@@ -4246,12 +4275,12 @@ The service is designed for horizontal scaling via stateless instance replicatio
 
 ### Future Extensibility Pathways
 
-1. **GPU acceleration:** The service architecture supports automatic GPU detection via the `TEXT_TO_IMAGE_STABLE_DIFFUSION_DEVICE` configuration variable. The default value `auto` automatically selects CUDA when a compatible GPU is available, otherwise falling back to CPU. Explicit values `cpu` and `cuda` are also supported for deterministic device selection. When CUDA is active, the pipeline automatically uses `torch.float16` for reduced memory consumption and improved inference throughput. No code changes are required for this transition.
+1. **GPU acceleration (current capability):** GPU acceleration is a supported deployment tier with dual-tier performance requirements (see [NFR1](#latency-of-prompt-enhancement-under-concurrent-load) and [NFR2](#latency-of-image-generation-single-image-512512)). The service architecture supports automatic GPU detection via the `TEXT_TO_IMAGE_STABLE_DIFFUSION_DEVICE` configuration variable. The default value `auto` automatically selects CUDA when a compatible GPU is available, otherwise falling back to CPU. Explicit values `cpu` and `cuda` are also supported for deterministic device selection. When CUDA is active, the pipeline automatically uses `torch.float16` for reduced memory consumption and improved inference throughput. All configuration defaults are optimised for GPU-accelerated inference; CPU-only operators should adjust timeouts and concurrency as documented in the configuration requirements.
 2. **Additional image models:** The model integration layer can be extended to support alternative image generation models (for example, SDXL, DALL-E) by implementing the same integration interface.
 3. **Additional prompt enhancement models:** The llama.cpp client can be pointed at any OpenAI-compatible completion server, enabling model upgrades or replacements without service code changes.
 4. **Asynchronous generation:** For high-latency operations, a future version could introduce an asynchronous job-based API pattern returning a job identifier and a polling endpoint.
 5. **Persistent image storage:** Generated images could be stored in object storage (for example, S3 or MinIO) with URL references returned instead of base64 payloads, reducing response sizes for multi-image requests. The `response_format` request parameter has been reserved for this purpose: a future `"url"` value would instruct the service to store the image and return a URL reference instead of inline base64 data.
-6. **Request idempotency:** For long-running image generation requests (30–90 seconds), client timeouts and retries can cause duplicate inference executions, wasting CPU resources. A future version could introduce an optional `Idempotency-Key` request header with a configurable TTL and in-memory or Redis-backed storage, allowing the service to return cached responses for duplicate requests. The `seed` parameter provides output determinism but does not address request-level deduplication. This pathway is deferred from the current specification because it introduces state management complexity (cache storage, TTL enforcement, cache invalidation) that conflicts with the statelessness principle (Principle 1) and is disproportionate for the stated evaluation context.
+6. **Request idempotency:** For long-running image generation requests (2–5 seconds on GPU, 30–90 seconds on CPU), client timeouts and retries can cause duplicate inference executions, wasting compute resources. A future version could introduce an optional `Idempotency-Key` request header with a configurable TTL and in-memory or Redis-backed storage, allowing the service to return cached responses for duplicate requests. The `seed` parameter provides output determinism but does not address request-level deduplication. This pathway is deferred from the current specification because it introduces state management complexity (cache storage, TTL enforcement, cache invalidation) that conflicts with the statelessness principle (Principle 1) and is disproportionate for the stated evaluation context.
 7. **Request queueing with bounded depth:** The current admission control mechanism ([NFR44](#concurrency-control-for-image-generation)) rejects excess requests immediately with HTTP 429 when the concurrency limit is reached. For deployments where short traffic bursts are expected, a future version could introduce a configurable bounded queue depth (for example, 2–5 pending requests) that holds excess requests until an inference slot becomes available, returning HTTP 429 only when both the active slot(s) and the queue are full. This would improve throughput under burst traffic at the cost of increased tail latency for queued requests. The trade-off between queue depth and tail latency should be documented and made configurable.
 8. **Upstream retry and circuit breaker policy:** The current architecture follows a fail-fast pattern for llama.cpp calls: if the upstream server returns an error or is unreachable, the service immediately returns HTTP 502 to the client. For production environments with transient network faults, a future version could introduce a configurable retry policy (for example, 1 retry with a 2-second delay for connection errors and 5xx responses) combined with a circuit breaker that opens after N consecutive failures and remains open for a configurable cooldown period. This would improve availability under transient faults without the complexity of a full retry framework. The fail-fast approach is retained in the current specification as the architecturally simpler and more predictable choice for the stated evaluation context.
 9. **Response compression:** Image generation responses can reach 8–32 MB for multi-image requests at maximum resolution. A future version could introduce optional `Content-Encoding: gzip` response compression when the client sends `Accept-Encoding: gzip`, with a configurable minimum response size threshold (for example, 1 KB). Base64-encoded PNG data typically achieves 60–70% compression ratios with gzip, significantly reducing bandwidth consumption for clients that support transparent decompression.
@@ -4261,7 +4290,7 @@ The service is designed for horizontal scaling via stateless instance replicatio
 13. **Per-image seed auto-incrementing for batch generation:** The current batch generation behaviour uses a single seed for all images in a request, producing identical outputs when `n > 1` with a fixed seed (see [FR28](#generation-of-images-in-batches) batch seed advisory). A future version could introduce automatic seed incrementing within a batch (`seed + i` for the i-th image), producing `n` deterministically distinct images from a single request. The response schema would be extended to include a `seeds` array (one entry per image) alongside the existing scalar `seed` field, preserving backward compatibility. This would align with the behaviour of most Stable Diffusion web interfaces and APIs, where batch generation with a fixed seed produces variations rather than duplicates. The scalar `seed` field would be retained as the base seed, and the `seeds` array would document the actual seed used for each image. This pathway is deferred because it changes the semantic meaning of the `seed` parameter for batch requests, which constitutes a behavioural change that should be introduced in a minor version increment with clear documentation.
 14. **`negative_prompt` support:** The Stable Diffusion v1.5 pipeline natively supports a `negative_prompt` parameter that specifies what should be excluded from the generated image (for example, "blurry, low quality, text, watermark, deformed"). Adding an optional `negative_prompt` string field to the Schema for the Image Generation Request (with validation constraints mirroring the `prompt` field) would provide clients with the single most impactful quality control mechanism available in Stable Diffusion inference. This pathway is deferred from the current specification to limit scope for the initial implementation; see the [Out of Scope](#out-of-scope) section.
 15. **Per-request inference parameters:** The `guidance_scale` and `num_inference_steps` parameters are currently configurable only via environment variables, fixed for the lifetime of a service instance. Adding optional `guidance_scale` (float, 1.0–20.0) and `num_inference_steps` (integer, 1–50) fields to the Schema for the Image Generation Request, with server-side bounds validation and environment-variable-configured defaults, would enable clients to control the quality–latency trade-off per request. This is deferred to prevent abuse of high-step-count requests on shared CPU infrastructure and to limit initial implementation scope.
-16. **Pre-enhanced prompt bypass for image generation retries:** When `use_enhancer: true` and the Stable Diffusion step fails after successful enhancement ([FR33](#error-handling-stable-diffusion-failures)), the client must resubmit the entire request, repeating the prompt enhancement step (10–30 seconds on CPU). The `enhanced_prompt` field in the error logs ([FR33](#error-handling-stable-diffusion-failures)) preserves the enhanced text for diagnostic purposes, but the client has no mechanism to supply a previously enhanced prompt directly to the endpoint for image generation, bypassing re-enhancement on retry. A future version could introduce an optional `pre_enhanced_prompt` string field on the Schema for the Image Generation Request. When present and non-empty, the service would use this value as the Stable Diffusion input prompt regardless of the `use_enhancer` flag, skipping the llama.cpp invocation entirely. This would reduce retry latency from `enhancement_time + generation_time` to `generation_time` alone. The `enhanced_prompt` response field would echo the `pre_enhanced_prompt` value for consistency. Schema evolution would be backward-compatible (new optional field with no default behavioural change when absent). This pathway is deferred because it introduces a trust boundary question (should the service accept arbitrary pre-enhanced text without validation?) and because retry frequency after Stable Diffusion failures is expected to be low in the evaluation context.
+16. **Pre-enhanced prompt bypass for image generation retries:** When `use_enhancer: true` and the Stable Diffusion step fails after successful enhancement ([FR33](#error-handling-stable-diffusion-failures)), the client must resubmit the entire request, repeating the prompt enhancement step (2–5 seconds on GPU, 10–30 seconds on CPU). The `enhanced_prompt` field in the error logs ([FR33](#error-handling-stable-diffusion-failures)) preserves the enhanced text for diagnostic purposes, but the client has no mechanism to supply a previously enhanced prompt directly to the endpoint for image generation, bypassing re-enhancement on retry. A future version could introduce an optional `pre_enhanced_prompt` string field on the Schema for the Image Generation Request. When present and non-empty, the service would use this value as the Stable Diffusion input prompt regardless of the `use_enhancer` flag, skipping the llama.cpp invocation entirely. This would reduce retry latency from `enhancement_time + generation_time` to `generation_time` alone. The `enhanced_prompt` response field would echo the `pre_enhanced_prompt` value for consistency. Schema evolution would be backward-compatible (new optional field with no default behavioural change when absent). This pathway is deferred because it introduces a trust boundary question (should the service accept arbitrary pre-enhanced text without validation?) and because retry frequency after Stable Diffusion failures is expected to be low in the evaluation context.
 
 ---
 
@@ -4490,6 +4519,29 @@ Examples:
 
 #### Deployment: text-to-image-api
 
+**GPU tier (primary):**
+
+| Property | Value | Rationale |
+|----------|-------|-----------|
+| Replicas (minimum) | 3 | Ensures availability during rolling updates and single-node failures |
+| Replicas (maximum) | 10 | Upper bound preventing unbounded scaling and resource exhaustion |
+| Container image | `{registry}/text-to-image-api:{tag}` | Commit-SHA or semantic version tag |
+| Container port | 8000 | Matches `TEXT_TO_IMAGE_APPLICATION_PORT` default |
+| CPU request | `1000m` | Higher baseline for HTTP handling, image encoding, and concurrent request orchestration on GPU deployments |
+| CPU limit | `4000m` | Upper bound permitting full utilisation during image encoding and response serialisation |
+| Memory request | `4Gi` | Minimum guaranteed memory for loaded Stable Diffusion pipeline and concurrent inference working set |
+| Memory limit | `12Gi` | Upper bound accommodating peak inference memory with concurrency 2 (model weights, intermediate tensors, and encoded image buffers) |
+| GPU resource limit | `nvidia.com/gpu: 1` | Requests one NVIDIA GPU per pod for Stable Diffusion inference |
+| Node selector | `accelerator: nvidia-gpu` | Ensures pods are scheduled onto GPU-capable nodes. The label key and value should match the cluster's GPU node labelling convention. |
+| Readiness probe | `GET /health/ready`, period 10s, timeout 5s, failure threshold 3 | Routes traffic only to instances with fully loaded models ([FR37](#readiness-check-endpoint)) |
+| Liveness probe | `GET /health`, period 30s, timeout 5s, failure threshold 3 | Restarts instances that become unresponsive; longer period avoids false positives during inference |
+| Startup probe | `GET /health`, period 10s, timeout 5s, failure threshold 60 | Allows up to 600 seconds (10 minutes) for model loading before the liveness probe activates; prevents liveness-probe crash loops during the expected multi-minute model loading phase |
+| Strategy | `RollingUpdate`, maxSurge 1, maxUnavailable 0 | Zero-downtime deployments; new pods must pass readiness before old pods are terminated |
+| Termination grace period | 90 seconds | Provides a 30-second buffer beyond the application-level 60-second drain period to accommodate Python interpreter shutdown, final log flushing, and timing skew between `SIGTERM` delivery and the Uvicorn timeout |
+| Restart policy | `Always` | Ensures automatic recovery from process crashes ([NFR8](#stability-of-the-service-process-under-upstream-failure)) |
+
+**CPU tier (fallback):**
+
 | Property | Value | Rationale |
 |----------|-------|-----------|
 | Replicas (minimum) | 3 | Ensures availability during rolling updates and single-node failures |
@@ -4500,8 +4552,6 @@ Examples:
 | CPU limit | `4000m` | Upper bound permitting full utilisation during inference for image generation |
 | Memory request | `2Gi` | Minimum guaranteed memory for loaded Stable Diffusion pipeline |
 | Memory limit | `8Gi` | Upper bound accommodating peak inference memory (model weights, intermediate tensors, and encoded image buffers) |
-| GPU resource limit (conditional) | `nvidia.com/gpu: 1` | Required only when `STABLE_DIFFUSION_DEVICE` is `cuda` or `auto` on GPU-equipped nodes; requests one NVIDIA GPU per pod for Stable Diffusion inference. Omit this row entirely for CPU-only deployments. |
-| Node selector (conditional) | `accelerator: nvidia-gpu` | Required only when GPU resource limits are specified; ensures pods are scheduled onto GPU-capable nodes. The label key and value should match the cluster's GPU node labelling convention. Omit for CPU-only deployments. |
 | Readiness probe | `GET /health/ready`, period 10s, timeout 5s, failure threshold 3 | Routes traffic only to instances with fully loaded models ([FR37](#readiness-check-endpoint)) |
 | Liveness probe | `GET /health`, period 30s, timeout 5s, failure threshold 3 | Restarts instances that become unresponsive; longer period avoids false positives during inference |
 | Startup probe | `GET /health`, period 10s, timeout 5s, failure threshold 60 | Allows up to 600 seconds (10 minutes) for model loading before the liveness probe activates; prevents liveness-probe crash loops during the expected multi-minute model loading phase |
@@ -4513,9 +4563,28 @@ Examples:
 
 **Horizontal scaling considerations:** The CPU request of `500m` ensures that Kubernetes schedules pods with sufficient baseline compute, while the `4000m` limit permits burst utilisation during inference. The 3-replica minimum guarantees that at least two pods remain available during a rolling update (with `maxUnavailable: 0`, the actual available count never drops below 3). The HPA configuration (defined below) scales between 3 and 10 replicas based on observed utilisation, providing elastic capacity without manual intervention.
 
-**GPU resource scheduling advisory:** The GPU resource limit and node selector rows are conditional — they apply only to deployments where Stable Diffusion runs on a CUDA-capable GPU. When present, `nvidia.com/gpu: 1` ensures Kubernetes allocates exactly one GPU per pod via the NVIDIA device plugin, and the node selector ensures scheduling onto appropriately labelled nodes. Each pipeline instance consumes approximately 3.5 GB of VRAM at float16 precision ([NFR44](#concurrency-control-for-image-generation) intent). On multi-GPU nodes, Kubernetes assigns one GPU per pod by default; operators requiring GPU memory partitioning (for example, MIG on NVIDIA A100) should configure the NVIDIA device plugin accordingly — such partitioning is outside the scope of this specification. For CPU-only deployments, both GPU rows shall be omitted entirely from the manifest.
+**GPU resource scheduling advisory:** In the GPU tier (primary), `nvidia.com/gpu: 1` ensures Kubernetes allocates exactly one GPU per pod via the NVIDIA device plugin, and the node selector ensures scheduling onto appropriately labelled nodes. Each pipeline instance consumes approximately 3.5 GB of VRAM at float16 precision ([NFR44](#concurrency-control-for-image-generation) intent); with the default concurrency of 2, approximately 7 GB of VRAM is required per pod. On multi-GPU nodes, Kubernetes assigns one GPU per pod by default; operators requiring GPU memory partitioning (for example, MIG on NVIDIA A100) should configure the NVIDIA device plugin accordingly — such partitioning is outside the scope of this specification. For CPU-tier (fallback) deployments, the GPU resource limit and node selector rows shall be omitted entirely from the manifest.
 
 #### Deployment: llama-cpp-server
+
+**GPU tier (primary):**
+
+| Property | Value | Rationale |
+|----------|-------|-----------|
+| Replicas (minimum) | 2 | Ensures availability during rolling updates |
+| Container image | `ghcr.io/ggml-org/llama.cpp:server` | Official llama.cpp server image |
+| Container port | 8080 | Standard llama.cpp server port |
+| CPU request | `1000m` | Reduced CPU requirement when GPU handles inference computation |
+| CPU limit | `4000m` | Upper bound for inference bursts |
+| Memory request | `4Gi` | Minimum for loaded GGUF model (Q4_K_M quantisation of a 7B model requires approximately 3.8 GB) |
+| Memory limit | `6Gi` | Headroom for inference working memory |
+| GPU resource limit | `nvidia.com/gpu: 1` | Requests one NVIDIA GPU per pod for GPU-accelerated large language model inference |
+| Node selector | `accelerator: nvidia-gpu` | Ensures pods are scheduled onto GPU-capable nodes. The label key and value should match the cluster's GPU node labelling convention. |
+| Readiness probe | `GET /health`, period 10s, timeout 5s | Routes traffic only after model is fully loaded |
+| Liveness probe | `GET /health`, period 30s, timeout 5s | Restarts on process hang |
+| Volume mount | `/models` (read-only, from `llama-model-pvc`) | Model files provided via persistent volume |
+
+**CPU tier (fallback):**
 
 | Property | Value | Rationale |
 |----------|-------|-----------|
@@ -4526,8 +4595,6 @@ Examples:
 | CPU limit | `4000m` | Upper bound for inference bursts |
 | Memory request | `4Gi` | Minimum for loaded GGUF model (Q4_K_M quantisation of a 7B model requires approximately 3.8 GB) |
 | Memory limit | `6Gi` | Headroom for inference working memory |
-| GPU resource limit (conditional) | `nvidia.com/gpu: 1` | Required only when running GPU-accelerated large language model inference; requests one NVIDIA GPU per pod. Omit for CPU-only deployments. |
-| Node selector (conditional) | `accelerator: nvidia-gpu` | Required only when GPU resource limits are specified; ensures pods are scheduled onto GPU-capable nodes. The label key and value should match the cluster's GPU node labelling convention. Omit for CPU-only deployments. |
 | Readiness probe | `GET /health`, period 10s, timeout 5s | Routes traffic only after model is fully loaded |
 | Liveness probe | `GET /health`, period 30s, timeout 5s | Restarts on process hang |
 | Volume mount | `/models` (read-only, from `llama-model-pvc`) | Model files provided via persistent volume |
@@ -4567,6 +4634,10 @@ Examples:
 | Target memory utilisation | 80% | Scale out before memory pressure triggers out-of-memory process terminations |
 | Scale-up stabilisation window | 60 seconds | Prevents oscillation from short traffic spikes |
 | Scale-down stabilisation window | 300 seconds | Conservative scale-down prevents premature removal during intermittent load |
+
+**GPU-tier scaling advisory:** For GPU inference workloads, CPU utilisation is a poor proxy for inference demand because GPU-bound inference does not significantly increase CPU load. Custom metrics — such as GPU utilisation (via NVIDIA DCGM exporter) or the number of in-flight image generation requests (available via the `/metrics` endpoint defined in [FR38](#metrics-endpoint)) — are more representative scaling signals for GPU deployments. Operators should deploy a Prometheus adapter or equivalent custom metrics server to enable HPA decisions based on these application-level signals.
+
+**CPU-tier scaling advisory:** For CPU-only deployments, the CPU utilisation and memory utilisation targets defined above are appropriate scaling signals, as CPU-bound inference directly correlates with CPU load.
 
 **Future extensibility:** The HPA can be extended to scale on custom metrics (for example, the number of in-flight image generation requests, available via the `/metrics` endpoint defined in [FR38](#metrics-endpoint)) by deploying a Prometheus adapter or equivalent custom metrics server. This pathway enables more precise scaling decisions based on application-level demand rather than infrastructure-level utilisation.
 
@@ -4846,7 +4917,7 @@ Add configurable concurrency limit for image generation with HTTP 429 rejection 
 
 Implements an admission control concurrency limiter in the image generation service that limits
 the number of concurrent Stable Diffusion inference operations to the value configured via
-TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION (default: 1). When the concurrency
+TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION (default: 2). When the concurrency
 limiter cannot be acquired immediately, the endpoint returns HTTP 429 with error code
 "service_busy" and logs an image_generation_rejected_at_capacity event.
 
@@ -5354,7 +5425,7 @@ This section documents failure modes commonly encountered during initial setup a
 
 3. **Slow first image generation request**
    - **Symptom:** The first `POST /v1/images/generations` request after service startup takes significantly longer (20–50% more) than subsequent requests.
-   - **Cause:** PyTorch performs internal JIT compilation and CPU cache warming on the first inference pass.
+   - **Cause:** On GPU deployments, CUDA kernel compilation overhead on the first inference pass; subsequent requests benefit from cached kernels. On CPU deployments, PyTorch performs internal JIT compilation and CPU cache warming on the first inference pass.
    - **Resolution:** This is expected behaviour. Subsequent requests will be faster. Optionally, implementations may perform a warm-up inference during startup (see the [first-inference warm-up advisory in §15](#stable-diffusion-integration)).
 
 4. **Model download hangs or fails during first startup**
@@ -5381,7 +5452,7 @@ This section documents failure modes commonly encountered during initial setup a
 | `TEXT_TO_IMAGE_APPLICATION_PORT` | HTTP bind port for the service | `8000` | No |
 | `TEXT_TO_IMAGE_BASE_URL_OF_LARGE_LANGUAGE_MODEL_SERVER` | Base URL of the llama.cpp server | `http://localhost:8080` | No |
 | `TEXT_TO_IMAGE_LARGE_LANGUAGE_MODEL_PATH` | Path to GGUF model file (reference only, not used at runtime) | *(empty)* | No |
-| `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_TO_LARGE_LANGUAGE_MODEL_IN_SECONDS` | Maximum time in seconds to wait for a llama.cpp response | `120` | No |
+| `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_TO_LARGE_LANGUAGE_MODEL_IN_SECONDS` | Maximum time in seconds to wait for a llama.cpp response | `30` | No |
 | `TEXT_TO_IMAGE_SYSTEM_PROMPT_FOR_LARGE_LANGUAGE_MODEL` | System prompt sent to llama.cpp on every enhancement request. Overrides the built-in default (see Model Integration Specifications, §14 for the default text). Must be non-empty when set. | *(built-in default; see §14)* | No |
 | `TEXT_TO_IMAGE_LARGE_LANGUAGE_MODEL_TEMPERATURE` | Sampling temperature for prompt enhancement | `0.7` | No |
 | `TEXT_TO_IMAGE_MAXIMUM_TOKENS_GENERATED_BY_LARGE_LANGUAGE_MODEL` | Maximum tokens the large language model may generate | `512` | No |
@@ -5393,12 +5464,12 @@ This section documents failure modes commonly encountered during initial setup a
 | `TEXT_TO_IMAGE_NUMBER_OF_INFERENCE_STEPS_OF_STABLE_DIFFUSION` | Number of diffusion inference steps | `20` | No |
 | `TEXT_TO_IMAGE_GUIDANCE_SCALE_OF_STABLE_DIFFUSION` | Classifier-free guidance scale | `7.0` | No |
 | `TEXT_TO_IMAGE_SAFETY_CHECKER_FOR_STABLE_DIFFUSION` | Enable NSFW safety checker (`true`/`false`) | `true` | No |
-| `TEXT_TO_IMAGE_INFERENCE_TIMEOUT_BY_STABLE_DIFFUSION_PER_BASELINE_UNIT_IN_SECONDS` | Base timeout for generating one 512×512 baseline unit image | `60` | No |
-| `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION` | Maximum concurrent inferences for image generation per instance | `1` | No |
-| `TEXT_TO_IMAGE_RETRY_AFTER_BUSY_IN_SECONDS` | `Retry-After` value (seconds) on HTTP 429 responses | `30` | No |
+| `TEXT_TO_IMAGE_INFERENCE_TIMEOUT_BY_STABLE_DIFFUSION_PER_BASELINE_UNIT_IN_SECONDS` | Base timeout for generating one 512×512 baseline unit image | `10` | No |
+| `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION` | Maximum concurrent inferences for image generation per instance | `2` | No |
+| `TEXT_TO_IMAGE_RETRY_AFTER_BUSY_IN_SECONDS` | `Retry-After` value (seconds) on HTTP 429 responses | `5` | No |
 | `TEXT_TO_IMAGE_RETRY_AFTER_NOT_READY_IN_SECONDS` | `Retry-After` value (seconds) on HTTP 503 responses | `10` | No |
 | `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_BYTES_OF_REQUEST_PAYLOAD` | Maximum request payload size in bytes | `1048576` (1 MB) | No |
-| `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS` | Maximum end-to-end request duration in seconds | `300` | No |
+| `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS` | Maximum end-to-end request duration in seconds | `60` | No |
 | `TEXT_TO_IMAGE_CORS_ALLOWED_ORIGINS` | Allowed CORS origins (JSON list) | `[]` | No |
 | `TEXT_TO_IMAGE_LOG_LEVEL` | Minimum log level | `INFO` | No |
 
@@ -5423,6 +5494,7 @@ This section documents failure modes commonly encountered during initial setup a
 | 5.2.5 | 4 Mar 2026 | Added a startup probe to the [Deployment: text-to-image-api](#deployment-text-to-image-api) table to prevent liveness-probe crash loops during model loading. Without a startup probe, the liveness probe's `periodSeconds × failureThreshold` (30s × 3 = 90s) window is shorter than the expected model loading time (60–300 seconds depending on hardware and cache state), causing Kubernetes to kill and restart pods before they finish loading the model. |
 | 5.2.6 | 5 Mar 2026 | Removed `health.py` from the `application/api/schemas/` directory in the repository structure tree — health and readiness response schemas are defined as inline OpenAPI JSON schema dictionaries in `application/api/endpoints/health.py`, not as separate Pydantic models. Added `stable_diffusion_pipeline_pool_instance_unavailable_during_shutdown` (WARNING) to the normative logging event taxonomy, bringing the total from 45 to 46 events. |
 | 5.2.7 | 5 Mar 2026 | Four additions addressing scalability documentation gaps: (1) Added per-worker metrics and circuit breaker independence clarification to the [Uvicorn worker model](#uvicorn-worker-model) section for multi-worker configurations. (2) Added conditional GPU resource scheduling rows (`nvidia.com/gpu` resource limits and node selectors) to both the [Deployment: text-to-image-api](#deployment-text-to-image-api) and [Deployment: llama-cpp-server](#deployment-llama-cpp-server) tables, with a GPU resource scheduling advisory. (3) Added [connection pool sizing for multi-replica deployments](#connection-pool-sizing-for-multi-replica-deployments) advisory and [per-pod circuit breaker state advisory](#per-pod-circuit-breaker-state-advisory) to the llama.cpp capacity planning section. (4) Added [production deployment verification advisory](#production-deployment-verification-advisory) to [NFR4](#horizontal-scaling-under-concurrent-load) recommending that production deployments verify load distribution with the target replica count and proportionally tighter thresholds. |
+| 5.3.0 | 5 Mar 2026 | Introduced dual-tier (GPU-primary, CPU-fallback) performance requirements with GPU-optimised configuration defaults throughout. See detailed v5.3.0 changelog below. |
 
 #### v4.0.0 Detailed Changelog
 
@@ -5825,6 +5897,50 @@ This section documents failure modes commonly encountered during initial setup a
 - Changed the Kubernetes API service type from `LoadBalancer` to `ClusterIP` in the [Service: text-to-image-api-service](#service-text-to-image-api-service) table. Added a rationale paragraph explaining that production Kubernetes clusters expose services through an Ingress controller rather than per-service LoadBalancer resources, which are expensive, prevent path-based routing and shared TLS termination, and bypass the reverse proxy layer the specification prescribes for rate limiting.
 - Updated the [NFR4](#horizontal-scalability) verification procedure preconditions and step 1 to reference a ClusterIP Service behind an Ingress controller instead of a LoadBalancer Service.
 - Updated the [deployment verification checklist](#deployment-verification-requirements) service verification item to verify that the ClusterIP service for the API is reachable from the Ingress controller, replacing the previous LoadBalancer accessibility check.
+
+#### v5.3.0 Detailed Changelog
+
+**Dual-tier performance requirements:**
+
+- Introduced GPU-primary, CPU-fallback deployment tiers with distinct performance targets throughout the specification. GPU-tier content appears first in every dual-tier section.
+- Split [NFR1](#latency-of-prompt-enhancement-under-concurrent-load) success criteria into GPU tier (p95 ≤ 10 seconds, maximum ≤ 30 seconds) and CPU tier (p95 ≤ 30 seconds, maximum ≤ 60 seconds). Added precondition for GPU-tier verification requiring llama.cpp with `--gpu-layers` fully offloaded.
+- Split [NFR2](#latency-of-image-generation-single-image-512512) into GPU tier (≤ 5 seconds, outlier cap ≤ 10 seconds on CUDA-compatible GPU with ≥ 8 GB VRAM) and CPU tier (≤ 60 seconds, outlier cap ≤ 90 seconds on CPU with ≥ 8 GB RAM). GPU is the primary deployment target.
+- Updated NFR2 description in the minimum viable implementation from "on CPU hardware" to "on GPU or CPU hardware".
+
+**Configuration default changes (GPU-optimised):**
+
+- Changed `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION` default from `1` to `2`. CPU-only operators should reduce to `1`.
+- Changed `TEXT_TO_IMAGE_RETRY_AFTER_BUSY_IN_SECONDS` default from `30` to `5`. CPU-only operators should increase to `30`.
+- Changed `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS` default from `300` to `60`. CPU-only operators should increase to `300`.
+- Changed `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_TO_LARGE_LANGUAGE_MODEL_IN_SECONDS` default from `120` to `30`. CPU-only operators should increase to `120`.
+- Changed `TEXT_TO_IMAGE_INFERENCE_TIMEOUT_BY_STABLE_DIFFUSION_PER_BASELINE_UNIT_IN_SECONDS` default from `60` to `10`. The 30× CPU multiplier yields an effective timeout of 300 seconds per baseline unit on CPU. CPU-only operators should increase to `60`.
+- Defaults not changed: `TEXT_TO_IMAGE_STABLE_DIFFUSION_DEVICE` (`auto`), `TEXT_TO_IMAGE_NUMBER_OF_INFERENCE_STEPS_OF_STABLE_DIFFUSION` (`20`), `TEXT_TO_IMAGE_GUIDANCE_SCALE_OF_STABLE_DIFFUSION` (`7.0`), `TEXT_TO_IMAGE_RETRY_AFTER_NOT_READY_IN_SECONDS` (`10`).
+
+**GPU-first ordering:**
+
+- Rewritten justification for the synchronous request model to lead with GPU speeds (2–5 seconds per image, default 2 concurrent generations) before CPU context.
+- Added "Deployment tiers" bullet to Key Architectural Characteristics.
+- Reordered pipeline configuration `torch_dtype` row: GPU first ("CUDA / CPU fallback").
+- Added advisory to `num_inference_steps` noting GPU could sustain 30–50 steps within the 5-second bound, but 20 is retained for cross-tier consistency.
+- Reordered thread safety and concurrency isolation: GPU deployment (pipeline pool) described first, CPU deployment (single pipeline) second.
+- Reordered memory management after inference: GPU VRAM monitoring guidance (`torch.cuda.empty_cache()`, `torch.cuda.memory_allocated()`, `torch.cuda.memory_reserved()`) first, especially for concurrency > 1; CPU RAM guidance follows.
+- Updated HTTP 429 retry guidance in error classification tables: "initial delay 2–5 seconds for GPU inference, 10–30 seconds for CPU inference".
+- Rewritten concurrency architecture thread pool sizing to lead with GPU context (default concurrency 2, 2–5 second inference releasing slots faster).
+- Updated troubleshooting "Slow first image generation request" to lead with GPU-tier cause (CUDA kernel compilation overhead) before CPU-tier cause.
+- Updated first-inference warm-up advisory to describe both GPU (CUDA kernel compilation) and CPU (JIT compilation, CPU cache warming) causes.
+
+**Kubernetes infrastructure:**
+
+- Replaced single resource profile table in [Deployment: text-to-image-api](#deployment-text-to-image-api) with two separate tables: GPU tier (primary) with CPU request 1000m, CPU limit 4000m, memory request 4Gi, memory limit 12Gi, `nvidia.com/gpu: 1`, and node selector `accelerator: nvidia-gpu`; CPU tier (fallback) with CPU request 500m, CPU limit 4000m, memory request 2Gi, memory limit 8Gi. GPU resources are no longer labelled "conditional".
+- Replaced single resource profile table in [Deployment: llama-cpp-server](#deployment-llama-cpp-server) with two separate tables: GPU tier (primary) with `nvidia.com/gpu: 1`, reduced CPU request (1000m); CPU tier (fallback) with current values unchanged (CPU request 2000m).
+- Added GPU-tier scaling advisory to HPA configuration recommending custom metrics (GPU utilisation, in-flight generation count) over CPU utilisation for GPU inference workloads. Added CPU-tier scaling advisory confirming CPU utilisation is appropriate for CPU-only deployments.
+- Updated GPU resource scheduling advisory to remove "conditional" language and note that default concurrency of 2 requires approximately 7 GB of VRAM per pod.
+
+**Scalability and future extensibility:**
+
+- Rewritten [future extensibility pathway 1 (GPU acceleration)](#future-extensibility-pathways) as a current capability with cross-references to NFR1 and NFR2 dual-tier requirements.
+- Updated llama.cpp capacity planning advisory with GPU-tier throughput figures (1 request per 1–3 seconds) before CPU figures (1 request per 5–15 seconds).
+- Updated mixed-workload concurrency advisory to lead with GPU context (separate compute resources eliminate CPU contention) and reference GPU-optimised defaults.
 
 ---
 
