@@ -804,7 +804,7 @@ All configuration is loaded from environment variables prefixed with `TEXT_TO_IM
 | `TEXT_TO_IMAGE_NUMBER_OF_INFERENCE_STEPS_OF_STABLE_DIFFUSION` | Number of denoising steps per image. Higher values produce better quality but take longer. | `20` |
 | `TEXT_TO_IMAGE_GUIDANCE_SCALE_OF_STABLE_DIFFUSION` | Classifier-free guidance scale. Higher values follow the prompt more closely. | `7.0` |
 | `TEXT_TO_IMAGE_SAFETY_CHECKER_FOR_STABLE_DIFFUSION` | Enable the NSFW content safety checker (`true`/`false`). Disabling removes content filtering from generated images. | `true` |
-| `TEXT_TO_IMAGE_INFERENCE_TIMEOUT_BY_STABLE_DIFFUSION_PER_BASELINE_UNIT_IN_SECONDS` | Base timeout (seconds) for one 512×512 baseline unit image. Auto-scaled: `base × n_images × (w × h) / (512 × 512)`, with a ×30 multiplier on CPU. | `60.0` |
+| `TEXT_TO_IMAGE_INFERENCE_TIMEOUT_BY_STABLE_DIFFUSION_PER_BASELINE_UNIT_IN_SECONDS` | Base timeout (seconds) for one 512×512 baseline unit image. Auto-scaled: `base × n_images × (w × h) / (512 × 512)`, with a ×30 multiplier on CPU. | `10.0` |
 
 **Circuit breaker settings**
 

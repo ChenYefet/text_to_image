@@ -96,7 +96,7 @@ class StableDiffusionPipeline:
     so large or CPU-bound requests get proportionally more time.
     """
 
-    DEFAULT_TIMEOUT_OF_INFERENCE_PER_BASELINE_UNIT_IN_SECONDS = 60.0
+    DEFAULT_TIMEOUT_OF_INFERENCE_PER_BASELINE_UNIT_IN_SECONDS = 10.0
 
     def __init__(
         self,
