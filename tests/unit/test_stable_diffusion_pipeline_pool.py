@@ -137,3 +137,27 @@ class TestPoolClose:
 
         for pipeline in pipelines:
             pipeline.close.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_close_skips_checked_out_instance_without_crashing(self):
+        """When a pipeline instance is still acquired (in-flight inference)
+        at shutdown time, the pool cannot dequeue it.  The pool must
+        gracefully skip the missing instance rather than crashing."""
+        pipeline_a = _create_mock_pipeline()
+        pipeline_b = _create_mock_pipeline()
+        pool = application.integrations.stable_diffusion_pipeline_pool.StableDiffusionPipelinePool(
+            pipeline_instances=[pipeline_a, pipeline_b],
+        )
+
+        # Acquire one instance without releasing it, simulating an
+        # in-flight inference operation during shutdown.
+        still_acquired = await pool._queue.get()
+
+        await pool.close()
+
+        # The instance that remained in the queue should have been closed.
+        # The checked-out instance should NOT have been closed by the pool.
+        assert still_acquired.close.await_count == 0
+        # One of the two instances was closed (the one still in the queue).
+        total_close_calls = pipeline_a.close.await_count + pipeline_b.close.await_count
+        assert total_close_calls == 1

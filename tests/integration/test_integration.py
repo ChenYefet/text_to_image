@@ -379,6 +379,50 @@ class TestStartupModelValidation:
         assert "model_validation_at_startup_failed" in captured.out
 
     @pytest.mark.asyncio
+    async def test_partial_startup_failure_cleans_up_successfully_loaded_instances(
+        self,
+        mock_of_llama_cpp_client,
+    ):
+        """When multiple pipeline instances are being loaded and a later
+        instance fails, the instances that were already loaded successfully
+        must be closed to avoid leaking GPU memory.  The service must still
+        enter the degraded state (image generation unavailable) rather than
+        crashing."""
+        first_mock_pipeline = _build_mock_of_stable_diffusion_pipeline()
+
+        # First call succeeds, second call raises — simulating OOM on the
+        # second pipeline instance when concurrency is 2.
+        with (
+            patch.object(
+                application.integrations.llama_cpp_client,
+                "LlamaCppClient",
+                return_value=mock_of_llama_cpp_client,
+            ),
+            patch.object(
+                application.integrations.stable_diffusion_pipeline.StableDiffusionPipeline,
+                "load_pipeline",
+                side_effect=[first_mock_pipeline, RuntimeError("CUDA out of memory")],
+            ),
+        ):
+            fastapi_application = application.main.create_application()
+            async with fastapi_application.router.lifespan_context(
+                fastapi_application,
+            ):
+                # The service should be in degraded state — image generation
+                # unavailable because the pool was not created.
+                transport = httpx.ASGITransport(app=fastapi_application)
+                async with httpx.AsyncClient(
+                    transport=transport,
+                    base_url="http://testserver",
+                ) as http_client:
+                    response = await http_client.get("/health/ready")
+                    assert response.status_code == 503
+
+        # The first (successfully loaded) instance must have been closed
+        # during the cleanup of the partial failure.
+        first_mock_pipeline.close.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_startup_emits_info_log_on_model_load_success(
         self,
         mock_of_llama_cpp_client,
