@@ -5,7 +5,7 @@ Loads all configuration values from environment variables with the prefix
 TEXT_TO_IMAGE_. Default values are provided for local development. A .env
 file is also supported via pydantic-settings.
 
-Every configuration variable is documented in the v5.2.7 specification
+Every configuration variable is documented in the v5.3.0 specification
 (Section 17 — Configuration Requirements). This module is the single
 source of truth for all runtime configuration within the service process.
 
@@ -36,15 +36,15 @@ class ApplicationConfiguration(pydantic_settings.BaseSettings):
     Inference timeout note
     ----------------------
     The ``inference_timeout_by_stable_diffusion_per_baseline_unit_in_seconds``
-    (default 60 s) is the base timeout for generating a single 512×512
-    baseline unit image.  The service scales it automatically for larger or
-    batched requests and applies a 30× multiplier on CPU::
+    (default 10 s) is the base timeout for generating a single 512×512
+    baseline unit image, optimised for GPU-accelerated inference.  The service
+    scales it automatically for larger or batched requests and applies a 30×
+    multiplier on CPU::
 
         timeout = base × n_images × (w × h) / (512 × 512)  [× 30 on CPU]
 
-    The default works out of the box on both GPU (~1 min per baseline unit)
-    and CPU (~30 min per baseline unit).  Operators on unusually slow hardware
-    can override this value via the environment variable.
+    The default (10 s) yields an effective timeout of 300 s per baseline unit
+    on CPU.  CPU-only operators should increase to 60.
     """
 
     # ── Application settings ─────────────────────────────────────────────
@@ -77,7 +77,7 @@ class ApplicationConfiguration(pydantic_settings.BaseSettings):
             "runtime by this service (which communicates with llama.cpp via "
             "HTTP), but is declared for tooling visibility, deployment "
             "automation, and environment variable inventory completeness "
-            "(§17 of the v5.2.7 specification)."
+            "(§17 of the v5.3.0 specification)."
         ),
     )
 
@@ -90,7 +90,7 @@ class ApplicationConfiguration(pydantic_settings.BaseSettings):
     )
 
     timeout_for_requests_to_large_language_model_in_seconds: float = pydantic.Field(
-        default=120.0,
+        default=30.0,
         gt=0,
         description=(
             "Maximum time in seconds to wait for a response from the llama.cpp server "
@@ -195,7 +195,7 @@ class ApplicationConfiguration(pydantic_settings.BaseSettings):
     )
 
     inference_timeout_by_stable_diffusion_per_baseline_unit_in_seconds: float = pydantic.Field(
-        default=60.0,
+        default=10.0,
         gt=0,
         description=(
             "Base timeout (seconds) for one 512x512 baseline unit image. A 30x "
@@ -232,7 +232,7 @@ class ApplicationConfiguration(pydantic_settings.BaseSettings):
     # ── Admission control and resilience settings ─────────────────────────
 
     maximum_number_of_concurrent_operations_of_image_generation: int = pydantic.Field(
-        default=1,
+        default=2,
         ge=1,
         description=(
             "Maximum number of image generation inference operations permitted to "
@@ -243,7 +243,7 @@ class ApplicationConfiguration(pydantic_settings.BaseSettings):
     )
 
     retry_after_busy_in_seconds: int = pydantic.Field(
-        default=30,
+        default=5,
         ge=0,
         description=(
             "Value (in seconds) of the Retry-After response header on HTTP 429 "
@@ -273,7 +273,7 @@ class ApplicationConfiguration(pydantic_settings.BaseSettings):
     )
 
     timeout_for_requests_in_seconds: float = pydantic.Field(
-        default=300.0,
+        default=60.0,
         gt=0,
         description=(
             "Maximum end-to-end duration in seconds for any single HTTP request. "

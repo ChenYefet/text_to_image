@@ -1,7 +1,7 @@
 """
 Concurrency-limiting admission control for image generation requests.
 
-This module implements NFR44 from the v5.2.7 specification: a configurable
+This module implements NFR44 from the v5.3.0 specification: a configurable
 concurrency limit that immediately rejects overflow requests with HTTP 429
 (``service_busy``) rather than queuing them.  Queued requests under load
 would accumulate timeout debt and waste compute on operations the client
@@ -47,16 +47,17 @@ class AdmissionControllerForImageGeneration:
     raises an exception.
     """
 
-    def __init__(self, maximum_number_of_concurrent_operations: int = 1) -> None:
+    def __init__(self, maximum_number_of_concurrent_operations: int = 2) -> None:
         """
         Initialise the admission controller.
 
         Args:
             maximum_number_of_concurrent_operations: The maximum number of
                 image generation operations that may execute concurrently.
-                The v5.2.7 specification default is 1, which serialises
-                inference to prevent GPU memory contention on single-GPU
-                hosts.
+                The v5.3.0 specification default is 2, optimised for GPU
+                deployments where two concurrent pipeline instances occupy
+                approximately 7 GB of VRAM at float16 precision.  CPU-only
+                operators should reduce to 1.
         """
         self._maximum_number_of_concurrent_operations = maximum_number_of_concurrent_operations
         self._number_of_active_operations: int = 0

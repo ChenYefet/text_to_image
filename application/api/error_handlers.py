@@ -3,7 +3,7 @@ Centralised error-handling registration for the FastAPI application.
 
 Every exception type that can be raised within the service is mapped to
 a specific HTTP status code and a consistent JSON error response body.
-The mapping follows the v5.2.7 specification requirements:
+The mapping follows the v5.3.0 specification requirements:
 
     - Invalid JSON                        →  400 Bad Request
     - Request validation failure          →  400 Bad Request
@@ -23,7 +23,7 @@ default plain-text or HTML responses.
 
 Allow header on 405 responses
 -----------------------------
-Per RFC 9110 §15.5.6 and NFR22 of the v5.2.7 specification, every
+Per RFC 9110 §15.5.6 and NFR22 of the v5.3.0 specification, every
 HTTP 405 response must include an ``Allow`` header listing the methods
 supported by the requested endpoint.  Rather than maintaining a static
 dictionary that must be kept in sync with route registrations (audit
@@ -51,7 +51,7 @@ logger = structlog.get_logger()
 # ──────────────────────────────────────────────────────────────────────────────
 #
 # Maps Starlette/FastAPI framework-raised HTTP status codes to the
-# machine-readable error codes defined in the v5.2.7 specification
+# machine-readable error codes defined in the v5.3.0 specification
 # (Section 11 — Error Response Schema).  Any status code not listed
 # here falls back to "internal_server_error".
 
@@ -67,7 +67,7 @@ _HTTP_STATUS_CODE_TO_ERROR_MESSAGE: dict[int, str] = {
 }
 
 # Maps Starlette/FastAPI framework-raised HTTP status codes to the
-# specification-defined structured logging event names.  The v5.2.7
+# specification-defined structured logging event names.  The v5.3.0
 # specification's 46-event taxonomy (Section 18) requires distinct
 # event names for each HTTP error condition — ``http_not_found`` for
 # 404 responses and ``http_method_not_allowed`` for 405 responses —
@@ -390,7 +390,7 @@ def register_error_handlers(fastapi_application: fastapi.FastAPI) -> None:
             detail=busy_error.detail,
         )
 
-        retry_after_in_seconds = getattr(request.app.state, "retry_after_busy_in_seconds", 30)
+        retry_after_in_seconds = getattr(request.app.state, "retry_after_busy_in_seconds", 5)
 
         instance_of_admission_controller_for_image_generation = getattr(
             request.app.state,
@@ -443,7 +443,7 @@ def register_error_handlers(fastapi_application: fastapi.FastAPI) -> None:
         discovers the allowed methods for the requested path by
         introspecting the application's registered routes, and includes
         the result in an ``Allow`` header as required by RFC 9110 §15.5.6
-        and NFR22 of the v5.2.7 specification.
+        and NFR22 of the v5.3.0 specification.
         """
         error_code = _HTTP_STATUS_CODE_TO_ERROR_CODE.get(
             http_exception.status_code,
@@ -455,7 +455,7 @@ def register_error_handlers(fastapi_application: fastapi.FastAPI) -> None:
         )
 
         # Emit specification-aligned log events for 404 and 405 responses.
-        # The v5.2.7 specification's 46-event logging taxonomy defines
+        # The v5.3.0 specification's 46-event logging taxonomy defines
         # distinct event names for each HTTP error condition rather than
         # a generic "http_framework_error" event, enabling precise
         # monitoring dashboard filters and alert rules.

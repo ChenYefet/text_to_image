@@ -70,7 +70,7 @@ def _apply_default_configuration_attributes(mock_configuration_instance):
     mock_configuration_instance.cors_allowed_origins = []
     mock_configuration_instance.log_level = "INFO"
     mock_configuration_instance.base_url_of_large_language_model_server = "http://localhost:8080"
-    mock_configuration_instance.timeout_for_requests_to_large_language_model_in_seconds = 120.0
+    mock_configuration_instance.timeout_for_requests_to_large_language_model_in_seconds = 30.0
     mock_configuration_instance.large_language_model_temperature = 0.7
     mock_configuration_instance.maximum_tokens_generated_by_large_language_model = 512
     mock_configuration_instance.system_prompt_for_large_language_model = (
@@ -84,12 +84,12 @@ def _apply_default_configuration_attributes(mock_configuration_instance):
     mock_configuration_instance.safety_checker_for_stable_diffusion = True
     mock_configuration_instance.number_of_inference_steps_of_stable_diffusion = 20
     mock_configuration_instance.guidance_scale_of_stable_diffusion = 7.0
-    mock_configuration_instance.inference_timeout_by_stable_diffusion_per_baseline_unit_in_seconds = 60.0
-    mock_configuration_instance.maximum_number_of_concurrent_operations_of_image_generation = 1
-    mock_configuration_instance.retry_after_busy_in_seconds = 30
+    mock_configuration_instance.inference_timeout_by_stable_diffusion_per_baseline_unit_in_seconds = 10.0
+    mock_configuration_instance.maximum_number_of_concurrent_operations_of_image_generation = 2
+    mock_configuration_instance.retry_after_busy_in_seconds = 5
     mock_configuration_instance.retry_after_not_ready_in_seconds = 10
     mock_configuration_instance.maximum_number_of_bytes_of_request_payload = 1_048_576
-    mock_configuration_instance.timeout_for_requests_in_seconds = 300.0
+    mock_configuration_instance.timeout_for_requests_in_seconds = 60.0
     mock_configuration_instance.failure_threshold_of_circuit_breaker_for_large_language_model = 5
     mock_configuration_instance.recovery_timeout_of_circuit_breaker_for_large_language_model_in_seconds = 30.0
 
@@ -215,7 +215,9 @@ class TestLifespan:
 
         # After exiting, shutdown should have run
         mock_of_llama_cpp_client.close.assert_awaited_once()
-        mock_of_stable_diffusion_pipeline.close.assert_awaited_once()
+        # The pipeline pool holds one instance per concurrency slot (default 2).
+        # Both slots reference the same mock, so close() is called twice.
+        assert mock_of_stable_diffusion_pipeline.close.await_count == 2
 
     @pytest.mark.asyncio
     async def test_metrics_collector_on_app_state(self, mock_of_llama_cpp_client, mock_of_stable_diffusion_pipeline):
@@ -998,7 +1000,7 @@ class TestReadinessCheckReturning503FullStackIntegration:
     operation (for example, the llama.cpp server crashes or the Stable
     Diffusion pipeline encounters a fatal error).
 
-    The ``Retry-After`` header is required by NFR47 of the v5.2.7
+    The ``Retry-After`` header is required by NFR47 of the v5.3.0
     specification to enable orchestrators and monitoring tools to
     implement intelligent back-off when the service reports not-ready.
     """
@@ -1427,7 +1429,7 @@ class TestAdmissionControlRejectionFullStackIntegration:
                     # NFR47: the 429 response must include a Retry-After
                     # header to enable intelligent client back-off.
                     assert "Retry-After" in second_response.headers
-                    assert second_response.headers["Retry-After"] == "30"
+                    assert second_response.headers["Retry-After"] == "5"
 
                     # Correlation ID must be present for traceability.
                     assert "x-correlation-id" in second_response.headers
@@ -1534,9 +1536,9 @@ class TestCustomiseOpenApiSchema:
             for path, path_item in schema.get("paths", {}).items():
                 for method, operation in path_item.items():
                     if isinstance(operation, dict) and "responses" in operation:
-                        assert "422" not in operation["responses"], (
-                            f"Phantom 422 response found in {method.upper()} {path}"
-                        )
+                        assert (
+                            "422" not in operation["responses"]
+                        ), f"Phantom 422 response found in {method.upper()} {path}"
 
     def test_unused_validation_error_schemas_are_removed(
         self, mock_of_llama_cpp_client, mock_of_stable_diffusion_pipeline
@@ -1575,6 +1577,6 @@ class TestCustomiseOpenApiSchema:
                 for method, operation in path_item.items():
                     if isinstance(operation, dict) and "responses" in operation:
                         for expected_status_code in ("404", "405", "500"):
-                            assert expected_status_code in operation["responses"], (
-                                f"Missing {expected_status_code} response in {method.upper()} {path}"
-                            )
+                            assert (
+                                expected_status_code in operation["responses"]
+                            ), f"Missing {expected_status_code} response in {method.upper()} {path}"

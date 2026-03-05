@@ -28,11 +28,11 @@ import application.exceptions
 class TestAdmissionControllerForImageGenerationInitialisation:
     """Verify that the controller initialises with correct defaults and custom values."""
 
-    def test_default_maximum_number_of_concurrent_operations_is_one(self) -> None:
-        """The v5.2.7 specification default for maximum number of concurrent operations is 1."""
+    def test_default_maximum_number_of_concurrent_operations_is_two(self) -> None:
+        """The v5.3.0 specification default for maximum number of concurrent operations is 2."""
         controller = application.admission_control.AdmissionControllerForImageGeneration()
 
-        assert controller.maximum_number_of_concurrent_operations == 1
+        assert controller.maximum_number_of_concurrent_operations == 2
 
     def test_custom_maximum_number_of_concurrent_operations_is_stored(self) -> None:
         """Operators can configure a higher concurrency limit via the constructor."""

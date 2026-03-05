@@ -30,7 +30,7 @@ class TestPromptEnhancementEndpoint:
         Successful prompt enhancement responses must include a
         ``Cache-Control: no-store`` header to prevent intermediate proxies
         and CDNs from caching dynamically generated content (§12 of the
-        v5.2.7 specification, SHOULD-level advisory).
+        v5.3.0 specification, SHOULD-level advisory).
         """
         response = await client.post(
             "/v1/prompts/enhance",

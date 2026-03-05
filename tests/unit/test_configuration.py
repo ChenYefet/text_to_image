@@ -60,7 +60,7 @@ class TestApplicationConfigurationDefaults:
         # ── Language model settings ──
         assert application_configuration.large_language_model_path == ""
         assert application_configuration.base_url_of_large_language_model_server == "http://localhost:8080"
-        assert application_configuration.timeout_for_requests_to_large_language_model_in_seconds == 120.0
+        assert application_configuration.timeout_for_requests_to_large_language_model_in_seconds == 30.0
         assert application_configuration.large_language_model_temperature == 0.7
         assert application_configuration.maximum_tokens_generated_by_large_language_model == 512
         assert "enhancing text-to-image prompts" in application_configuration.system_prompt_for_large_language_model
@@ -74,18 +74,18 @@ class TestApplicationConfigurationDefaults:
         assert application_configuration.number_of_inference_steps_of_stable_diffusion == 20
         assert application_configuration.guidance_scale_of_stable_diffusion == 7.0
         assert application_configuration.safety_checker_for_stable_diffusion is True
-        assert application_configuration.inference_timeout_by_stable_diffusion_per_baseline_unit_in_seconds == 60.0
+        assert application_configuration.inference_timeout_by_stable_diffusion_per_baseline_unit_in_seconds == 10.0
 
         # ── Circuit breaker settings ──
         assert application_configuration.failure_threshold_of_circuit_breaker_for_large_language_model == 5
         assert application_configuration.recovery_timeout_of_circuit_breaker_for_large_language_model_in_seconds == 30.0
 
         # ── Admission control and resilience settings ──
-        assert application_configuration.maximum_number_of_concurrent_operations_of_image_generation == 1
-        assert application_configuration.retry_after_busy_in_seconds == 30
+        assert application_configuration.maximum_number_of_concurrent_operations_of_image_generation == 2
+        assert application_configuration.retry_after_busy_in_seconds == 5
         assert application_configuration.retry_after_not_ready_in_seconds == 10
         assert application_configuration.maximum_number_of_bytes_of_request_payload == 1_048_576
-        assert application_configuration.timeout_for_requests_in_seconds == 300.0
+        assert application_configuration.timeout_for_requests_in_seconds == 60.0
 
 
 class TestApplicationConfigurationOverrides:
@@ -185,7 +185,7 @@ class TestConfigurationEnvironmentVariables:
     Verify that environment variable names set the correct configuration values.
 
     These tests confirm that the canonical environment variable names defined
-    in Section 17 of the v5.2.7 specification are accepted and mapped to the
+    in Section 17 of the v5.3.0 specification are accepted and mapped to the
     correct Python fields.
     """
 
@@ -194,7 +194,7 @@ class TestConfigurationEnvironmentVariables:
     ) -> None:
         """TEXT_TO_IMAGE_LARGE_LANGUAGE_MODEL_PATH is accepted and mapped to the
         large_language_model_path field (reference-only variable for deployment
-        tooling visibility, §17 of the v5.2.7 specification)."""
+        tooling visibility, §17 of the v5.3.0 specification)."""
         _clear_all_configuration_environment_variables(monkeypatch)
         monkeypatch.setenv(
             "TEXT_TO_IMAGE_LARGE_LANGUAGE_MODEL_PATH",

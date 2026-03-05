@@ -23,7 +23,7 @@ llama.cpp large language model.
 
 - **Asynchronous throughout** — every I/O operation uses `async`/`await`, and Stable Diffusion inference is dispatched to a thread pool to avoid blocking the event loop.
 - **Connection pooling** — persistent `httpx.AsyncClient` instances reuse TCP connections across requests, reducing handshake overhead.
-- **Admission control** — an `AdmissionControllerForImageGeneration` limits the number of concurrent image generation operations to a configurable maximum (default 1). When the limit is reached, additional requests are rejected immediately with HTTP 429 (`service_busy`) and a `Retry-After` header, preventing GPU/CPU memory contention without queuing or head-of-line blocking.
+- **Admission control** — an `AdmissionControllerForImageGeneration` limits the number of concurrent image generation operations to a configurable maximum (default 2). When the limit is reached, additional requests are rejected immediately with HTTP 429 (`service_busy`) and a `Retry-After` header, preventing GPU/CPU memory contention without queuing or head-of-line blocking.
 - **Environment-based configuration** — all settings are loaded from environment variables (12-factor app compliant), enabling deployment across development, staging, and production environments without code changes.
 - **Factory pattern** — the application is constructed via a factory function, making it straightforward to create isolated instances for testing or multi-worker deployments.
 
@@ -280,7 +280,7 @@ INFO:     Started server process
 INFO:     Waiting for application startup.
 {"event": "stable_diffusion_pipeline_loading", "level": "INFO", "timestamp": "...", "service_name": "text-to-image-api", "model_id": "stable-diffusion-v1-5/stable-diffusion-v1-5", "model_revision": "main", "device": "cuda", "torch_data_type": "torch.float16"}
 {"event": "stable_diffusion_pipeline_loaded", "level": "INFO", "timestamp": "...", "service_name": "text-to-image-api", "device": "cuda", "duration_in_milliseconds": 12345.6}
-{"event": "services_initialised", "level": "INFO", "timestamp": "...", "service_name": "text-to-image-api", "large_language_model_server": "http://localhost:8080", "stable_diffusion_model": "stable-diffusion-v1-5/stable-diffusion-v1-5", "maximum_number_of_concurrent_operations_of_image_generation": 1}
+{"event": "services_initialised", "level": "INFO", "timestamp": "...", "service_name": "text-to-image-api", "large_language_model_server": "http://localhost:8080", "stable_diffusion_model": "stable-diffusion-v1-5/stable-diffusion-v1-5", "maximum_number_of_concurrent_operations_of_image_generation": 2}
 INFO:     Application startup complete.
 INFO:     Uvicorn running on http://127.0.0.1:8000
 ```
@@ -781,7 +781,7 @@ All configuration is loaded from environment variables prefixed with `TEXT_TO_IM
 |---|---|---|
 | `TEXT_TO_IMAGE_LARGE_LANGUAGE_MODEL_PATH` | File path of the GGUF model file used by the llama.cpp server. Reference only — the API service does not read this value at runtime (it communicates with llama.cpp via HTTP). Declared for tooling visibility and deployment automation. | `""` |
 | `TEXT_TO_IMAGE_BASE_URL_OF_LARGE_LANGUAGE_MODEL_SERVER` | Base URL of the llama.cpp server. The service appends `/v1/chat/completions` to this URL. | `http://localhost:8080` |
-| `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_TO_LARGE_LANGUAGE_MODEL_IN_SECONDS` | Maximum seconds to wait for a large language model response | `120.0` |
+| `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_TO_LARGE_LANGUAGE_MODEL_IN_SECONDS` | Maximum seconds to wait for a large language model response | `30.0` |
 | `TEXT_TO_IMAGE_LARGE_LANGUAGE_MODEL_TEMPERATURE` | Sampling temperature for prompt enhancement (0.0 = deterministic, higher = more creative) | `0.7` |
 | `TEXT_TO_IMAGE_MAXIMUM_TOKENS_GENERATED_BY_LARGE_LANGUAGE_MODEL` | Maximum tokens the large language model may generate for an enhanced prompt. | `512` |
 | `TEXT_TO_IMAGE_SYSTEM_PROMPT_FOR_LARGE_LANGUAGE_MODEL` | System prompt sent to the llama.cpp server on every enhancement request. Controls the enhancement style and output format. | *(built-in default)* |
@@ -811,11 +811,11 @@ All configuration is loaded from environment variables prefixed with `TEXT_TO_IM
 
 | Variable | Description | Default |
 |---|---|---|
-| `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION` | Maximum concurrent image generation operations per service instance. Additional requests are rejected with HTTP 429 (`service_busy`). | `1` |
-| `TEXT_TO_IMAGE_RETRY_AFTER_BUSY_IN_SECONDS` | `Retry-After` header value (seconds) on HTTP 429 responses caused by admission control (error code: `service_busy`). Indicates global GPU/CPU capacity saturation. | `30` |
+| `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION` | Maximum concurrent image generation operations per service instance. Additional requests are rejected with HTTP 429 (`service_busy`). | `2` |
+| `TEXT_TO_IMAGE_RETRY_AFTER_BUSY_IN_SECONDS` | `Retry-After` header value (seconds) on HTTP 429 responses caused by admission control (error code: `service_busy`). Indicates global GPU/CPU capacity saturation. | `5` |
 | `TEXT_TO_IMAGE_RETRY_AFTER_NOT_READY_IN_SECONDS` | `Retry-After` header value (seconds) on HTTP 503 responses from the readiness probe. | `10` |
 | `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_BYTES_OF_REQUEST_PAYLOAD` | Maximum request payload size in bytes. Requests exceeding this limit are rejected with HTTP 413 before the body is fully read. | `1048576` *(1 MB)* |
-| `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS` | Maximum end-to-end duration (seconds) for any single HTTP request. Requests exceeding this ceiling are aborted with HTTP 504 (`request_timeout`). | `300.0` |
+| `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS` | Maximum end-to-end duration (seconds) for any single HTTP request. Requests exceeding this ceiling are aborted with HTTP 504 (`request_timeout`). | `60.0` |
 
 ---
 

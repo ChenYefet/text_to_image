@@ -86,7 +86,7 @@ def test_application_with_error_handlers():
         application.api.middleware.correlation_identifier.CorrelationIdMiddleware,
     )
 
-    fastapi_application.state.retry_after_busy_in_seconds = 30
+    fastapi_application.state.retry_after_busy_in_seconds = 5
     fastapi_application.state.metrics_collector = metrics_collector
 
     # ── Route for triggering request validation errors ────────────────
@@ -677,7 +677,7 @@ class TestHandleServiceBusyError:
         )
 
         assert "retry-after" in response.headers
-        assert response.headers["retry-after"] == "30"
+        assert response.headers["retry-after"] == "5"
 
     @pytest.mark.asyncio
     async def test_details_include_concurrency_limit_when_admission_controller_is_present(
