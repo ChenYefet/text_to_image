@@ -661,7 +661,7 @@ text_to_image/
 ├── nginx.conf                                     # Nginx reverse proxy configuration
 ├── .dockerignore                                  # Files excluded from the Docker build context
 ├── README.md                                      # This file
-├── text-to-image-spec-v5_3_0.md                   # Project specification
+├── text-to-image-spec-v5_4_0.md                   # Project specification
 ├── .github/
 │   └── workflows/
 │       └── continuous-integration.yml              # Continuous integration pipeline (lint, format, type check, audit, test, contract validation)
@@ -675,7 +675,13 @@ text_to_image/
 │   │   ├── text-to-image-api-service.yaml
 │   │   ├── text-to-image-api-hpa.yaml
 │   │   ├── llama-cpp-server-deployment.yaml
-│   │   └── llama-cpp-server-service.yaml
+│   │   ├── llama-cpp-server-service.yaml
+│   │   └── ingress.yaml                          # Reference Ingress resource (operator-customised)
+│   ├── components/                                # Kustomize components for hardware tiers
+│   │   ├── gpu/
+│   │   │   └── kustomization.yaml                # GPU-tier resource patches (nvidia.com/gpu, node selector)
+│   │   └── cpu/
+│   │       └── kustomization.yaml                # CPU-tier placeholder (base manifests already use CPU values)
 │   └── overlays/
 │       ├── development/
 │       │   └── kustomization.yaml

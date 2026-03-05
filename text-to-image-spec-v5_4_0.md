@@ -1,6 +1,6 @@
 # Technical Specification: Text-to-Image Generation Service with Prompt Enhancement
 
-**Document Version:** 5.3.0
+**Document Version:** 5.4.0
 **Status:** Final — Panel Review Ready
 **Target Audience:** Senior Engineering Panel, Implementation Teams
 **Specification Authority:** Principal Technical Specification Authority
@@ -3867,7 +3867,7 @@ The service shall extract `choices[0].message.content` and strip leading and tra
 | Unexpected streaming response | Response `Content-Type` begins with `text/event-stream` | HTTP 502, `upstream_service_unavailable` |
 | Circuit breaker open | Number of consecutive failures has reached the configured threshold ([NFR50](#circuit-breaker-for-communication-with-the-large-language-model-service)) | HTTP 502, `upstream_service_unavailable` (immediate, without contacting the llama.cpp server) |
 
-**Upstream response size limiting advisory:** The `max_tokens: 512` parameter in the request to llama.cpp is advisory — it instructs the model to generate at most 512 tokens, but a misconfigured or adversarial upstream server could return an arbitrarily large response body. The `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_BYTES_OF_RESPONSE_BODY_FROM_LARGE_LANGUAGE_MODEL` configuration variable (default: 1 MB) constrains the maximum response body size the httpx client will read from the llama.cpp server. Responses exceeding this limit shall be treated as an upstream failure and mapped to HTTP 502 with `error.code` equal to `"upstream_service_unavailable"`. This prevents a single upstream response from exhausting service memory. The 1 MB default is generous for prompt enhancement responses (a 512-token response typically produces 2–4 KB of JSON) and provides substantial headroom for unexpectedly verbose model output.
+**Upstream response size limiting advisory:** The `max_tokens: 512` parameter in the request to llama.cpp is advisory — it instructs the model to generate at most 512 tokens, but a misconfigured or adversarial upstream server could return an arbitrarily large response body. The `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_BYTES_OF_RESPONSE_BODY_FROM_LARGE_LANGUAGE_MODEL` configuration variable (default: 1 MB) constrains the maximum response body size the httpx client will read from the llama.cpp server. Responses exceeding this limit shall be treated as an upstream failure and mapped to HTTP 502 with `error.code` equal to `"upstream_service_unavailable"`. This prevents a single upstream response from exhausting service memory. The 1 MB default is generous for prompt enhancement responses (a 512-token response typically produces 2–4 KB of JSON) and provides substantial headroom for unexpectedly verbose model output. The client shall enforce this limit using streaming reads (`httpx.AsyncClient.stream()` with incremental byte iteration via `aiter_bytes()`), checking the accumulated byte count against the configured maximum during receipt rather than buffering the full response body before checking its size. This streaming enforcement ensures that an oversized response is detected and the connection closed as soon as the limit is exceeded, preventing the full response from being buffered into memory.
 
 ### Stable Diffusion Integration
 
@@ -4582,6 +4582,7 @@ Examples:
 | Node selector | `accelerator: nvidia-gpu` | Ensures pods are scheduled onto GPU-capable nodes. The label key and value should match the cluster's GPU node labelling convention. |
 | Readiness probe | `GET /health`, period 10s, timeout 5s | Routes traffic only after model is fully loaded |
 | Liveness probe | `GET /health`, period 30s, timeout 5s | Restarts on process hang |
+| Startup probe | `GET /health`, period 10s, timeout 5s, failure threshold 60 | Allows up to 600 seconds (10 minutes) for GGUF model loading before the liveness probe activates; prevents liveness-probe crash loops during the expected multi-minute model loading phase, matching the text-to-image-api startup probe pattern |
 | Volume mount | `/models` (read-only, from `llama-model-pvc`) | Model files provided via persistent volume |
 
 **CPU tier (fallback):**
@@ -4597,6 +4598,7 @@ Examples:
 | Memory limit | `6Gi` | Headroom for inference working memory |
 | Readiness probe | `GET /health`, period 10s, timeout 5s | Routes traffic only after model is fully loaded |
 | Liveness probe | `GET /health`, period 30s, timeout 5s | Restarts on process hang |
+| Startup probe | `GET /health`, period 10s, timeout 5s, failure threshold 60 | Allows up to 600 seconds (10 minutes) for GGUF model loading before the liveness probe activates; prevents liveness-probe crash loops during the expected multi-minute model loading phase, matching the text-to-image-api startup probe pattern |
 | Volume mount | `/models` (read-only, from `llama-model-pvc`) | Model files provided via persistent volume |
 
 **Service boundary clarity:** The llama.cpp server is deployed as a separate Kubernetes Deployment with its own scaling characteristics. This enforces the process isolation boundary defined in Architectural Principle 6 (External Process Isolation): a crash or memory leak in the large language model server does not affect the API service pods. The two-replica minimum ensures that prompt enhancement remains available during rolling updates of the llama.cpp server.
@@ -4705,7 +4707,43 @@ spec:
 
 **Rationale:** This network policy restricts ingress to the llama.cpp server to only the API pods (port 8080), restricts ingress to the API service (port 8000) to pods within the `text-to-image-service` namespace and to pods in namespaces labelled `network.kubernetes.io/role: ingress` (for ingress controller access), and restricts egress to llama.cpp communication and HTTPS (port 443) for model downloads. This enforces the principle of least privilege at the network layer, limiting the blast radius of a compromised container. The previous version of this policy used an unrestricted `namespaceSelector: {}` for port 8000 ingress, which permitted traffic from all pods in all namespaces — effectively making the API reachable cluster-wide and undermining the stated security posture. The current policy requires operators to label their ingress controller namespace with `network.kubernetes.io/role: ingress` for external traffic to reach the API service.
 
-**Note on Kubernetes manifests:** Implementations targeting Kubernetes deployment should produce manifests in a `k8s/` directory (or use Helm charts) that materialise the resource definitions above. Manifests shall be parameterised using Kustomize overlays or Helm values to support environment-specific configuration (development, staging, production).
+#### Ingress
+
+The base Kubernetes manifests shall include a reference Ingress resource that routes external HTTP traffic to the text-to-image-api-service. Operators shall customise the host, TLS secret name, and ingress class annotation for their cluster.
+
+| Property | Value | Rationale |
+|----------|-------|-----------|
+| Name | `text-to-image-api-ingress` | Follows the `{component}-{descriptor}` naming convention |
+| Namespace | `text-to-image-service` | Deployed in the same namespace as the API service |
+| Host | `text-to-image.example.com` (placeholder) | Operators shall replace with the actual domain name assigned to the service |
+| Path | `/` with `Prefix` path type | Routes all traffic to the API service; path-based routing can be refined by operators |
+| Backend service | `text-to-image-api-service`, port 80 | Matches the ClusterIP service defined above |
+| TLS | Enabled with placeholder secret name `text-to-image-tls-secret` | Operators shall replace with the actual Secret containing the TLS certificate and private key |
+| Ingress class | Commented-out annotation `kubernetes.io/ingress.class: nginx` | Operators shall uncomment and replace with the ingress controller deployed in their cluster (for example, `nginx`, `traefik`, `aws-alb`) |
+
+**Rationale:** A reference Ingress resource provides a production-ready starting point for external traffic routing, complementing the ClusterIP service type prescribed above. Without an Ingress resource, operators must create one from scratch — a step that is error-prone and delays time-to-production. The placeholder values make it explicit that operator customisation is required, and the commented-out ingress class annotation avoids accidental deployment with an incorrect controller.
+
+#### Kustomize Components for Hardware Tiers
+
+GPU and CPU hardware tiers shall be implemented as Kustomize **components** (`kind: Component`, `apiVersion: kustomize.config.k8s.io/v1alpha1`) rather than as overlays. Components are composable with any environment overlay via the `components` field in the overlay's `kustomization.yaml`, enabling orthogonal composition: `development + gpu`, `development + cpu`, `production + gpu`, and `production + cpu` are all valid combinations without manifest duplication.
+
+**GPU component** (`k8s/components/gpu/kustomization.yaml`):
+
+The GPU component patches both the text-to-image-api-deployment and the llama-cpp-server-deployment to apply GPU-tier resource values from the tables above:
+
+- **text-to-image-api-deployment:** Replaces CPU request to `1000m`, memory request to `4Gi`, memory limit to `12Gi`; adds `nvidia.com/gpu: 1` resource limit and `accelerator: nvidia-gpu` node selector.
+- **llama-cpp-server-deployment:** Replaces CPU request to `1000m`; adds `nvidia.com/gpu: 1` resource limit and `accelerator: nvidia-gpu` node selector.
+
+**CPU component** (`k8s/components/cpu/kustomization.yaml`):
+
+The CPU component is intentionally minimal. The base manifests already use CPU-tier resource values (500m CPU, 2Gi memory for the API; 2000m CPU for llama-cpp). The CPU component exists as the explicit counterpart to the GPU component and serves as the natural location for CPU-specific environment variable patches (for example, concurrency=1, extended timeouts) if a future specification version adds a ConfigMap to the base manifests.
+
+**Environment overlay composition:**
+
+- The **development** overlay shall include `components: [../../components/cpu]` by default, reflecting the expectation that development environments typically lack GPU hardware.
+- The **production** overlay shall include `components: [../../components/gpu]` by default, reflecting the GPU-primary deployment tier prescribed by this specification. Operators deploying to CPU-only production clusters shall switch to `../../components/cpu`.
+
+**Note on Kubernetes manifests:** Implementations targeting Kubernetes deployment should produce manifests in a `k8s/` directory (or use Helm charts) that materialise the resource definitions above. Manifests shall be parameterised using Kustomize overlays, Kustomize components, or Helm values to support environment-specific and hardware-tier-specific configuration.
 
 ### Verification Requirements of the Infrastructure
 
@@ -4812,6 +4850,7 @@ text-to-image-service/
 │       └── k6_fault_injection.js            # k6 script for RO8
 ├── k8s/
 │   ├── base/
+│   │   ├── kustomization.yaml
 │   │   ├── namespace.yaml
 │   │   ├── text-to-image-api-deployment.yaml
 │   │   ├── llama-cpp-server-deployment.yaml
@@ -4819,7 +4858,13 @@ text-to-image-service/
 │   │   ├── llama-cpp-server-service.yaml
 │   │   ├── text-to-image-api-hpa.yaml
 │   │   ├── network-policy.yaml
-│   │   └── persistent-volume-claims.yaml
+│   │   ├── persistent-volume-claims.yaml
+│   │   └── ingress.yaml
+│   ├── components/
+│   │   ├── gpu/
+│   │   │   └── kustomization.yaml
+│   │   └── cpu/
+│   │       └── kustomization.yaml
 │   └── overlays/
 │       ├── development/
 │       │   └── kustomization.yaml
@@ -5495,6 +5540,7 @@ This section documents failure modes commonly encountered during initial setup a
 | 5.2.6 | 5 Mar 2026 | Removed `health.py` from the `application/api/schemas/` directory in the repository structure tree — health and readiness response schemas are defined as inline OpenAPI JSON schema dictionaries in `application/api/endpoints/health.py`, not as separate Pydantic models. Added `stable_diffusion_pipeline_pool_instance_unavailable_during_shutdown` (WARNING) to the normative logging event taxonomy, bringing the total from 45 to 46 events. |
 | 5.2.7 | 5 Mar 2026 | Four additions addressing scalability documentation gaps: (1) Added per-worker metrics and circuit breaker independence clarification to the [Uvicorn worker model](#uvicorn-worker-model) section for multi-worker configurations. (2) Added conditional GPU resource scheduling rows (`nvidia.com/gpu` resource limits and node selectors) to both the [Deployment: text-to-image-api](#deployment-text-to-image-api) and [Deployment: llama-cpp-server](#deployment-llama-cpp-server) tables, with a GPU resource scheduling advisory. (3) Added [connection pool sizing for multi-replica deployments](#connection-pool-sizing-for-multi-replica-deployments) advisory and [per-pod circuit breaker state advisory](#per-pod-circuit-breaker-state-advisory) to the llama.cpp capacity planning section. (4) Added [production deployment verification advisory](#production-deployment-verification-advisory) to [NFR4](#horizontal-scaling-under-concurrent-load) recommending that production deployments verify load distribution with the target replica count and proportionally tighter thresholds. |
 | 5.3.0 | 5 Mar 2026 | Introduced dual-tier (GPU-primary, CPU-fallback) performance requirements with GPU-optimised configuration defaults throughout. See detailed v5.3.0 changelog below. |
+| 5.4.0 | 5 Mar 2026 | Added startup probe to llama-cpp-server deployment; added reference Ingress resource; introduced GPU and CPU Kustomize components for orthogonal hardware-tier composition with environment overlays; added streaming response body size enforcement to the upstream communication contract. See detailed v5.4.0 changelog below. |
 
 #### v4.0.0 Detailed Changelog
 
@@ -5941,6 +5987,20 @@ This section documents failure modes commonly encountered during initial setup a
 - Rewritten [future extensibility pathway 1 (GPU acceleration)](#future-extensibility-pathways) as a current capability with cross-references to NFR1 and NFR2 dual-tier requirements.
 - Updated llama.cpp capacity planning advisory with GPU-tier throughput figures (1 request per 1–3 seconds) before CPU figures (1 request per 5–15 seconds).
 - Updated mixed-workload concurrency advisory to lead with GPU context (separate compute resources eliminate CPU contention) and reference GPU-optimised defaults.
+
+#### v5.4.0 Detailed Changelog
+
+**Kubernetes infrastructure:**
+
+- Added a startup probe to the [Deployment: llama-cpp-server](#deployment-llama-cpp-server) tables (both GPU and CPU tiers): `GET /health`, period 10s, timeout 5s, failure threshold 60. This matches the text-to-image-api startup probe pattern and prevents liveness-probe crash loops during the multi-minute GGUF model loading phase.
+- Added a reference [Ingress](#ingress) resource (`k8s/base/ingress.yaml`) to the base Kubernetes manifests. The Ingress routes external HTTP traffic to the text-to-image-api-service with placeholder host, TLS configuration, and ingress class annotation. Operators shall customise these values for their cluster.
+- Added `kustomization.yaml` and `ingress.yaml` to the `k8s/base/` directory in the [Repository Structure](#repository-structure) tree.
+- Added [Kustomize Components for Hardware Tiers](#kustomize-components-for-hardware-tiers) subsection prescribing GPU and CPU as Kustomize components (`kind: Component`) that are composable with any environment overlay. `k8s/components/gpu/` patches resource requests and limits, adds `nvidia.com/gpu: 1` and node selector; `k8s/components/cpu/` is intentionally minimal as the base manifests already represent CPU-tier values. Environment overlays include the appropriate component via the `components` field: development defaults to CPU, production defaults to GPU.
+- Added `k8s/components/gpu/` and `k8s/components/cpu/` directories to the [Repository Structure](#repository-structure) tree.
+
+**Upstream communication:**
+
+- Extended the upstream response size limiting advisory in the [llama.cpp Integration](#llamacpp-integration) section to prescribe streaming reads for response body size enforcement. The client shall use `httpx.AsyncClient.stream()` with incremental byte iteration via `aiter_bytes()`, checking the accumulated byte count against the configured maximum during receipt rather than buffering the full response body before checking its size.
 
 ---
 
