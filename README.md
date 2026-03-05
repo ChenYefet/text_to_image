@@ -10,7 +10,7 @@ llama.cpp large language model.
 
 | Component | Technology | Justification |
 |---|---|---|
-| **Backend Language** | Python 3.11+ | Mature async/await ecosystem, comprehensive type annotation support, and wide availability of machine learning and HTTP libraries. Python's readability directly supports the self-documenting code requirement. |
+| **Backend Language** | Python 3.12+ | Mature async/await ecosystem, comprehensive type annotation support, and wide availability of machine learning and HTTP libraries. Python's readability directly supports the self-documenting code requirement. |
 | **HTTP Framework** | FastAPI | Native async support, automatic OpenAPI/Swagger documentation generation, and deep integration with Pydantic for declarative request validation. Built on Starlette and Uvicorn for high-throughput I/O-bound workloads. |
 | **ASGI Server** | Uvicorn | Production-ready ASGI server with hot-reload capability during development and support for multiple worker processes in production deployments. |
 | **JSON Validation** | Pydantic v2 | Declarative, self-documenting validation models with built-in serialisation support. Validation rules are expressed as class definitions rather than imperative logic. |
@@ -67,7 +67,7 @@ The service acts as a unified gateway between the client and two backends:
 
 Before setting up this project, ensure you have the following installed:
 
-- **Python 3.11 or later** — [https://www.python.org/downloads/](https://www.python.org/downloads/)
+- **Python 3.12 or later** — [https://www.python.org/downloads/](https://www.python.org/downloads/)
 - **Git** — [https://git-scm.com/downloads](https://git-scm.com/downloads)
 - **PyTorch** — installed via pip. For GPU acceleration, install the CUDA-enabled build (see [https://pytorch.org/get-started/locally/](https://pytorch.org/get-started/locally/)).
 - **llama.cpp** — pre-built binaries available at [https://github.com/ggml-org/llama.cpp/releases](https://github.com/ggml-org/llama.cpp/releases)
