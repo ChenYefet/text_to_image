@@ -1,6 +1,6 @@
 # Technical Specification: Text-to-Image Generation Service with Prompt Enhancement
 
-**Document Version:** 5.2.5
+**Document Version:** 5.2.6
 **Status:** Final — Panel Review Ready
 **Target Audience:** Senior Engineering Panel, Implementation Teams
 **Specification Authority:** Principal Technical Specification Authority
@@ -74,7 +74,7 @@ The service architecture prioritises horizontal scalability, operational observa
 
 This specification is designed for evaluation by a hiring panel assessing a candidate's ability to design, document, implement, deploy, and operate distributed systems with components for machine learning inference. Every requirement includes an explicit intent, a detailed test procedure with step-by-step instructions executable by an independent reviewer without deep domain knowledge, and measurable success criteria.
 
-**Scope calibration advisory:** This specification is titled "Junior Full Stack Exercise" but defines a system of enterprise-grade complexity: 50 individually testable requirements, chaos-engineering-style fault injection under concurrent load, k6 load testing with statistical analysis, a taxonomy of 45 logging event types, continuous integration and deployment with coverage enforcement, and references for Kubernetes production deployments. Evaluators should calibrate expectations accordingly. A candidate is not expected to implement every requirement to production quality; the specification is intentionally aspirational to expose design thinking and prioritisation skill. Evaluators may define a "minimum viable subset" (for example, [FR25](#capability-for-prompt-enhancement)–[FR29](#handling-of-the-image-size-parameter) and [NFR1](#latency-of-prompt-enhancement-under-concurrent-load)–[NFR3](#latency-of-validation-responses)) and treat additional requirements as stretch goals.
+**Scope calibration advisory:** This specification is titled "Junior Full Stack Exercise" but defines a system of enterprise-grade complexity: 50 individually testable requirements, chaos-engineering-style fault injection under concurrent load, k6 load testing with statistical analysis, a taxonomy of 46 logging event types, continuous integration and deployment with coverage enforcement, and references for Kubernetes production deployments. Evaluators should calibrate expectations accordingly. A candidate is not expected to implement every requirement to production quality; the specification is intentionally aspirational to expose design thinking and prioritisation skill. Evaluators may define a "minimum viable subset" (for example, [FR25](#capability-for-prompt-enhancement)–[FR29](#handling-of-the-image-size-parameter) and [NFR1](#latency-of-prompt-enhancement-under-concurrent-load)–[NFR3](#latency-of-validation-responses)) and treat additional requirements as stretch goals.
 
 ### Key Architectural Characteristics
 
@@ -4075,6 +4075,7 @@ This section consolidates logging, metrics, and tracing expectations.
 | `llama_cpp_response_too_large` | ERROR | Upstream response body exceeded the configured maximum size |
 | `stable_diffusion_startup_warmup_completed` | INFO | Startup warmup inference completed successfully; includes warmup latency |
 | `stable_diffusion_startup_warmup_failed` | WARNING | Startup warmup inference failed; first user request absorbs warmup cost |
+| `stable_diffusion_pipeline_pool_instance_unavailable_during_shutdown` | WARNING | A pipeline pool slot could not be reclaimed during shutdown because the pool queue was empty |
 | `enhanced_prompt_for_generation` | INFO | Logs the enhanced prompt at INFO level after successful enhancement but before image generation, so the enhancement result is recoverable from logs if generation subsequently fails (FR33 compliance) |
 | `request_timeout_after_headers_sent` | WARNING | End-to-end timeout fired after HTTP response headers were already committed; the response cannot be replaced with HTTP 504 |
 
@@ -4704,7 +4705,6 @@ text-to-image-service/
 │   │   └── schemas/
 │   │       ├── prompt_enhancement.py        # Pydantic request/response models
 │   │       ├── image_generation.py          # Pydantic request/response models
-│   │       ├── health.py                    # Health/readiness response models
 │   │       └── error.py                     # Error response model
 │   ├── services/
 │   │   ├── prompt_enhancement_service.py    # Business logic: workflow for prompt enhancement
@@ -5409,6 +5409,7 @@ This section documents failure modes commonly encountered during initial setup a
 | 5.2.3 | 3 Mar 2026 | Updated the llama.cpp container image reference from `ghcr.io/ggerganov/llama.cpp:server` to `ghcr.io/ggml-org/llama.cpp:server` in the [reference docker-compose for multi-instance evaluation](#reference-docker-compose-for-multi-instance-evaluation) and the [Deployment: llama-cpp-server](#deployment-llama-cpp-server) table, reflecting the upstream organisation migration from the `ggerganov` personal account to the `ggml-org` organisation on GitHub. |
 | 5.2.4 | 4 Mar 2026 | Corrected the [Deployment: text-to-image-api](#deployment-text-to-image-api) table's termination grace period from 60 seconds to 90 seconds, resolving an internal contradiction with the [Kubernetes interaction advisory](#graceful-shutdown) which correctly prescribes 90 seconds to provide a 30-second buffer beyond the application-level 60-second drain period. |
 | 5.2.5 | 4 Mar 2026 | Added a startup probe to the [Deployment: text-to-image-api](#deployment-text-to-image-api) table to prevent liveness-probe crash loops during model loading. Without a startup probe, the liveness probe's `periodSeconds × failureThreshold` (30s × 3 = 90s) window is shorter than the expected model loading time (60–300 seconds depending on hardware and cache state), causing Kubernetes to kill and restart pods before they finish loading the model. |
+| 5.2.6 | 5 Mar 2026 | Removed `health.py` from the `application/api/schemas/` directory in the repository structure tree — health and readiness response schemas are defined as inline OpenAPI JSON schema dictionaries in `application/api/endpoints/health.py`, not as separate Pydantic models. Added `stable_diffusion_pipeline_pool_instance_unavailable_during_shutdown` (WARNING) to the normative logging event taxonomy, bringing the total from 45 to 46 events. |
 
 #### v4.0.0 Detailed Changelog
 

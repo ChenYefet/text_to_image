@@ -242,7 +242,7 @@ class TestGenerateImages:
         The ``image_generation_completed`` log event must include a
         ``number_of_bytes_of_resident_set_size_of_process`` field reporting
         the process resident set size at the time of completion, as required
-        by the v5.2.5 specification (§15, Operational Observability,
+        by the v5.2.6 specification (§15, Operational Observability,
         Finding A-17).
         """
         service = _build_image_generation_service_with_mock_pipeline()
