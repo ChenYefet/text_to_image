@@ -4,7 +4,7 @@ Request timeout middleware.
 The ``RequestTimeoutMiddleware`` enforces the operator-configured
 end-to-end request timeout (``request_timeout_in_seconds``, default
 300 s).  Requests exceeding this ceiling are aborted with HTTP 504
-(``request_timeout``).  This middleware implements NFR48 from the v5.2.6
+(``request_timeout``).  This middleware implements NFR48 from the v5.2.7
 specification.
 
 The timeout encompasses the entire request lifecycle — including body

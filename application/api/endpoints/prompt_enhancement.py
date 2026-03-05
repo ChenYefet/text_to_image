@@ -7,7 +7,7 @@ high-quality image generation.
 
 The response includes a ``Cache-Control: no-store`` header to prevent
 intermediate proxies and CDNs from caching dynamically generated content
-(§12 of the v5.2.6 specification, SHOULD-level advisory).
+(§12 of the v5.2.7 specification, SHOULD-level advisory).
 """
 
 import time
@@ -104,7 +104,7 @@ async def handle_prompt_enhancement_request(
 
     The response includes a ``Cache-Control: no-store`` header to prevent
     intermediate proxies and CDNs from caching dynamically generated
-    content (§12 of the v5.2.6 specification, SHOULD-level advisory).
+    content (§12 of the v5.2.7 specification, SHOULD-level advisory).
     """
     enhanced_prompt_text = await prompt_enhancement_service.enhance_prompt(
         original_prompt=prompt_enhancement_request.prompt,

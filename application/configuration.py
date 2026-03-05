@@ -5,7 +5,7 @@ Loads all configuration values from environment variables with the prefix
 TEXT_TO_IMAGE_. Default values are provided for local development. A .env
 file is also supported via pydantic-settings.
 
-Every configuration variable is documented in the v5.2.6 specification
+Every configuration variable is documented in the v5.2.7 specification
 (Section 17 — Configuration Requirements). This module is the single
 source of truth for all runtime configuration within the service process.
 
@@ -77,7 +77,7 @@ class ApplicationConfiguration(pydantic_settings.BaseSettings):
             "runtime by this service (which communicates with llama.cpp via "
             "HTTP), but is declared for tooling visibility, deployment "
             "automation, and environment variable inventory completeness "
-            "(§17 of the v5.2.6 specification)."
+            "(§17 of the v5.2.7 specification)."
         ),
     )
 
