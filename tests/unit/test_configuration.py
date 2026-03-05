@@ -185,7 +185,7 @@ class TestConfigurationEnvironmentVariables:
     Verify that environment variable names set the correct configuration values.
 
     These tests confirm that the canonical environment variable names defined
-    in Section 17 of the v5.4.0 specification are accepted and mapped to the
+    in Section 17 of the v5.5.0 specification are accepted and mapped to the
     correct Python fields.
     """
 
@@ -194,7 +194,7 @@ class TestConfigurationEnvironmentVariables:
     ) -> None:
         """TEXT_TO_IMAGE_LARGE_LANGUAGE_MODEL_PATH is accepted and mapped to the
         large_language_model_path field (reference-only variable for deployment
-        tooling visibility, §17 of the v5.4.0 specification)."""
+        tooling visibility, §17 of the v5.5.0 specification)."""
         _clear_all_configuration_environment_variables(monkeypatch)
         monkeypatch.setenv(
             "TEXT_TO_IMAGE_LARGE_LANGUAGE_MODEL_PATH",

@@ -282,7 +282,7 @@ class TestImageGenerationResponse:
 
     def test_empty_data_list_rejected(self) -> None:
         """The data array must contain at least one element (minItems: 1
-        per §11 of the v5.4.0 specification)."""
+        per §11 of the v5.5.0 specification)."""
         with pytest.raises(pydantic.ValidationError):
             application.contracts_shared_across_layers.image_generation.ImageGenerationResponse(
                 created=1700000000,
@@ -292,7 +292,7 @@ class TestImageGenerationResponse:
 
     def test_data_list_exceeding_maximum_rejected(self) -> None:
         """The data array must not exceed four elements (maxItems: 4
-        per §11 of the v5.4.0 specification)."""
+        per §11 of the v5.5.0 specification)."""
         five_images = [
             application.contracts_shared_across_layers.image_generation.GeneratedImageData(base64_json="abc")
             for _ in range(5)

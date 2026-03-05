@@ -661,7 +661,7 @@ text_to_image/
 ├── nginx.conf                                     # Nginx reverse proxy configuration
 ├── .dockerignore                                  # Files excluded from the Docker build context
 ├── README.md                                      # This file
-├── text-to-image-spec-v5_4_0.md                   # Project specification
+├── text-to-image-spec-v5_5_0.md                   # Project specification
 ├── .github/
 │   └── workflows/
 │       └── continuous-integration.yml              # Continuous integration pipeline (lint, format, type check, audit, test, contract validation)
@@ -772,6 +772,8 @@ Once the service is running, FastAPI automatically generates interactive documen
 
 All configuration is loaded from environment variables prefixed with `TEXT_TO_IMAGE_`. A `.env` file is also supported for local development.
 
+> **Tier note:** All defaults are optimised for GPU-accelerated inference. Where a setting has a different recommended value for CPU-only deployments, the CPU recommendation is noted in the description. See `.env.example` for detailed commentary on each setting.
+
 **Application settings**
 
 | Variable | Description | Default |
@@ -787,7 +789,7 @@ All configuration is loaded from environment variables prefixed with `TEXT_TO_IM
 |---|---|---|
 | `TEXT_TO_IMAGE_LARGE_LANGUAGE_MODEL_PATH` | File path of the GGUF model file used by the llama.cpp server. Reference only — the API service does not read this value at runtime (it communicates with llama.cpp via HTTP). Declared for tooling visibility and deployment automation. | `""` |
 | `TEXT_TO_IMAGE_BASE_URL_OF_LARGE_LANGUAGE_MODEL_SERVER` | Base URL of the llama.cpp server. The service appends `/v1/chat/completions` to this URL. | `http://localhost:8080` |
-| `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_TO_LARGE_LANGUAGE_MODEL_IN_SECONDS` | Maximum seconds to wait for a large language model response | `30.0` |
+| `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_TO_LARGE_LANGUAGE_MODEL_IN_SECONDS` | Maximum seconds to wait for a large language model response. GPU default: `30.0`; CPU-only operators should increase to `120.0`. | `30.0` |
 | `TEXT_TO_IMAGE_LARGE_LANGUAGE_MODEL_TEMPERATURE` | Sampling temperature for prompt enhancement (0.0 = deterministic, higher = more creative) | `0.7` |
 | `TEXT_TO_IMAGE_MAXIMUM_TOKENS_GENERATED_BY_LARGE_LANGUAGE_MODEL` | Maximum tokens the large language model may generate for an enhanced prompt. | `512` |
 | `TEXT_TO_IMAGE_SYSTEM_PROMPT_FOR_LARGE_LANGUAGE_MODEL` | System prompt sent to the llama.cpp server on every enhancement request. Controls the enhancement style and output format. | *(built-in default)* |
@@ -804,7 +806,7 @@ All configuration is loaded from environment variables prefixed with `TEXT_TO_IM
 | `TEXT_TO_IMAGE_NUMBER_OF_INFERENCE_STEPS_OF_STABLE_DIFFUSION` | Number of denoising steps per image. Higher values produce better quality but take longer. | `20` |
 | `TEXT_TO_IMAGE_GUIDANCE_SCALE_OF_STABLE_DIFFUSION` | Classifier-free guidance scale. Higher values follow the prompt more closely. | `7.0` |
 | `TEXT_TO_IMAGE_SAFETY_CHECKER_FOR_STABLE_DIFFUSION` | Enable the NSFW content safety checker (`true`/`false`). Disabling removes content filtering from generated images. | `true` |
-| `TEXT_TO_IMAGE_INFERENCE_TIMEOUT_BY_STABLE_DIFFUSION_PER_BASELINE_UNIT_IN_SECONDS` | Base timeout (seconds) for one 512×512 baseline unit image. Auto-scaled: `base × n_images × (w × h) / (512 × 512)`, with a ×30 multiplier on CPU. | `10.0` |
+| `TEXT_TO_IMAGE_INFERENCE_TIMEOUT_BY_STABLE_DIFFUSION_PER_BASELINE_UNIT_IN_SECONDS` | Base timeout (seconds) for one 512×512 baseline unit image. Auto-scaled: `base × n_images × (w × h) / (512 × 512)`, with a ×30 multiplier on CPU. GPU default: `10.0`; CPU-only operators should increase to `60.0`. | `10.0` |
 
 **Circuit breaker settings**
 
@@ -817,11 +819,11 @@ All configuration is loaded from environment variables prefixed with `TEXT_TO_IM
 
 | Variable | Description | Default |
 |---|---|---|
-| `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION` | Maximum concurrent image generation operations per service instance. Additional requests are rejected with HTTP 429 (`service_busy`). | `2` |
-| `TEXT_TO_IMAGE_RETRY_AFTER_BUSY_IN_SECONDS` | `Retry-After` header value (seconds) on HTTP 429 responses caused by admission control (error code: `service_busy`). Indicates global GPU/CPU capacity saturation. | `5` |
+| `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION` | Maximum concurrent image generation operations per service instance. Additional requests are rejected with HTTP 429 (`service_busy`). GPU default: `2` (~7 GB VRAM at float16); CPU-only operators should reduce to `1`. | `2` |
+| `TEXT_TO_IMAGE_RETRY_AFTER_BUSY_IN_SECONDS` | `Retry-After` header value (seconds) on HTTP 429 responses caused by admission control (error code: `service_busy`). Indicates global GPU/CPU capacity saturation. GPU default: `5` (2–5 seconds per image); CPU-only operators should increase to `30`. | `5` |
 | `TEXT_TO_IMAGE_RETRY_AFTER_NOT_READY_IN_SECONDS` | `Retry-After` header value (seconds) on HTTP 503 responses from the readiness probe. | `10` |
 | `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_BYTES_OF_REQUEST_PAYLOAD` | Maximum request payload size in bytes. Requests exceeding this limit are rejected with HTTP 413 before the body is fully read. | `1048576` *(1 MB)* |
-| `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS` | Maximum end-to-end duration (seconds) for any single HTTP request. Requests exceeding this ceiling are aborted with HTTP 504 (`request_timeout`). | `60.0` |
+| `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS` | Maximum end-to-end duration (seconds) for any single HTTP request. Requests exceeding this ceiling are aborted with HTTP 504 (`request_timeout`). GPU default: `60.0`; CPU-only operators should increase to `300.0`. | `60.0` |
 
 ---
 

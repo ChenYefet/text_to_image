@@ -1,6 +1,6 @@
 # Technical Specification: Text-to-Image Generation Service with Prompt Enhancement
 
-**Document Version:** 5.4.0
+**Document Version:** 5.5.0
 **Status:** Final — Panel Review Ready
 **Target Audience:** Senior Engineering Panel, Implementation Teams
 **Specification Authority:** Principal Technical Specification Authority
@@ -3215,18 +3215,18 @@ All cross-cutting error responses conform to the Schema for Error Responses defi
 
 The following limits are configurable via environment variables and affect API validation behaviour. Each limit is cross-referenced to the requirement that mandates it and to the environment variable that controls it.
 
-| Limit | Default Value | Environment Variable | Governing Requirement |
-|-------|--------------|---------------------|----------------------|
-| Maximum request payload size (bytes) | 1,048,576 (1 MB) | `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_BYTES_OF_REQUEST_PAYLOAD` | [NFR15](#enforcement-of-limits-on-the-size-of-request-payloads) (Enforcement of limits on the size of request payloads) |
-| Maximum prompt length (characters) | 2,000 | *(validated in Pydantic schema)* | [FR30](#request-validation-schema-compliance) (Request validation: schema compliance) |
-| Maximum images per request (`n`) | 4 | *(validated in Pydantic schema)* | [FR30](#request-validation-schema-compliance) (Request validation: schema compliance) |
-| Permitted image sizes | `512x512`, `768x768`, `1024x1024` | *(validated in Pydantic schema)* | [FR30](#request-validation-schema-compliance) (Request validation: schema compliance) |
-| Image generation concurrency limit | 2 | `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION` | [NFR44](#concurrency-control-for-image-generation) (Concurrency control for image generation) |
-| Upstream request timeout (seconds) | 30 | `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_TO_LARGE_LANGUAGE_MODEL_IN_SECONDS` | [NFR6](#enforcement-of-upstream-timeouts) (Enforcement of upstream timeouts) |
-| Failure threshold of the circuit breaker for the large language model (consecutive failures) | 5 | `TEXT_TO_IMAGE_FAILURE_THRESHOLD_OF_CIRCUIT_BREAKER_FOR_LARGE_LANGUAGE_MODEL` | [NFR50](#circuit-breaker-for-communication-with-the-large-language-model-service) (Circuit breaker for communication with the large language model service) |
-| Recovery timeout of the circuit breaker for the large language model (seconds) | 30 | `TEXT_TO_IMAGE_RECOVERY_TIMEOUT_OF_CIRCUIT_BREAKER_FOR_LARGE_LANGUAGE_MODEL_IN_SECONDS` | [NFR50](#circuit-breaker-for-communication-with-the-large-language-model-service) (Circuit breaker for communication with the large language model service) |
-| Timeout for end-to-end requests (seconds) | 60 | `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS` | [NFR48](#timeout-for-end-to-end-requests) (Timeout for end-to-end requests) |
-| CORS allowed origins | `[]` (none) | `TEXT_TO_IMAGE_CORS_ALLOWED_ORIGINS` | [NFR16](#cors-enforcement) (CORS enforcement) |
+| Limit | Default Value (GPU) | CPU Recommendation | Environment Variable | Governing Requirement |
+|-------|--------------------|--------------------|---------------------|----------------------|
+| Maximum request payload size (bytes) | 1,048,576 (1 MB) | *(same)* | `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_BYTES_OF_REQUEST_PAYLOAD` | [NFR15](#enforcement-of-limits-on-the-size-of-request-payloads) (Enforcement of limits on the size of request payloads) |
+| Maximum prompt length (characters) | 2,000 | *(same)* | *(validated in Pydantic schema)* | [FR30](#request-validation-schema-compliance) (Request validation: schema compliance) |
+| Maximum images per request (`n`) | 4 | *(same)* | *(validated in Pydantic schema)* | [FR30](#request-validation-schema-compliance) (Request validation: schema compliance) |
+| Permitted image sizes | `512x512`, `768x768`, `1024x1024` | *(same)* | *(validated in Pydantic schema)* | [FR30](#request-validation-schema-compliance) (Request validation: schema compliance) |
+| Image generation concurrency limit | 2 | Reduce to 1 | `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION` | [NFR44](#concurrency-control-for-image-generation) (Concurrency control for image generation) |
+| Upstream request timeout (seconds) | 30 | Increase to 120 | `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_TO_LARGE_LANGUAGE_MODEL_IN_SECONDS` | [NFR6](#enforcement-of-upstream-timeouts) (Enforcement of upstream timeouts) |
+| Failure threshold of the circuit breaker for the large language model (consecutive failures) | 5 | *(same)* | `TEXT_TO_IMAGE_FAILURE_THRESHOLD_OF_CIRCUIT_BREAKER_FOR_LARGE_LANGUAGE_MODEL` | [NFR50](#circuit-breaker-for-communication-with-the-large-language-model-service) (Circuit breaker for communication with the large language model service) |
+| Recovery timeout of the circuit breaker for the large language model (seconds) | 30 | *(same)* | `TEXT_TO_IMAGE_RECOVERY_TIMEOUT_OF_CIRCUIT_BREAKER_FOR_LARGE_LANGUAGE_MODEL_IN_SECONDS` | [NFR50](#circuit-breaker-for-communication-with-the-large-language-model-service) (Circuit breaker for communication with the large language model service) |
+| Timeout for end-to-end requests (seconds) | 60 | Increase to 300 | `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS` | [NFR48](#timeout-for-end-to-end-requests) (Timeout for end-to-end requests) |
+| CORS allowed origins | `[]` (none) | *(same)* | `TEXT_TO_IMAGE_CORS_ALLOWED_ORIGINS` | [NFR16](#cors-enforcement) (CORS enforcement) |
 
 Changes to these configured values modify the API's validation behaviour but do not constitute breaking changes within a major API version, provided that:
 
@@ -5541,6 +5541,7 @@ This section documents failure modes commonly encountered during initial setup a
 | 5.2.7 | 5 Mar 2026 | Four additions addressing scalability documentation gaps: (1) Added per-worker metrics and circuit breaker independence clarification to the [Uvicorn worker model](#uvicorn-worker-model) section for multi-worker configurations. (2) Added conditional GPU resource scheduling rows (`nvidia.com/gpu` resource limits and node selectors) to both the [Deployment: text-to-image-api](#deployment-text-to-image-api) and [Deployment: llama-cpp-server](#deployment-llama-cpp-server) tables, with a GPU resource scheduling advisory. (3) Added [connection pool sizing for multi-replica deployments](#connection-pool-sizing-for-multi-replica-deployments) advisory and [per-pod circuit breaker state advisory](#per-pod-circuit-breaker-state-advisory) to the llama.cpp capacity planning section. (4) Added [production deployment verification advisory](#production-deployment-verification-advisory) to [NFR4](#horizontal-scaling-under-concurrent-load) recommending that production deployments verify load distribution with the target replica count and proportionally tighter thresholds. |
 | 5.3.0 | 5 Mar 2026 | Introduced dual-tier (GPU-primary, CPU-fallback) performance requirements with GPU-optimised configuration defaults throughout. See detailed v5.3.0 changelog below. |
 | 5.4.0 | 5 Mar 2026 | Added startup probe to llama-cpp-server deployment; added reference Ingress resource; introduced GPU and CPU Kustomize components for orthogonal hardware-tier composition with environment overlays; added streaming response body size enforcement to the upstream communication contract. See detailed v5.4.0 changelog below. |
+| 5.5.0 | 5 Mar 2026 | Added GPU and CPU tier annotations to the Configuration Limits table: renamed the "Default Value" column to "Default Value (GPU)" and introduced a "CPU Recommendation" column for the five tier-dependent configuration variables. See detailed v5.5.0 changelog below. |
 
 #### v4.0.0 Detailed Changelog
 
@@ -6001,6 +6002,13 @@ This section documents failure modes commonly encountered during initial setup a
 **Upstream communication:**
 
 - Extended the upstream response size limiting advisory in the [llama.cpp Integration](#llamacpp-integration) section to prescribe streaming reads for response body size enforcement. The client shall use `httpx.AsyncClient.stream()` with incremental byte iteration via `aiter_bytes()`, checking the accumulated byte count against the configured maximum during receipt rather than buffering the full response body before checking its size.
+
+#### v5.5.0 Detailed Changelog
+
+**Configuration Limits table (Appendix A):**
+
+- Restructured the Configuration Limits table to distinguish GPU defaults from CPU recommendations: renamed the "Default Value" column to "Default Value (GPU)" and added a "CPU Recommendation" column.
+- Added CPU-specific recommendations for the five tier-dependent configuration variables: upstream request timeout (increase to 120), inference timeout per baseline unit (increase to 60), image generation concurrency limit (reduce to 1), retry-after busy (increase to 30), and end-to-end request timeout (increase to 300).
 
 ---
 

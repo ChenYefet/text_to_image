@@ -475,7 +475,7 @@ class StableDiffusionPipeline:
         # calls on the same hardware.
         #
         # The warmup latency is reported in milliseconds as required by the
-        # v5.4.0 specification (Section 18, event B-4).
+        # v5.5.0 specification (Section 18, event B-4).
         if not self._first_inference_completed:
             self._first_inference_completed = True
             logger.info(

@@ -5,7 +5,7 @@ Loads all configuration values from environment variables with the prefix
 TEXT_TO_IMAGE_. Default values are provided for local development. A .env
 file is also supported via pydantic-settings.
 
-Every configuration variable is documented in the v5.4.0 specification
+Every configuration variable is documented in the v5.5.0 specification
 (Section 17 — Configuration Requirements). This module is the single
 source of truth for all runtime configuration within the service process.
 
@@ -77,7 +77,7 @@ class ApplicationConfiguration(pydantic_settings.BaseSettings):
             "runtime by this service (which communicates with llama.cpp via "
             "HTTP), but is declared for tooling visibility, deployment "
             "automation, and environment variable inventory completeness "
-            "(§17 of the v5.4.0 specification)."
+            "(§17 of the v5.5.0 specification)."
         ),
     )
 
@@ -94,7 +94,9 @@ class ApplicationConfiguration(pydantic_settings.BaseSettings):
         gt=0,
         description=(
             "Maximum time in seconds to wait for a response from the llama.cpp server "
-            "before treating the request as failed."
+            "before treating the request as failed. The default of 30 seconds is "
+            "optimised for GPU-accelerated inference; CPU-only operators should "
+            "increase to 120."
         ),
     )
 
@@ -198,8 +200,10 @@ class ApplicationConfiguration(pydantic_settings.BaseSettings):
         default=10.0,
         gt=0,
         description=(
-            "Base timeout (seconds) for one 512x512 baseline unit image. A 30x "
-            "multiplier is auto-applied on CPU. Actual timeout: "
+            "Base timeout (seconds) for one 512x512 baseline unit image. The "
+            "default of 10 seconds is optimised for GPU-accelerated inference; "
+            "CPU-only operators should increase to 60. A 30x multiplier is "
+            "auto-applied on CPU. Actual timeout: "
             "base x n_images x (w x h) / (512 x 512) [x 30 on CPU]."
         ),
     )
@@ -238,7 +242,9 @@ class ApplicationConfiguration(pydantic_settings.BaseSettings):
             "Maximum number of image generation inference operations permitted to "
             "execute concurrently within a single service instance. When this limit "
             "is reached, additional requests are rejected immediately with "
-            "HTTP 429 (service_busy)."
+            "HTTP 429 (service_busy). The default of 2 is optimised for GPU "
+            "deployments (~7 GB VRAM at float16); CPU-only operators should "
+            "reduce to 1."
         ),
     )
 
@@ -250,7 +256,9 @@ class ApplicationConfiguration(pydantic_settings.BaseSettings):
             "(Too Many Requests) responses when the image generation admission "
             "control concurrency limit is reached (error code: service_busy). "
             "This is a global capacity signal indicating that the GPU/CPU inference "
-            "resource is fully occupied."
+            "resource is fully occupied. The default of 5 seconds is optimised for "
+            "GPU inference (2-5 seconds per image); CPU-only operators should "
+            "increase to 30."
         ),
     )
 
@@ -278,7 +286,8 @@ class ApplicationConfiguration(pydantic_settings.BaseSettings):
         description=(
             "Maximum end-to-end duration in seconds for any single HTTP request. "
             "Requests exceeding this ceiling are aborted with "
-            "HTTP 504 (request_timeout)."
+            "HTTP 504 (request_timeout). The default of 60 seconds is optimised "
+            "for GPU inference; CPU-only operators should increase to 300."
         ),
     )
 
