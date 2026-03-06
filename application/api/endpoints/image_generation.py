@@ -6,7 +6,7 @@ generates one or more images from a text prompt using Stable Diffusion.
 When the ``use_enhancer`` flag is set to true, the prompt is first
 enhanced by the large language model before image generation begins.
 
-Per the v5.5.0 specification (Section 16 — Component Failure Degradation
+Per the v5.6.0 specification (Section 16 — Component Failure Degradation
 Matrix), when ``use_enhancer`` is true and the llama.cpp server fails,
 the service returns HTTP 502 (upstream_service_unavailable). There is no
 silent fallback to the original prompt.
@@ -139,7 +139,7 @@ async def handle_image_generation_request(
 
     The response includes a ``Cache-Control: no-store`` header to prevent
     intermediate proxies and CDNs from caching dynamically generated
-    content (§12 of the v5.5.0 specification, SHOULD-level advisory).
+    content (§12 of the v5.6.0 specification, SHOULD-level advisory).
     """
     # Acquire admission before performing any work.  If the concurrency
     # limit has been reached, this raises ServiceBusyError immediately.
