@@ -74,18 +74,18 @@ class TestApplicationConfigurationDefaults:
         assert application_configuration.number_of_inference_steps_of_stable_diffusion == 20
         assert application_configuration.guidance_scale_of_stable_diffusion == 7.0
         assert application_configuration.safety_checker_for_stable_diffusion is True
-        assert application_configuration.inference_timeout_by_stable_diffusion_per_baseline_unit_in_seconds == 10.0
+        assert application_configuration.inference_timeout_by_stable_diffusion_per_baseline_unit_in_seconds is None
 
         # ── Circuit breaker settings ──
         assert application_configuration.failure_threshold_of_circuit_breaker_for_large_language_model == 5
         assert application_configuration.recovery_timeout_of_circuit_breaker_for_large_language_model_in_seconds == 30.0
 
         # ── Admission control and resilience settings ──
-        assert application_configuration.maximum_number_of_concurrent_operations_of_image_generation == 2
-        assert application_configuration.retry_after_busy_in_seconds == 5
+        assert application_configuration.maximum_number_of_concurrent_operations_of_image_generation is None
+        assert application_configuration.retry_after_busy_in_seconds is None
         assert application_configuration.retry_after_not_ready_in_seconds == 10
         assert application_configuration.maximum_number_of_bytes_of_request_payload == 1_048_576
-        assert application_configuration.timeout_for_requests_in_seconds == 60.0
+        assert application_configuration.timeout_for_requests_in_seconds is None
 
 
 class TestApplicationConfigurationOverrides:
@@ -366,3 +366,87 @@ class TestConfigurationValidation:
         )
         with pytest.raises(pydantic.ValidationError):
             application.configuration.ApplicationConfiguration()
+
+
+class TestTierDependentDefaultResolution:
+    """Verify sentinel-based auto-resolution of tier-dependent configuration defaults."""
+
+    def test_gpu_defaults_when_device_is_cuda(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _clear_all_configuration_environment_variables(monkeypatch)
+        monkeypatch.setenv("TEXT_TO_IMAGE_STABLE_DIFFUSION_DEVICE", "cuda")
+        application_configuration = application.configuration.ApplicationConfiguration()
+        application_configuration.resolve_tier_dependent_defaults_for_inference_device()
+
+        assert application_configuration.inference_timeout_by_stable_diffusion_per_baseline_unit_in_seconds == 10.0
+        assert application_configuration.maximum_number_of_concurrent_operations_of_image_generation == 2
+        assert application_configuration.retry_after_busy_in_seconds == 5
+        assert application_configuration.timeout_for_requests_in_seconds == 60.0
+        assert application_configuration._resolved_inference_device == "cuda"
+
+    def test_cpu_defaults_when_device_is_cpu(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _clear_all_configuration_environment_variables(monkeypatch)
+        monkeypatch.setenv("TEXT_TO_IMAGE_STABLE_DIFFUSION_DEVICE", "cpu")
+        application_configuration = application.configuration.ApplicationConfiguration()
+        application_configuration.resolve_tier_dependent_defaults_for_inference_device()
+
+        assert application_configuration.inference_timeout_by_stable_diffusion_per_baseline_unit_in_seconds == 60.0
+        assert application_configuration.maximum_number_of_concurrent_operations_of_image_generation == 1
+        assert application_configuration.retry_after_busy_in_seconds == 30
+        assert application_configuration.timeout_for_requests_in_seconds == 300.0
+        assert application_configuration._resolved_inference_device == "cpu"
+
+    def test_auto_detection_with_cuda_available(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _clear_all_configuration_environment_variables(monkeypatch)
+        import unittest.mock
+
+        application_configuration = application.configuration.ApplicationConfiguration()
+        with unittest.mock.patch("torch.cuda.is_available", return_value=True):
+            application_configuration.resolve_tier_dependent_defaults_for_inference_device()
+
+        assert application_configuration.inference_timeout_by_stable_diffusion_per_baseline_unit_in_seconds == 10.0
+        assert application_configuration.maximum_number_of_concurrent_operations_of_image_generation == 2
+        assert application_configuration.retry_after_busy_in_seconds == 5
+        assert application_configuration.timeout_for_requests_in_seconds == 60.0
+        assert application_configuration._resolved_inference_device == "cuda"
+
+    def test_auto_detection_without_cuda(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _clear_all_configuration_environment_variables(monkeypatch)
+        import unittest.mock
+
+        application_configuration = application.configuration.ApplicationConfiguration()
+        with unittest.mock.patch("torch.cuda.is_available", return_value=False):
+            application_configuration.resolve_tier_dependent_defaults_for_inference_device()
+
+        assert application_configuration.inference_timeout_by_stable_diffusion_per_baseline_unit_in_seconds == 60.0
+        assert application_configuration.maximum_number_of_concurrent_operations_of_image_generation == 1
+        assert application_configuration.retry_after_busy_in_seconds == 30
+        assert application_configuration.timeout_for_requests_in_seconds == 300.0
+        assert application_configuration._resolved_inference_device == "cpu"
+
+    def test_explicit_override_preserved(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _clear_all_configuration_environment_variables(monkeypatch)
+        monkeypatch.setenv("TEXT_TO_IMAGE_STABLE_DIFFUSION_DEVICE", "cpu")
+        monkeypatch.setenv("TEXT_TO_IMAGE_INFERENCE_TIMEOUT_BY_STABLE_DIFFUSION_PER_BASELINE_UNIT_IN_SECONDS", "25.0")
+        monkeypatch.setenv("TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION", "4")
+        monkeypatch.setenv("TEXT_TO_IMAGE_RETRY_AFTER_BUSY_IN_SECONDS", "15")
+        monkeypatch.setenv("TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS", "120.0")
+        application_configuration = application.configuration.ApplicationConfiguration()
+        application_configuration.resolve_tier_dependent_defaults_for_inference_device()
+
+        assert application_configuration.inference_timeout_by_stable_diffusion_per_baseline_unit_in_seconds == 25.0
+        assert application_configuration.maximum_number_of_concurrent_operations_of_image_generation == 4
+        assert application_configuration.retry_after_busy_in_seconds == 15
+        assert application_configuration.timeout_for_requests_in_seconds == 120.0
+
+    def test_mixed_sentinel_and_explicit_values(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _clear_all_configuration_environment_variables(monkeypatch)
+        monkeypatch.setenv("TEXT_TO_IMAGE_STABLE_DIFFUSION_DEVICE", "cuda")
+        monkeypatch.setenv("TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS", "120.0")
+        monkeypatch.setenv("TEXT_TO_IMAGE_RETRY_AFTER_BUSY_IN_SECONDS", "15")
+        application_configuration = application.configuration.ApplicationConfiguration()
+        application_configuration.resolve_tier_dependent_defaults_for_inference_device()
+
+        assert application_configuration.inference_timeout_by_stable_diffusion_per_baseline_unit_in_seconds == 10.0
+        assert application_configuration.maximum_number_of_concurrent_operations_of_image_generation == 2
+        assert application_configuration.retry_after_busy_in_seconds == 15
+        assert application_configuration.timeout_for_requests_in_seconds == 120.0

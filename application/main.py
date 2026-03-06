@@ -56,6 +56,11 @@ def create_application() -> fastapi.FastAPI:
       5. Includes all route handlers.
     """
     application_configuration = application.configuration.ApplicationConfiguration()
+    application_configuration.resolve_tier_dependent_defaults_for_inference_device()
+    assert application_configuration.inference_timeout_by_stable_diffusion_per_baseline_unit_in_seconds is not None
+    assert application_configuration.maximum_number_of_concurrent_operations_of_image_generation is not None
+    assert application_configuration.retry_after_busy_in_seconds is not None
+    assert application_configuration.timeout_for_requests_in_seconds is not None
     application.logging_config.configure_logging(
         log_level=application_configuration.log_level,
     )
@@ -74,6 +79,15 @@ def create_application() -> fastapi.FastAPI:
         Stable Diffusion pipeline in-process. On shutdown, close them
         to release resources.
         """
+        # Re-assert narrowing inside the closure for mypy — the outer-scope
+        # asserts after resolve_tier_dependent_defaults_for_inference_device()
+        # guarantee these are non-None, but mypy does not propagate narrowing
+        # into closures.
+        assert application_configuration.inference_timeout_by_stable_diffusion_per_baseline_unit_in_seconds is not None
+        assert application_configuration.maximum_number_of_concurrent_operations_of_image_generation is not None
+        assert application_configuration.retry_after_busy_in_seconds is not None
+        assert application_configuration.timeout_for_requests_in_seconds is not None
+
         circuit_breaker_for_large_language_model = application.circuit_breaker.CircuitBreaker(
             failure_threshold=(application_configuration.failure_threshold_of_circuit_breaker_for_large_language_model),
             timeout_for_recovery_in_seconds=(
@@ -244,6 +258,15 @@ def create_application() -> fastapi.FastAPI:
             maximum_number_of_concurrent_operations_of_image_generation=(
                 application_configuration.maximum_number_of_concurrent_operations_of_image_generation
             ),
+            detected_inference_device=application_configuration._resolved_inference_device,
+            resolved_inference_timeout_by_stable_diffusion_per_baseline_unit_in_seconds=(
+                application_configuration.inference_timeout_by_stable_diffusion_per_baseline_unit_in_seconds
+            ),
+            resolved_maximum_number_of_concurrent_operations_of_image_generation=(
+                application_configuration.maximum_number_of_concurrent_operations_of_image_generation
+            ),
+            resolved_retry_after_busy_in_seconds=application_configuration.retry_after_busy_in_seconds,
+            resolved_timeout_for_requests_in_seconds=application_configuration.timeout_for_requests_in_seconds,
         )
 
         yield

@@ -14,6 +14,23 @@ source of truth for all runtime configuration within the service process.
 import pydantic
 import pydantic_settings
 
+# ── Tier-dependent default constants ──────────────────────────────────────
+#
+# These constants define the GPU and CPU defaults for the 4 configuration
+# variables that participate in sentinel-based auto-resolution.  When a
+# field is left as None (the sentinel), the resolution method selects the
+# appropriate constant based on the detected Stable Diffusion inference
+# device at startup.
+
+GPU_DEFAULT_INFERENCE_TIMEOUT_BY_STABLE_DIFFUSION_PER_BASELINE_UNIT_IN_SECONDS = 10.0
+CPU_DEFAULT_INFERENCE_TIMEOUT_BY_STABLE_DIFFUSION_PER_BASELINE_UNIT_IN_SECONDS = 60.0
+GPU_DEFAULT_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION = 2
+CPU_DEFAULT_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION = 1
+GPU_DEFAULT_RETRY_AFTER_BUSY_IN_SECONDS = 5
+CPU_DEFAULT_RETRY_AFTER_BUSY_IN_SECONDS = 30
+GPU_DEFAULT_TIMEOUT_FOR_REQUESTS_IN_SECONDS = 60.0
+CPU_DEFAULT_TIMEOUT_FOR_REQUESTS_IN_SECONDS = 300.0
+
 
 class ApplicationConfiguration(pydantic_settings.BaseSettings):
     """
@@ -33,18 +50,22 @@ class ApplicationConfiguration(pydantic_settings.BaseSettings):
     - **Admission control and resilience**: maximum number of concurrent operations, retry-after
       durations, maximum request payload size, end-to-end request timeout
 
+    Sentinel-based auto-resolution
+    ------------------------------
+    Four tier-dependent settings default to ``None`` (sentinel).  After
+    instantiation, call ``resolve_tier_dependent_defaults_for_inference_device()``
+    to replace each ``None`` with the appropriate GPU or CPU default based on
+    the detected Stable Diffusion inference device.  Explicit operator overrides
+    are preserved unconditionally.
+
     Inference timeout note
     ----------------------
     The ``inference_timeout_by_stable_diffusion_per_baseline_unit_in_seconds``
-    (default 10 s) is the base timeout for generating a single 512×512
-    baseline unit image, optimised for GPU-accelerated inference.  The service
-    scales it automatically for larger or batched requests and applies a 30×
-    multiplier on CPU::
+    is the base timeout for generating a single 512×512 baseline unit image.
+    The service scales it automatically for larger or batched requests and
+    applies a 30× multiplier on CPU::
 
         timeout = base × n_images × (w × h) / (512 × 512)  [× 30 on CPU]
-
-    The default (10 s) yields an effective timeout of 300 s per baseline unit
-    on CPU.  CPU-only operators should increase to 60.
     """
 
     # ── Application settings ─────────────────────────────────────────────
@@ -196,13 +217,13 @@ class ApplicationConfiguration(pydantic_settings.BaseSettings):
         description=("Enable the NSFW safety checker. Disabling removes content filtering from generated images."),
     )
 
-    inference_timeout_by_stable_diffusion_per_baseline_unit_in_seconds: float = pydantic.Field(
-        default=10.0,
+    inference_timeout_by_stable_diffusion_per_baseline_unit_in_seconds: float | None = pydantic.Field(
+        default=None,
         gt=0,
         description=(
-            "Base timeout (seconds) for one 512x512 baseline unit image. The "
-            "default of 10 seconds is optimised for GPU-accelerated inference; "
-            "CPU-only operators should increase to 60. A 30x multiplier is "
+            "Base timeout (seconds) for one 512x512 baseline unit image. "
+            "None triggers auto-resolution: 10 on GPU, 60 on CPU. An explicit "
+            "value overrides auto-detection unconditionally. A 30x multiplier is "
             "auto-applied on CPU. Actual timeout: "
             "base x n_images x (w x h) / (512 x 512) [x 30 on CPU]."
         ),
@@ -235,30 +256,27 @@ class ApplicationConfiguration(pydantic_settings.BaseSettings):
 
     # ── Admission control and resilience settings ─────────────────────────
 
-    maximum_number_of_concurrent_operations_of_image_generation: int = pydantic.Field(
-        default=2,
+    maximum_number_of_concurrent_operations_of_image_generation: int | None = pydantic.Field(
+        default=None,
         ge=1,
         description=(
             "Maximum number of image generation inference operations permitted to "
             "execute concurrently within a single service instance. When this limit "
             "is reached, additional requests are rejected immediately with "
-            "HTTP 429 (service_busy). The default of 2 is optimised for GPU "
-            "deployments (~7 GB VRAM at float16); CPU-only operators should "
-            "reduce to 1."
+            "HTTP 429 (service_busy). None triggers auto-resolution: 2 on GPU, "
+            "1 on CPU. An explicit value overrides auto-detection unconditionally."
         ),
     )
 
-    retry_after_busy_in_seconds: int = pydantic.Field(
-        default=5,
+    retry_after_busy_in_seconds: int | None = pydantic.Field(
+        default=None,
         ge=0,
         description=(
             "Value (in seconds) of the Retry-After response header on HTTP 429 "
             "(Too Many Requests) responses when the image generation admission "
             "control concurrency limit is reached (error code: service_busy). "
-            "This is a global capacity signal indicating that the GPU/CPU inference "
-            "resource is fully occupied. The default of 5 seconds is optimised for "
-            "GPU inference (2-5 seconds per image); CPU-only operators should "
-            "increase to 30."
+            "None triggers auto-resolution: 5 on GPU, 30 on CPU. An explicit "
+            "value overrides auto-detection unconditionally."
         ),
     )
 
@@ -280,14 +298,14 @@ class ApplicationConfiguration(pydantic_settings.BaseSettings):
         ),
     )
 
-    timeout_for_requests_in_seconds: float = pydantic.Field(
-        default=60.0,
+    timeout_for_requests_in_seconds: float | None = pydantic.Field(
+        default=None,
         gt=0,
         description=(
             "Maximum end-to-end duration in seconds for any single HTTP request. "
             "Requests exceeding this ceiling are aborted with "
-            "HTTP 504 (request_timeout). The default of 60 seconds is optimised "
-            "for GPU inference; CPU-only operators should increase to 300."
+            "HTTP 504 (request_timeout). None triggers auto-resolution: 60 on GPU, "
+            "300 on CPU. An explicit value overrides auto-detection unconditionally."
         ),
     )
 
@@ -295,3 +313,51 @@ class ApplicationConfiguration(pydantic_settings.BaseSettings):
         env_file=".env",
         env_prefix="TEXT_TO_IMAGE_",
     )
+
+    # ── Sentinel resolution ───────────────────────────────────────────────
+
+    _resolved_inference_device: str = ""
+
+    def resolve_tier_dependent_defaults_for_inference_device(self) -> None:
+        """
+        Replace ``None`` sentinels with GPU or CPU defaults based on the
+        detected Stable Diffusion inference device.
+
+        This method must be called once after instantiation and before the
+        configuration values are consumed by middleware or service
+        construction.  Explicit operator overrides (non-``None`` values)
+        are preserved unconditionally.
+        """
+        import torch  # noqa: PLC0415
+
+        if self.stable_diffusion_device == "auto":
+            detected_device = "cuda" if torch.cuda.is_available() else "cpu"
+        else:
+            detected_device = self.stable_diffusion_device
+
+        self._resolved_inference_device = detected_device
+        is_gpu = detected_device == "cuda"
+
+        if self.inference_timeout_by_stable_diffusion_per_baseline_unit_in_seconds is None:
+            self.inference_timeout_by_stable_diffusion_per_baseline_unit_in_seconds = (
+                GPU_DEFAULT_INFERENCE_TIMEOUT_BY_STABLE_DIFFUSION_PER_BASELINE_UNIT_IN_SECONDS
+                if is_gpu
+                else CPU_DEFAULT_INFERENCE_TIMEOUT_BY_STABLE_DIFFUSION_PER_BASELINE_UNIT_IN_SECONDS
+            )
+
+        if self.maximum_number_of_concurrent_operations_of_image_generation is None:
+            self.maximum_number_of_concurrent_operations_of_image_generation = (
+                GPU_DEFAULT_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION
+                if is_gpu
+                else CPU_DEFAULT_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION
+            )
+
+        if self.retry_after_busy_in_seconds is None:
+            self.retry_after_busy_in_seconds = (
+                GPU_DEFAULT_RETRY_AFTER_BUSY_IN_SECONDS if is_gpu else CPU_DEFAULT_RETRY_AFTER_BUSY_IN_SECONDS
+            )
+
+        if self.timeout_for_requests_in_seconds is None:
+            self.timeout_for_requests_in_seconds = (
+                GPU_DEFAULT_TIMEOUT_FOR_REQUESTS_IN_SECONDS if is_gpu else CPU_DEFAULT_TIMEOUT_FOR_REQUESTS_IN_SECONDS
+            )

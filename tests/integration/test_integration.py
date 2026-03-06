@@ -215,9 +215,10 @@ class TestLifespan:
 
         # After exiting, shutdown should have run
         mock_of_llama_cpp_client.close.assert_awaited_once()
-        # The pipeline pool holds one instance per concurrency slot (default 2).
-        # Both slots reference the same mock, so close() is called twice.
-        assert mock_of_stable_diffusion_pipeline.close.await_count == 2
+        # The pipeline pool holds one instance per concurrency slot.
+        # The auto-resolved CPU default is 1 (no CUDA in the test environment),
+        # so close() is called once.
+        assert mock_of_stable_diffusion_pipeline.close.await_count == 1
 
     @pytest.mark.asyncio
     async def test_metrics_collector_on_app_state(self, mock_of_llama_cpp_client, mock_of_stable_diffusion_pipeline):
@@ -382,12 +383,17 @@ class TestStartupModelValidation:
     async def test_partial_startup_failure_cleans_up_successfully_loaded_instances(
         self,
         mock_of_llama_cpp_client,
+        monkeypatch,
     ):
         """When multiple pipeline instances are being loaded and a later
         instance fails, the instances that were already loaded successfully
         must be closed to avoid leaking GPU memory.  The service must still
         enter the degraded state (image generation unavailable) rather than
         crashing."""
+        # Explicitly set concurrency to 2 so the loop attempts two
+        # load_pipeline calls (the auto-resolved CPU default is 1).
+        monkeypatch.setenv("TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION", "2")
+
         first_mock_pipeline = _build_mock_of_stable_diffusion_pipeline()
 
         # First call succeeds, second call raises — simulating OOM on the

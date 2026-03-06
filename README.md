@@ -280,7 +280,7 @@ INFO:     Started server process
 INFO:     Waiting for application startup.
 {"event": "stable_diffusion_pipeline_loading", "level": "INFO", "timestamp": "...", "service_name": "text-to-image-api", "model_id": "stable-diffusion-v1-5/stable-diffusion-v1-5", "model_revision": "main", "device": "cuda", "torch_data_type": "torch.float16"}
 {"event": "stable_diffusion_pipeline_loaded", "level": "INFO", "timestamp": "...", "service_name": "text-to-image-api", "device": "cuda", "duration_in_milliseconds": 12345.6}
-{"event": "services_initialised", "level": "INFO", "timestamp": "...", "service_name": "text-to-image-api", "large_language_model_server": "http://localhost:8080", "stable_diffusion_model": "stable-diffusion-v1-5/stable-diffusion-v1-5", "maximum_number_of_concurrent_operations_of_image_generation": 2}
+{"event": "services_initialised", "level": "INFO", "timestamp": "...", "service_name": "text-to-image-api", "large_language_model_server": "http://localhost:8080", "stable_diffusion_model": "stable-diffusion-v1-5/stable-diffusion-v1-5", "maximum_number_of_concurrent_operations_of_image_generation": 2, "detected_inference_device": "cuda", "resolved_inference_timeout_by_stable_diffusion_per_baseline_unit_in_seconds": 10.0, "resolved_maximum_number_of_concurrent_operations_of_image_generation": 2, "resolved_retry_after_busy_in_seconds": 5, "resolved_timeout_for_requests_in_seconds": 60.0}
 INFO:     Application startup complete.
 INFO:     Uvicorn running on http://127.0.0.1:8000
 ```
@@ -772,7 +772,7 @@ Once the service is running, FastAPI automatically generates interactive documen
 
 All configuration is loaded from environment variables prefixed with `TEXT_TO_IMAGE_`. A `.env` file is also supported for local development.
 
-> **Tier note:** All defaults are optimised for GPU-accelerated inference. Where a setting has a different recommended value for CPU-only deployments, the CPU recommendation is noted in the description. See `.env.example` for detailed commentary on each setting.
+> **Tier note:** Four settings auto-resolve based on the detected inference device (GPU or CPU) at startup. Operators can override any auto-resolved value by setting the corresponding environment variable explicitly. See `.env.example` for detailed commentary on each setting.
 
 **Application settings**
 
@@ -806,7 +806,7 @@ All configuration is loaded from environment variables prefixed with `TEXT_TO_IM
 | `TEXT_TO_IMAGE_NUMBER_OF_INFERENCE_STEPS_OF_STABLE_DIFFUSION` | Number of denoising steps per image. Higher values produce better quality but take longer. | `20` |
 | `TEXT_TO_IMAGE_GUIDANCE_SCALE_OF_STABLE_DIFFUSION` | Classifier-free guidance scale. Higher values follow the prompt more closely. | `7.0` |
 | `TEXT_TO_IMAGE_SAFETY_CHECKER_FOR_STABLE_DIFFUSION` | Enable the NSFW content safety checker (`true`/`false`). Disabling removes content filtering from generated images. | `true` |
-| `TEXT_TO_IMAGE_INFERENCE_TIMEOUT_BY_STABLE_DIFFUSION_PER_BASELINE_UNIT_IN_SECONDS` | Base timeout (seconds) for one 512×512 baseline unit image. Auto-scaled: `base × n_images × (w × h) / (512 × 512)`, with a ×30 multiplier on CPU. GPU default: `10.0`; CPU-only operators should increase to `60.0`. | `10.0` |
+| `TEXT_TO_IMAGE_INFERENCE_TIMEOUT_BY_STABLE_DIFFUSION_PER_BASELINE_UNIT_IN_SECONDS` | Base timeout (seconds) for one 512×512 baseline unit image. Auto-scaled: `base × n_images × (w × h) / (512 × 512)`, with a ×30 multiplier on CPU. Auto-resolved: `10.0` on GPU, `60.0` on CPU. | `None` *(auto-detected)* |
 
 **Circuit breaker settings**
 
@@ -819,11 +819,11 @@ All configuration is loaded from environment variables prefixed with `TEXT_TO_IM
 
 | Variable | Description | Default |
 |---|---|---|
-| `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION` | Maximum concurrent image generation operations per service instance. Additional requests are rejected with HTTP 429 (`service_busy`). GPU default: `2` (~7 GB VRAM at float16); CPU-only operators should reduce to `1`. | `2` |
-| `TEXT_TO_IMAGE_RETRY_AFTER_BUSY_IN_SECONDS` | `Retry-After` header value (seconds) on HTTP 429 responses caused by admission control (error code: `service_busy`). Indicates global GPU/CPU capacity saturation. GPU default: `5` (2–5 seconds per image); CPU-only operators should increase to `30`. | `5` |
+| `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION` | Maximum concurrent image generation operations per service instance. Additional requests are rejected with HTTP 429 (`service_busy`). Auto-resolved: `2` on GPU (~7 GB VRAM at float16), `1` on CPU. | `None` *(auto-detected)* |
+| `TEXT_TO_IMAGE_RETRY_AFTER_BUSY_IN_SECONDS` | `Retry-After` header value (seconds) on HTTP 429 responses caused by admission control (error code: `service_busy`). Indicates global GPU/CPU capacity saturation. Auto-resolved: `5` on GPU, `30` on CPU. | `None` *(auto-detected)* |
 | `TEXT_TO_IMAGE_RETRY_AFTER_NOT_READY_IN_SECONDS` | `Retry-After` header value (seconds) on HTTP 503 responses from the readiness probe. | `10` |
 | `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_BYTES_OF_REQUEST_PAYLOAD` | Maximum request payload size in bytes. Requests exceeding this limit are rejected with HTTP 413 before the body is fully read. | `1048576` *(1 MB)* |
-| `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS` | Maximum end-to-end duration (seconds) for any single HTTP request. Requests exceeding this ceiling are aborted with HTTP 504 (`request_timeout`). GPU default: `60.0`; CPU-only operators should increase to `300.0`. | `60.0` |
+| `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS` | Maximum end-to-end duration (seconds) for any single HTTP request. Requests exceeding this ceiling are aborted with HTTP 504 (`request_timeout`). Auto-resolved: `60.0` on GPU, `300.0` on CPU. | `None` *(auto-detected)* |
 
 ---
 
