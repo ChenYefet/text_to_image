@@ -1,6 +1,6 @@
 # Technical Specification: Text-to-Image Generation Service with Prompt Enhancement
 
-**Document Version:** 5.6.0
+**Document Version:** 5.6.1
 **Status:** Final — Panel Review Ready
 **Target Audience:** Senior Engineering Panel, Implementation Teams
 **Specification Authority:** Principal Technical Specification Authority
@@ -5509,12 +5509,12 @@ This section documents failure modes commonly encountered during initial setup a
 | `TEXT_TO_IMAGE_NUMBER_OF_INFERENCE_STEPS_OF_STABLE_DIFFUSION` | Number of diffusion inference steps | `20` | No |
 | `TEXT_TO_IMAGE_GUIDANCE_SCALE_OF_STABLE_DIFFUSION` | Classifier-free guidance scale | `7.0` | No |
 | `TEXT_TO_IMAGE_SAFETY_CHECKER_FOR_STABLE_DIFFUSION` | Enable NSFW safety checker (`true`/`false`) | `true` | No |
-| `TEXT_TO_IMAGE_INFERENCE_TIMEOUT_BY_STABLE_DIFFUSION_PER_BASELINE_UNIT_IN_SECONDS` | Base timeout for generating one 512×512 baseline unit image | `10` | No |
-| `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION` | Maximum concurrent inferences for image generation per instance | `2` | No |
-| `TEXT_TO_IMAGE_RETRY_AFTER_BUSY_IN_SECONDS` | `Retry-After` value (seconds) on HTTP 429 responses | `5` | No |
+| `TEXT_TO_IMAGE_INFERENCE_TIMEOUT_BY_STABLE_DIFFUSION_PER_BASELINE_UNIT_IN_SECONDS` | Base timeout for generating one 512×512 baseline unit image | `None` (auto-detected: `10` on GPU, `60` on CPU) | No |
+| `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION` | Maximum concurrent inferences for image generation per instance | `None` (auto-detected: `2` on GPU, `1` on CPU) | No |
+| `TEXT_TO_IMAGE_RETRY_AFTER_BUSY_IN_SECONDS` | `Retry-After` value (seconds) on HTTP 429 responses | `None` (auto-detected: `5` on GPU, `30` on CPU) | No |
 | `TEXT_TO_IMAGE_RETRY_AFTER_NOT_READY_IN_SECONDS` | `Retry-After` value (seconds) on HTTP 503 responses | `10` | No |
 | `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_BYTES_OF_REQUEST_PAYLOAD` | Maximum request payload size in bytes | `1048576` (1 MB) | No |
-| `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS` | Maximum end-to-end request duration in seconds | `60` | No |
+| `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS` | Maximum end-to-end request duration in seconds | `None` (auto-detected: `60` on GPU, `300` on CPU) | No |
 | `TEXT_TO_IMAGE_CORS_ALLOWED_ORIGINS` | Allowed CORS origins (JSON list) | `[]` | No |
 | `TEXT_TO_IMAGE_LOG_LEVEL` | Minimum log level | `INFO` | No |
 
@@ -5543,6 +5543,7 @@ This section documents failure modes commonly encountered during initial setup a
 | 5.4.0 | 5 Mar 2026 | Added startup probe to llama-cpp-server deployment; added reference Ingress resource; introduced GPU and CPU Kustomize components for orthogonal hardware-tier composition with environment overlays; added streaming response body size enforcement to the upstream communication contract. See detailed v5.4.0 changelog below. |
 | 5.5.0 | 5 Mar 2026 | Added GPU and CPU tier annotations to the Configuration Limits table: renamed the "Default Value" column to "Default Value (GPU)" and introduced a "CPU Recommendation" column for the five tier-dependent configuration variables. See detailed v5.5.0 changelog below. |
 | 5.6.0 | 6 Mar 2026 | Introduced sentinel-based auto-resolution of tier-dependent configuration defaults. Four configuration variables (`inference_timeout_by_stable_diffusion_per_baseline_unit_in_seconds`, `maximum_number_of_concurrent_operations_of_image_generation`, `retry_after_busy_in_seconds`, `timeout_for_requests_in_seconds`) now default to `None` and auto-resolve to GPU or CPU values based on the detected Stable Diffusion inference device at startup. Explicit operator overrides take precedence unconditionally. Extended the `services_initialised` logging event with resolved configuration values and detected inference device. See detailed v5.6.0 changelog below. |
+| 5.6.1 | 6 Mar 2026 | Corrected Appendix A environment variable table to show `None` (auto-detected) defaults for the four sentinel-based configuration variables, aligning with the canonical §17 Configuration Requirements table updated in v5.6.0. See detailed v5.6.1 changelog below. |
 
 #### v4.0.0 Detailed Changelog
 
@@ -6021,6 +6022,15 @@ This section documents failure modes commonly encountered during initial setup a
 - Changed the default value of `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS` from `60` to `None` (auto-detected: `60` on GPU, `300` on CPU).
 - Updated the Configuration Limits table to reflect `None` defaults and auto-resolution for the image generation concurrency limit and timeout for end-to-end requests.
 - Extended the `services_initialised` logging event with five new keyword arguments: `detected_inference_device`, `resolved_inference_timeout_by_stable_diffusion_per_baseline_unit_in_seconds`, `resolved_maximum_number_of_concurrent_operations_of_image_generation`, `resolved_retry_after_busy_in_seconds`, and `resolved_timeout_for_requests_in_seconds`.
+
+#### v5.6.1 Detailed Changelog
+
+**Appendix A consistency correction:**
+
+- Corrected the default value of `TEXT_TO_IMAGE_INFERENCE_TIMEOUT_BY_STABLE_DIFFUSION_PER_BASELINE_UNIT_IN_SECONDS` in Appendix A from `10` to `None` (auto-detected: `10` on GPU, `60` on CPU), matching the canonical §17 table.
+- Corrected the default value of `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION` in Appendix A from `2` to `None` (auto-detected: `2` on GPU, `1` on CPU), matching the canonical §17 table.
+- Corrected the default value of `TEXT_TO_IMAGE_RETRY_AFTER_BUSY_IN_SECONDS` in Appendix A from `5` to `None` (auto-detected: `5` on GPU, `30` on CPU), matching the canonical §17 table.
+- Corrected the default value of `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS` in Appendix A from `60` to `None` (auto-detected: `60` on GPU, `300` on CPU), matching the canonical §17 table.
 
 ---
 
