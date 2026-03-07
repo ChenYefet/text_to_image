@@ -39,9 +39,19 @@ ALL_CONFIGURATION_ENVIRONMENT_VARIABLE_NAMES: list[str] = [
 
 
 def _clear_all_configuration_environment_variables(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Remove every TEXT_TO_IMAGE_* variable so the test reads only defaults."""
+    """Remove every TEXT_TO_IMAGE_* variable so the test reads only defaults.
+
+    Also changes the working directory to a temporary location so that the
+    ``.env`` file in the project root is not loaded by pydantic-settings,
+    which reads ``env_file=".env"`` relative to the current working directory.
+    Without this, values present in ``.env`` would override the code-level
+    defaults that the test intends to verify.
+    """
     for variable_name in ALL_CONFIGURATION_ENVIRONMENT_VARIABLE_NAMES:
         monkeypatch.delenv(variable_name, raising=False)
+    import tempfile  # noqa: PLC0415
+
+    monkeypatch.chdir(tempfile.gettempdir())
 
 
 class TestApplicationConfigurationDefaults:
