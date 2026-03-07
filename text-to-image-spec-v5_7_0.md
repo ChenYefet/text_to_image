@@ -1,10 +1,10 @@
 # Technical Specification: Text-to-Image Generation Service with Prompt Enhancement
 
-**Document Version:** 5.6.1
+**Document Version:** 5.7.0
 **Status:** Final — Panel Review Ready
 **Target Audience:** Senior Engineering Panel, Implementation Teams
 **Specification Authority:** Principal Technical Specification Authority
-**Date:** 5 March 2026
+**Date:** 7 March 2026
 
 ---
 
@@ -74,7 +74,7 @@ The service architecture prioritises horizontal scalability, operational observa
 
 This specification is designed for evaluation by a hiring panel assessing a candidate's ability to design, document, implement, deploy, and operate distributed systems with components for machine learning inference. Every requirement includes an explicit intent, a detailed test procedure with step-by-step instructions executable by an independent reviewer without deep domain knowledge, and measurable success criteria.
 
-**Scope calibration advisory:** This specification is titled "Junior Full Stack Exercise" but defines a system of enterprise-grade complexity: 50 individually testable requirements, chaos-engineering-style fault injection under concurrent load, k6 load testing with statistical analysis, a taxonomy of 46 logging event types, continuous integration and deployment with coverage enforcement, and references for Kubernetes production deployments. Evaluators should calibrate expectations accordingly. A candidate is not expected to implement every requirement to production quality; the specification is intentionally aspirational to expose design thinking and prioritisation skill. Evaluators may define a "minimum viable subset" (for example, [FR25](#capability-for-prompt-enhancement)–[FR29](#handling-of-the-image-size-parameter) and [NFR1](#latency-of-prompt-enhancement-under-concurrent-load)–[NFR3](#latency-of-validation-responses)) and treat additional requirements as stretch goals.
+**Scope calibration advisory:** This specification is titled "Junior Full Stack Exercise" but defines a system of enterprise-grade complexity: 51 individually testable requirements, chaos-engineering-style fault injection under concurrent load, k6 load testing with statistical analysis, a taxonomy of 46 logging event types, continuous integration and deployment with coverage enforcement, and references for Kubernetes production deployments. Evaluators should calibrate expectations accordingly. A candidate is not expected to implement every requirement to production quality; the specification is intentionally aspirational to expose design thinking and prioritisation skill. Evaluators may define a "minimum viable subset" (for example, [FR25](#capability-for-prompt-enhancement)–[FR29](#handling-of-the-image-size-parameter) and [NFR1](#latency-of-prompt-enhancement-under-concurrent-load)–[NFR3](#latency-of-validation-responses)) and treat additional requirements as stretch goals.
 
 ### Key Architectural Characteristics
 
@@ -106,7 +106,7 @@ This specification follows a layered structure designed to serve multiple audien
 
 ## Scope of the Minimum Viable Implementation
 
-This section defines the minimum set of requirements that constitute a passing implementation for hiring evaluation purposes. The full specification (50 requirements) is intentionally aspirational; candidates are not expected to implement every requirement. This section provides evaluators with a consistent, objective baseline for assessment and provides candidates with a clear target.
+This section defines the minimum set of requirements that constitute a passing implementation for hiring evaluation purposes. The full specification (51 requirements) is intentionally aspirational; candidates are not expected to implement every requirement. This section provides evaluators with a consistent, objective baseline for assessment and provides candidates with a clear target.
 
 ### Passing Submission Requirements
 
@@ -1155,7 +1155,15 @@ The non-functional requirements are specified before functional requirements bec
 
 50. The service shall implement a circuit breaker for communication with the llama.cpp large language model server that transitions through three states — CLOSED, OPEN, and HALF_OPEN — to prevent the service from repeatedly waiting for the full upstream timeout duration when the llama.cpp server is consistently failing. The circuit breaker shall operate as follows:
 
-    - **CLOSED** (normal operation): Requests pass through to the llama.cpp server. Each upstream failure (connection refused, timeout, HTTP error, or any other failure mode listed in the [Error Handling](#error-handling) table under [llama.cpp Integration](#llamacpp-integration)) increments a counter of consecutive failures. When the counter reaches the configured failure threshold (`TEXT_TO_IMAGE_FAILURE_THRESHOLD_OF_CIRCUIT_BREAKER_FOR_LARGE_LANGUAGE_MODEL`), the circuit transitions to OPEN. Any upstream success resets the counter to zero.
+    - **CLOSED** (normal operation): Requests pass through to the llama.cpp server. Each upstream failure increments a counter of consecutive failures. When the counter reaches the configured failure threshold (`TEXT_TO_IMAGE_FAILURE_THRESHOLD_OF_CIRCUIT_BREAKER_FOR_LARGE_LANGUAGE_MODEL`), the circuit transitions to OPEN. Any upstream success resets the counter to zero. The following conditions constitute a circuit breaker failure:
+        - Connection refused or connection error
+        - Request timeout (no response within the configured timeout)
+        - HTTP 5xx status code from the llama.cpp server
+        - Response body exceeding the configured maximum size (`TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_BYTES_OF_RESPONSE_BODY_FROM_LARGE_LANGUAGE_MODEL`)
+        - Non-JSON response body (JSON parse failure)
+        - Unexpected streaming response (`text/event-stream` Content-Type despite `stream: false`)
+        - Empty or malformed enhanced prompt (missing `choices` field, empty completion text)
+        - HTTP 4xx status codes shall NOT increment the circuit breaker failure counter. A 4xx response indicates a client-side error (for example, a malformed request body or an authentication failure), not upstream unavailability. Counting client errors as upstream failures would cause the circuit breaker to open spuriously when the API service sends a malformed request, denying service to all clients for a condition that does not indicate llama.cpp is unhealthy.
     - **OPEN** (fail-fast): All prompt enhancement requests are rejected immediately with HTTP 502 (`upstream_service_unavailable`) without contacting the llama.cpp server. After the configured recovery timeout (`TEXT_TO_IMAGE_RECOVERY_TIMEOUT_OF_CIRCUIT_BREAKER_FOR_LARGE_LANGUAGE_MODEL_IN_SECONDS`) elapses, the circuit transitions to HALF_OPEN.
     - **HALF_OPEN** (probing): The circuit allows a request through to test whether the llama.cpp server has recovered. If the request succeeds, the circuit transitions back to CLOSED and the failure counter is reset. If the request fails, the circuit transitions back to OPEN and the recovery timer restarts.
 
@@ -1657,7 +1665,7 @@ The non-functional requirements are specified before functional requirements bec
 
 **HEAD method on GET endpoints:** Per RFC 9110 §9.3.2, any resource that supports GET must also support HEAD (returning identical response headers but no response body). FastAPI supports HEAD natively for all registered GET routes without additional implementation. The HTTP 405 method-not-allowed enforcement applies to methods other than GET and HEAD on GET-registered endpoints (for example, PUT, POST, DELETE, PATCH). Implementations shall not block HEAD requests on `GET /health`, `GET /health/ready`, or `GET /metrics` with HTTP 405. The `Allow` response header on 405 responses for GET-only endpoints shall include both `GET` and `HEAD` (for example, `Allow: GET, HEAD`) to accurately reflect the supported method set.
 
-**HEAD response behaviour specification:** For HEAD requests on `GET /health`, `GET /health/ready`, and `GET /metrics`, the service shall return the same HTTP status code and response headers (including `Content-Type: application/json` and `Content-Length`) as the corresponding GET request, but with an empty response body. Framework-default HEAD handling (as provided by FastAPI and Starlette) satisfies this requirement without explicit HEAD route registration. No additional implementation is required. The success criteria for HEAD are: (a) the HTTP status code matches the corresponding GET response; (b) the `Content-Type` header is `application/json`; (c) the response body is empty.
+**HEAD response behaviour specification:** For HEAD requests on `GET /health`, `GET /health/ready`, `GET /metrics`, and `GET /metrics/prometheus`, the service shall return the same HTTP status code and response headers (including `Content-Type` and `Content-Length`) as the corresponding GET request, but with an empty response body. Framework-default HEAD handling (as provided by FastAPI and Starlette) satisfies this requirement without explicit HEAD route registration. No additional implementation is required. The success criteria for HEAD are: (a) the HTTP status code matches the corresponding GET response; (b) the `Content-Type` header is `application/json`; (c) the response body is empty.
 
 **Normative `Allow` header values per endpoint:** The following table specifies the exact `Allow` header value that the service shall return on HTTP 405 responses for each endpoint. These values reflect the registered HTTP methods and the RFC 9110 §9.3.2 HEAD requirement.
 
@@ -1668,6 +1676,7 @@ The non-functional requirements are specified before functional requirements bec
 | `GET /health` | GET, HEAD | `GET, HEAD` |
 | `GET /health/ready` | GET, HEAD | `GET, HEAD` |
 | `GET /metrics` | GET, HEAD | `GET, HEAD` |
+| `GET /metrics/prometheus` | GET, HEAD | `GET, HEAD` |
 
 ##### Retry-After header on backpressure and unavailability responses
 
@@ -1917,6 +1926,8 @@ In practice, the meta-commentary prefix check catches the most common failure mo
 
 **Behaviour under Partial Failure:** If a runtime error (for example, an out-of-memory condition, a `RuntimeError` raised by PyTorch, or any unhandled exception in the pipeline) occurs during the generation of any image within the batch — whether the first, an intermediate, or the final image — the entire request shall fail. The service shall return HTTP 502 with `error.code` equal to `"model_unavailable"`. No partial result set is returned; the `data` array is not included in the error response. This failure mode is distinct from NSFW safety filtering ([FR45](#behaviour-of-the-nsfw-safety-checker)), which produces a partial-success response (HTTP 200 with `null` entries and a `warnings` array) because NSFW filtering is a controlled, expected outcome of the pipeline rather than a runtime failure. The rationale for all-or-nothing failure handling (rather than returning successfully generated images alongside a `null` for failed ones) is that runtime errors indicate an unstable pipeline state, and returning partial results in this context could mislead clients into treating a degraded system as healthy.
 
+**Advisory on the atomic nature of batch generation:** The all-or-nothing failure behaviour is also a consequence of Stable Diffusion's atomic batch generation architecture: all `n` images in a batch share a single forward pass through the diffusion pipeline. The pipeline receives a batch of `n` latent tensors and processes them together through each inference step, producing all `n` images from a single `StableDiffusionPipeline.__call__` invocation. A runtime failure at any point during this forward pass (for example, a CUDA out-of-memory error during an intermediate denoising step) aborts the entire batch — there are no partially generated images to return. The all-or-nothing semantics are therefore not merely a design choice but a reflection of the underlying computational model.
+
 ##### Handling of the image size parameter
 
 29. The service shall generate images with dimensions matching the requested `size` parameter, supporting `512x512`, `768x768`, and `1024x1024` pixel dimensions.
@@ -1972,6 +1983,8 @@ In practice, the meta-commentary prefix check catches the most common failure mo
     - The `data` array length always equals the requested `n` value regardless of safety checker outcomes
 
 **Note:** The safety checker is probabilistic and prompt-dependent; triggering it reliably in an end-to-end test may not be feasible. The test procedure therefore includes a unit/integration test path (step 4) to verify the response format deterministically.
+
+**Advisory on safety checker determinism:** The NSFW safety checker is deterministic within an identical execution environment — given the same model weights, inference device, numerical precision (`float16` or `float32`), and input image, the safety checker will produce the same classification result (flagged or not flagged) on every invocation. Non-determinism in safety checker outcomes across different environments arises from differences in numerical precision between devices (for example, `float16` on GPU versus `float32` on CPU), floating-point implementation differences across hardware, or model weight updates. Within a single deployment configuration, the safety checker's behaviour is reproducible.
 
 ---
 
@@ -2185,7 +2198,11 @@ In practice, the meta-commentary prefix check catches the most common failure mo
 
 ##### Readiness check endpoint
 
-37. The service shall expose a `GET /health/ready` endpoint that reports the initialisation status of backend services (large language model client, image generation pipeline). The endpoint shall return HTTP 200 with `{"status": "ready"}` when all backends are initialised, and HTTP 503 with `{"status": "not_ready"}` when any backend is unavailable.
+37. The service shall expose a `GET /health/ready` endpoint that reports the initialisation status of backend services (large language model client, image generation pipeline). The endpoint shall implement a three-state readiness model:
+
+    - **`ready`** (HTTP 200): Both the image generation pipeline and the large language model server are available. The pod is fully operational.
+    - **`degraded`** (HTTP 200): The image generation pipeline is available but the large language model server is unavailable. The pod remains in Kubernetes load balancer rotation because image generation requests with `use_enhancer: false` can still be served. Prompt enhancement requests and image generation requests with `use_enhancer: true` will fail with HTTP 502.
+    - **`not_ready`** (HTTP 503): The image generation pipeline is unavailable (regardless of large language model status). The pod is removed from Kubernetes load balancer rotation because the primary service capability (image generation) cannot be fulfilled.
 
 **Intent:** To enable orchestrators (for example, Kubernetes readiness probes) to distinguish between a service that is alive but still loading models and one that is fully ready to accept traffic. This prevents load balancers from routing requests to instances that have not yet completed model loading.
 
@@ -2207,21 +2224,20 @@ In practice, the meta-commentary prefix check catches the most common failure mo
 
 - Success criteria:
 
-    - The HTTP status code is 200 when all backend services are initialised
-    - The response body is valid JSON containing `"status": "ready"` and a `"checks"` object with `"image_generation"` and `"large_language_model"` fields
-    - Each check field is `"ok"` when the corresponding service is initialised
+    - The HTTP status code is 200 with `"status": "ready"` when all backend services are initialised
+    - The HTTP status code is 200 with `"status": "degraded"` when the image generation pipeline is available but the large language model server is unavailable
+    - The HTTP status code is 503 with `"status": "not_ready"` when the image generation pipeline is unavailable
+    - The response body is valid JSON containing a `"status"` field and a `"checks"` object with `"image_generation"` and `"large_language_model"` fields
+    - Each check field is `"ok"` when the corresponding service is initialised, or `"unavailable"` when it is not
+    - The `Retry-After` header is included only on HTTP 503 responses (not on `degraded` responses)
 
 **Warm-up inference and readiness advisory:** The readiness probe reports `ready` once the Stable Diffusion pipeline object has been successfully instantiated in memory (shallow check) and the llama.cpp server responds to a health probe (shallow check over the network). It does not require a warm-up inference to have completed. Consequently, the first image generation request routed to a newly ready instance will experience 20–50% higher latency than subsequent requests, due to PyTorch JIT compilation, memory allocation, and CPU cache warming (see the [first-inference warm-up advisory in the Stable Diffusion Integration section, §15](#stable-diffusion-integration)). Implementations may optionally perform a single warm-up inference at minimum supported resolution during startup — before reporting `ready` — to absorb this overhead. When warm-up inference is performed, the `first_warmup_of_inference_of_stable_diffusion` logging event shall be emitted; when it is not performed, the event is not emitted. This is a recommended optimisation, not a mandatory requirement, because mandating warm-up adds 30–90 seconds to the readiness timeline on CPU hardware, directly increasing the recovery time objective and delaying feedback during evaluation iteration cycles.
 
-**Binary readiness design decision and tension with [NFR7](#partial-availability-under-component-failure) (Partial Availability):** This requirement implements binary readiness: the endpoint returns HTTP 503 if either backend is unavailable, including if llama.cpp is transiently unreachable. When the readiness probe returns HTTP 503, Kubernetes removes the pod from load balancer rotation, meaning that even `POST /v1/images/generations` requests with `use_enhancer: false` (which do not require llama.cpp) will not be routed to this pod — despite those requests being fully serviceable.
+**Three-state readiness design decision and alignment with [NFR7](#partial-availability-under-component-failure) (Partial Availability):** This requirement implements a three-state readiness model (`ready`, `degraded`, `not_ready`) that aligns with [NFR7](#partial-availability-under-component-failure) (Partial availability under component failure). When the large language model server is unavailable but image generation is operational, the endpoint returns HTTP 200 with `"status": "degraded"`, keeping the pod in Kubernetes load balancer rotation so that image generation requests with `use_enhancer: false` continue to be routed to the pod.
 
-This creates a tension with [NFR7](#partial-availability-under-component-failure) (Partial availability under component failure), which mandates that image generation without enhancement remains available when llama.cpp is unavailable.
+**Rationale for the three-state approach:** Kubernetes readiness probes evaluate only the HTTP status code (2xx = ready, non-2xx = not ready); they do not inspect the response body. The three-state model exploits this: both `ready` and `degraded` return HTTP 200, so Kubernetes treats both as "ready for traffic". The `degraded` status in the response body is available to monitoring systems and dashboards for operational visibility, while the pod continues serving requests that do not depend on the unavailable component. This approach requires no custom Kubernetes admission webhooks or non-standard probe configuration — it works with the standard readiness probe mechanism.
 
-**Rationale for the binary approach:** This design is intentional. A "degraded but ready" three-state readiness model (ready, degraded, not-ready) would require custom Kubernetes admission webhook configuration and is not natively supported by the standard Kubernetes readiness probe. The binary approach is simpler, operationally predictable, and safe: it errs on the side of not routing traffic to potentially degraded instances. The following mitigating considerations apply:
-
-1. llama.cpp transient faults (process restart, brief network interruption) are expected to resolve within one to three readiness probe polling intervals (default polling: 10 seconds; `failureThreshold: 3` means traffic is only withheld after 30 seconds of sustained unavailability, per the Kubernetes deployment specification).
-2. [NFR7](#partial-availability-under-component-failure) partial availability is preserved at the architectural level through Kubernetes horizontal pod autoscaling: if one pod's readiness probe fails, other healthy pods in the deployment continue serving all request types.
-3. Operators who require true partial-degradation routing (serving `use_enhancer: false` requests even when llama.cpp is down) should implement this at the API gateway or service mesh layer, which can route based on request content rather than binary pod health.
+The `not_ready` state (HTTP 503) is reserved for the case where image generation is unavailable, because this is the primary service capability. When image generation is down, no useful work can be performed regardless of llama.cpp status, so removing the pod from rotation is correct.
 
 ##### Metrics endpoint
 
@@ -2254,6 +2270,8 @@ This creates a tension with [NFR7](#partial-availability-under-component-failure
     - The response body from step 4 reflects at least one additional request count and a non-zero latency entry corresponding to the RO1 request executed in step 3
     - The `Content-Type` response header is `application/json`
 
+**Metrics self-inclusion:** All HTTP requests received by the service — including requests to infrastructure endpoints (`GET /health`, `GET /health/ready`, `GET /metrics`, `GET /metrics/prometheus`) — are recorded in both the JSON metrics ([FR38](#metrics-endpoint)) and the Prometheus metrics ([FR51](#prometheus-metrics-endpoint)). Infrastructure endpoint requests are not excluded from metrics collection. This means that monitoring systems polling the metrics endpoints will observe their own polling requests reflected in the counters and latency distributions. This is the intended behaviour: excluding infrastructure requests would require path-based filtering in the metrics middleware, adding complexity without operational benefit — operators who need to analyse only business endpoint traffic can filter by path in their monitoring queries.
+
 ##### Validation of model files at startup
 
 49. The service shall validate the existence and accessibility of required model files during startup, before reporting readiness on the `GET /health/ready` endpoint. If validation of the model file fails, the service shall report `not_ready` on the readiness endpoint, emit a CRITICAL-level log event, and continue running (to allow the liveness probe to succeed and operators to diagnose the issue).
@@ -2284,6 +2302,37 @@ This creates a tension with [NFR7](#partial-availability-under-component-failure
     - With the valid model identifier (steps 5–6):
         - The readiness endpoint returns HTTP 200 with `"status": "ready"` and `checks.image_generation` reporting `"ok"`
         - The service logs contain an INFO-level `model_validation_at_startup_passed` event
+
+##### Prometheus metrics endpoint
+
+51. The service shall expose a `GET /metrics/prometheus` endpoint that returns request count and request duration metrics in Prometheus text exposition format (`text/plain; version=0.0.4; charset=utf-8`). The endpoint shall expose the following metrics:
+
+    - **`http_requests_received_total`** (Counter): Total number of HTTP requests received by the service, with labels `method`, `path`, and `status_code`. This counter is incremented for every HTTP request, including requests to infrastructure endpoints.
+    - **`http_request_duration_in_seconds`** (Histogram): Duration of HTTP requests in seconds, with labels `method` and `path`. The histogram shall use the following bucket boundaries: 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 90.0.
+
+    The endpoint shall use a custom `CollectorRegistry` (not the default global registry) to avoid exposing default Python process metrics that are not specified by this document. The endpoint shall include the `Cache-Control: no-store, no-cache` and `Pragma: no-cache` response headers consistent with all other infrastructure endpoints.
+
+**Intent:** To provide a Prometheus-compatible metrics endpoint that enables integration with industry-standard monitoring infrastructure (Prometheus, Grafana, alerting pipelines) without requiring translation from the JSON metrics format exposed by [FR38](#metrics-endpoint). The JSON endpoint ([FR38](#metrics-endpoint)) and the Prometheus endpoint serve different consumers: the JSON endpoint is designed for lightweight operational dashboards and ad hoc querying, while the Prometheus endpoint is designed for time-series monitoring systems that scrape metrics at regular intervals.
+
+**Preconditions:**
+
+- The Text-to-Image API Service is running and accessible
+
+**Verification:**
+
+- Test procedure:
+
+    1. Execute a `POST /v1/prompts/enhance` request with a valid prompt to generate some traffic
+    2. Execute `curl -s -w "\nHTTP_STATUS:%{http_code}\n" http://localhost:8000/metrics/prometheus` and record the HTTP status code, response body, and `Content-Type` header
+    3. Verify the response body contains `http_requests_received_total` and `http_request_duration_in_seconds` metric families in Prometheus text exposition format
+
+- Success criteria:
+
+    - The HTTP status code is 200
+    - The `Content-Type` header is `text/plain; version=0.0.4; charset=utf-8`
+    - The response body contains at least one `http_requests_received_total` sample with `method`, `path`, and `status_code` labels
+    - The response body contains `http_request_duration_in_seconds_bucket`, `http_request_duration_in_seconds_count`, and `http_request_duration_in_seconds_sum` samples with `method` and `path` labels
+    - The `Cache-Control` header is `no-store, no-cache` and the `Pragma` header is `no-cache`
 
 ---
 
@@ -2476,7 +2525,7 @@ This matrix links functional requirements, reference operations, and non-functio
 
 The **Reference Operations Used for Verification** column lists only those reference operations that are explicitly cited in the functional requirement's own test procedure. Reference operations used to verify non-functional requirements (for example, RO7 for [NFR1](#latency-of-prompt-enhancement-under-concurrent-load), or RO8 for [NFR9](#fault-tolerance-under-sustained-concurrent-load)) are not listed against functional requirements whose test procedures do not cite them.
 
-**Numbering convention note:** All requirements — both functional (FR) and non-functional (NFR) — share a single continuous numbering sequence. For example, [FR43](#building-and-tagging-of-container-images) is followed by [NFR44](#concurrency-control-for-image-generation), then [FR45](#behaviour-of-the-nsfw-safety-checker), then [FR46](#openapi-specification-document). There is no "missing FR44"; the number 44 is occupied by [NFR44](#concurrency-control-for-image-generation) (Concurrency control for image generation). This convention was established in v4.0.0 and extended in v5.0.0 when [NFR44](#concurrency-control-for-image-generation), [FR45](#behaviour-of-the-nsfw-safety-checker), [FR46](#openapi-specification-document), [NFR47](#retry-after-header-on-backpressure-and-unavailability-responses), [NFR48](#timeout-for-end-to-end-requests), and [FR49](#validation-of-model-files-at-startup) were added. In v5.1.0, [NFR50](#circuit-breaker-for-communication-with-the-large-language-model-service) (Circuit breaker for communication with the large language model service) was added.
+**Numbering convention note:** All requirements — both functional (FR) and non-functional (NFR) — share a single continuous numbering sequence. For example, [FR43](#building-and-tagging-of-container-images) is followed by [NFR44](#concurrency-control-for-image-generation), then [FR45](#behaviour-of-the-nsfw-safety-checker), then [FR46](#openapi-specification-document). There is no "missing FR44"; the number 44 is occupied by [NFR44](#concurrency-control-for-image-generation) (Concurrency control for image generation). This convention was established in v4.0.0 and extended in v5.0.0 when [NFR44](#concurrency-control-for-image-generation), [FR45](#behaviour-of-the-nsfw-safety-checker), [FR46](#openapi-specification-document), [NFR47](#retry-after-header-on-backpressure-and-unavailability-responses), [NFR48](#timeout-for-end-to-end-requests), and [FR49](#validation-of-model-files-at-startup) were added. In v5.1.0, [NFR50](#circuit-breaker-for-communication-with-the-large-language-model-service) (Circuit breaker for communication with the large language model service) was added. In v5.6.0, [FR51](#prometheus-metrics-endpoint) (Prometheus metrics endpoint) was added.
 
 Three non-functional requirements — [NFR16](#cors-enforcement) (CORS enforcement), [NFR18](#enforcement-of-the-content-type-header) (Enforcement of the Content-Type header), and [NFR22](#enforcement-of-the-http-method) (Enforcement of the HTTP method) — are cross-cutting HTTP-layer enforcement mechanisms that operate independently of any individual functional requirement's implementation logic. No functional requirement's correctness, operability, or auditability depends on these three NFRs being upheld. They are verified exclusively through their own test procedures and do not appear in the matrix below.
 
@@ -2514,6 +2563,7 @@ Non-functional requirements that are not directly linked to functional requireme
 | 45 (Behaviour of the NSFW safety checker) | — | 10 (Structured logging), 20 (Consistency of the response format), 23 (Validity of image output), 24 (Compliance of the response schema) | Extended |
 | 46 (OpenAPI specification document) | — | 21 (Backward compatibility), 24 (Compliance of the response schema) | Advanced |
 | 49 (Validation of model files at startup) | — | 7 (Partial availability), 8 (Stability of the service process), 10 (Structured logging), 23 (Validity of image output), 24 (Compliance of the response schema) | Extended |
+| 51 (Prometheus metrics endpoint) | — | 12 (Performance metrics) | Extended |
 
 ### Priority classification of non-functional requirements
 
@@ -2971,7 +3021,7 @@ The following examples illustrate concrete error response bodies for representat
   "properties": {
     "status": {
       "type": "string",
-      "enum": ["ready", "not_ready"],
+      "enum": ["ready", "degraded", "not_ready"],
       "description": "Overall readiness status."
     },
     "checks": {
@@ -2996,7 +3046,7 @@ The following examples illustrate concrete error response bodies for representat
 }
 ```
 
-**Note:** The same schema applies for HTTP 503 (not ready) responses, with `status` set to `"not_ready"` and one or more `checks` fields set to `"unavailable"`.
+**Note:** The same schema applies for HTTP 200 (degraded) responses — with `status` set to `"degraded"`, `checks.image_generation` set to `"ok"`, and `checks.large_language_model` set to `"unavailable"` — and for HTTP 503 (not ready) responses — with `status` set to `"not_ready"` and `checks.image_generation` set to `"unavailable"`.
 
 #### Schema for the Metrics Response
 
@@ -3109,7 +3159,7 @@ The following examples illustrate concrete error response bodies for representat
 
 | Code | Trigger Condition | `details` Format |
 |------|-------------------|------------------|
-| `not_ready` | One or more backend services have not completed initialisation (returned by `GET /health/ready` only) | Omitted (status details are in the `checks` object of the Schema for the Readiness Response) |
+| `not_ready` | Image generation pipeline is unavailable (returned by `GET /health/ready` only) | Omitted (status details are in the `checks` object of the Schema for the Readiness Response) |
 
 **Timeout errors (HTTP 504):**
 
@@ -3117,24 +3167,34 @@ The following examples illustrate concrete error response bodies for representat
 |------|-------------------|------------------|
 | `request_timeout` | Total request processing time exceeded the configured end-to-end timeout ceiling (`TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS`) | String indicating the configured timeout value |
 
+### Summary of the `details` Field Type by Error Code
+
+The following table consolidates the type of the `details` field across all error codes for quick reference:
+
+| `details` Type | Error Codes |
+|----------------|-------------|
+| String | `invalid_request_json`, `payload_too_large`, `unsupported_media_type`, `not_found`, `method_not_allowed`, `request_timeout` |
+| Array of validation objects | `request_validation_failed` |
+| Omitted (field not present in the response body) | `internal_server_error`, `upstream_service_unavailable`, `model_unavailable`, `service_busy`, `not_ready` |
+
 ### Error Code to Endpoint Cross-Reference
 
 The following table provides a consolidated view of which error codes each endpoint can produce. This matrix is provided for auditability and completeness verification; implementers should ensure that every cell marked ✓ has a corresponding handler.
 
-| Error Code | HTTP Status | `POST /v1/prompts/enhance` | `POST /v1/images/generations` | `GET /health` | `GET /health/ready` | `GET /metrics` |
-|------------|-------------|:--------------------------:|:-----------------------------:|:-------------:|:-------------------:|:--------------:|
-| `invalid_request_json` | 400 | ✓ | ✓ | — | — | — |
-| `request_validation_failed` | 400 | ✓ | ✓ | — | — | — |
-| `not_found` | 404 | ✓¹ | ✓¹ | ✓¹ | ✓¹ | ✓¹ |
-| `method_not_allowed` | 405 | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `payload_too_large` | 413 | ✓ | ✓ | — | — | — |
-| `unsupported_media_type` | 415 | ✓ | ✓ | — | — | — |
-| `service_busy` | 429 | — | ✓ | — | — | — |
-| `internal_server_error` | 500 | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `upstream_service_unavailable` | 502 | ✓ | ✓² | — | — | — |
-| `model_unavailable` | 502 | — | ✓ | — | — | — |
-| `not_ready` | 503 | — | — | — | ✓ | — |
-| `request_timeout` | 504 | ✓ | ✓ | — | — | — |
+| Error Code | HTTP Status | `POST /v1/prompts/enhance` | `POST /v1/images/generations` | `GET /health` | `GET /health/ready` | `GET /metrics` | `GET /metrics/prometheus` |
+|------------|-------------|:--------------------------:|:-----------------------------:|:-------------:|:-------------------:|:--------------:|:------------------------:|
+| `invalid_request_json` | 400 | ✓ | ✓ | — | — | — | — |
+| `request_validation_failed` | 400 | ✓ | ✓ | — | — | — | — |
+| `not_found` | 404 | ✓¹ | ✓¹ | ✓¹ | ✓¹ | ✓¹ | ✓¹ |
+| `method_not_allowed` | 405 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `payload_too_large` | 413 | ✓ | ✓ | — | — | — | — |
+| `unsupported_media_type` | 415 | ✓ | ✓ | — | — | — | — |
+| `service_busy` | 429 | — | ✓ | — | — | — | — |
+| `internal_server_error` | 500 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `upstream_service_unavailable` | 502 | ✓ | ✓² | — | — | — | — |
+| `model_unavailable` | 502 | — | ✓ | — | — | — | — |
+| `not_ready` | 503 | — | — | — | ✓ | — | — |
+| `request_timeout` | 504 | ✓ | ✓ | — | — | — | — |
 
 **Notes:**
 
@@ -3195,7 +3255,7 @@ All responses from business endpoints (`/v1/prompts/enhance`, `/v1/images/genera
 
 **Client-provided correlation identifier advisory:** The current design always generates a new UUID v4 correlation identifier at the service layer ([FR35](#injection-of-the-correlation-identifier)). The service does not accept or adopt a client-provided `X-Correlation-ID` or `X-Request-ID` request header. In deployments behind an API gateway that generates its own trace or request identifier, this means the gateway's identifier and the service's identifier are disjoint — the correlation chain between gateway logs and service logs must be reconstructed by matching timestamps and request characteristics rather than by a shared identifier. [Future extensibility pathway 10 (Distributed tracing with W3C Trace Context)](#future-extensibility-pathways) partially addresses this gap for distributed tracing. As an interim measure, a future minor version could introduce optional client-provided correlation identifier forwarding: if an `X-Correlation-ID` header is present in the request and its value is a valid UUID v4, the service would adopt it instead of generating a new one. This is deferred from the current specification to maintain implementation simplicity.
 
-Infrastructure endpoints (`/health`, `/health/ready`, `/metrics`) return `Content-Type: application/json` but are not required to include `X-Correlation-ID`, as they are polled by automated systems (load balancers, orchestrators, monitoring agents) where per-request correlation is not operationally meaningful. The `Retry-After` header is included on HTTP 503 responses from `/health/ready` when the service is not yet ready. All infrastructure GET endpoints shall include the response headers `Cache-Control: no-store, no-cache` and `Pragma: no-cache` to prevent intermediate HTTP caches — reverse proxies, CDN edge nodes, or enterprise proxy appliances — from caching volatile responses. A cached health or readiness response served after a backend has become unavailable would cause a load balancer to continue routing traffic to an unhealthy instance. Although POST responses are not cacheable by compliant HTTP/1.1 caches per RFC 9111 §9.3.3, the business POST endpoints (`/v1/prompts/enhance`, `/v1/images/generations`) should also include `Cache-Control: no-store` as a defence-in-depth measure, since every response from this service is unique (generative inference with non-zero temperature) and must never be served from cache.
+Infrastructure endpoints (`/health`, `/health/ready`, `/metrics`, `/metrics/prometheus`) return their respective Content-Types but are not required to include `X-Correlation-ID`, as they are polled by automated systems (load balancers, orchestrators, monitoring agents) where per-request correlation is not operationally meaningful. The `Retry-After` header is included on HTTP 503 responses from `/health/ready` when the service is not yet ready. All infrastructure GET endpoints shall include the response headers `Cache-Control: no-store, no-cache` and `Pragma: no-cache` to prevent intermediate HTTP caches — reverse proxies, CDN edge nodes, or enterprise proxy appliances — from caching volatile responses. A cached health or readiness response served after a backend has become unavailable would cause a load balancer to continue routing traffic to an unhealthy instance. Although POST responses are not cacheable by compliant HTTP/1.1 caches per RFC 9111 §9.3.3, the business POST endpoints (`/v1/prompts/enhance`, `/v1/images/generations`) should also include `Cache-Control: no-store` as a defence-in-depth measure, since every response from this service is unique (generative inference with non-zero temperature) and must never be served from cache.
 
 **Content-Length advisory:** The service assembles the complete JSON response body in memory before transmission (required by the JSON response format, which cannot be streamed incrementally). Consequently, FastAPI/Uvicorn will include a `Content-Length` header on all responses. For image generation responses that may reach 8–32 MB (multi-image requests at maximum resolution with base64 encoding), the `Content-Length` header enables clients and intermediary proxies to allocate buffers appropriately and to report download progress. This behaviour is implementation-discretionary — the specification does not mandate `Content-Length` — but implementations should be aware that omitting it (for example, by using chunked `Transfer-Encoding`) may degrade client-side progress reporting and proxy buffer management for large payloads.
 
@@ -3375,14 +3435,16 @@ Error responses for this endpoint are organised by the stage of request processi
 
 | Status | Condition |
 |--------|-----------|
-| 200 | All backend services are initialised and ready |
+| 200 | All backend services are initialised (`ready`), or image generation is available but large language model is unavailable (`degraded`) |
 | 405 | HTTP method not supported (for example, POST used instead of GET) |
 | 500 | Unexpected internal error |
-| 503 | One or more backend services are unavailable or still loading |
+| 503 | Image generation pipeline is unavailable (`not_ready`) |
 
-**Response Body (200):** `{"status": "ready", "checks": {"image_generation": "ok", "large_language_model": "ok"}}`
+**Response Body (200, ready):** `{"status": "ready", "checks": {"image_generation": "ok", "large_language_model": "ok"}}`
 
-**Response Body (503):** `{"status": "not_ready", "checks": {"image_generation": "unavailable", "large_language_model": "ok"}}`
+**Response Body (200, degraded):** `{"status": "degraded", "checks": {"image_generation": "ok", "large_language_model": "unavailable"}}`
+
+**Response Body (503):** `{"status": "not_ready", "checks": {"image_generation": "unavailable", "large_language_model": "unavailable"}}`
 
 ### Endpoint: GET /metrics
 
@@ -3415,6 +3477,31 @@ Error responses for this endpoint are organised by the stage of request processi
     }
   }
 }
+```
+
+### Endpoint: GET /metrics/prometheus
+
+**Purpose:** Expose request count and duration metrics in Prometheus text exposition format for integration with Prometheus-based monitoring infrastructure ([FR51](#prometheus-metrics-endpoint)).
+
+**HTTP Status Code Mapping:**
+
+| Status | Condition |
+|--------|-----------|
+| 200 | Metrics returned successfully |
+| 405 | HTTP method not supported (for example, POST used instead of GET) |
+| 500 | Unexpected internal error |
+
+**Response Body:** Prometheus text exposition format. Example:
+
+```
+# HELP http_requests_received_total Total number of HTTP requests received by the service
+# TYPE http_requests_received_total counter
+http_requests_received_total{method="POST",path="/v1/prompts/enhance",status_code="200"} 5.0
+# HELP http_request_duration_in_seconds Duration of HTTP requests in seconds
+# TYPE http_request_duration_in_seconds histogram
+http_request_duration_in_seconds_bucket{le="0.5",method="POST",path="/v1/prompts/enhance"} 3.0
+http_request_duration_in_seconds_count{method="POST",path="/v1/prompts/enhance"} 5.0
+http_request_duration_in_seconds_sum{method="POST",path="/v1/prompts/enhance"} 1.234
 ```
 
 ---
@@ -3502,7 +3589,7 @@ The following operations execute directly on the `asyncio` event loop and must n
 - Structured logging calls (structlog is synchronous but sub-millisecond)
 - Admission control concurrency limiter acquisition and release ([NFR44](#concurrency-control-for-image-generation))
 - Health check (`GET /health`) and readiness check (`GET /health/ready`) request handling
-- Metrics collection (`GET /metrics`) request handling
+- Metrics collection (`GET /metrics` and `GET /metrics/prometheus`) request handling
 - The outbound HTTP request to the llama.cpp server via `httpx.AsyncClient` (I/O-bound, natively async)
 
 **Thread pool executor operations (blocking):**
@@ -3863,7 +3950,8 @@ The service shall extract `choices[0].message.content` and strip leading and tra
 | Request timeout | No response within configured timeout (30 s default; CPU-only operators should increase to 120 s) | HTTP 502, `upstream_service_unavailable` |
 | Response body exceeds size limit | Response body exceeds `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_BYTES_OF_RESPONSE_BODY_FROM_LARGE_LANGUAGE_MODEL` | HTTP 502, `upstream_service_unavailable` |
 | Invalid response format | JSON parse failure or missing `choices` field | HTTP 502, `upstream_service_unavailable` |
-| HTTP error from llama.cpp | 4xx or 5xx status code | HTTP 502, `upstream_service_unavailable` |
+| HTTP 4xx error from llama.cpp | 4xx status code (client error) | HTTP 502, `upstream_service_unavailable` (does NOT increment circuit breaker failure counter) |
+| HTTP 5xx error from llama.cpp | 5xx status code (server error) | HTTP 502, `upstream_service_unavailable` (increments circuit breaker failure counter) |
 | Unexpected streaming response | Response `Content-Type` begins with `text/event-stream` | HTTP 502, `upstream_service_unavailable` |
 | Circuit breaker open | Number of consecutive failures has reached the configured threshold ([NFR50](#circuit-breaker-for-communication-with-the-large-language-model-service)) | HTTP 502, `upstream_service_unavailable` (immediate, without contacting the llama.cpp server) |
 
@@ -3942,7 +4030,7 @@ Stable Diffusion inference with PyTorch allocates intermediate tensors (latent r
 | 429 | Service busy | concurrency limit for image generation reached | Retry with exponential backoff (initial delay 2–5 seconds for GPU inference, 10–30 seconds for CPU inference) |
 | 500 | Internal error | Unexpected service failure | Retry with exponential backoff; escalate if persistent |
 | 502 | Upstream failure | llama.cpp or Stable Diffusion unavailable | Retry with exponential backoff (base delay 1s, maximum 3 retries) |
-| 503 | Service not ready | One or more backend services have not completed initialisation | Retry with exponential backoff; wait for readiness |
+| 503 | Service not ready | Image generation pipeline is unavailable | Retry with exponential backoff; wait for readiness |
 | 504 | Request timeout | Total request processing time exceeded the configured end-to-end timeout ceiling | Retry with exponential backoff; consider reducing request complexity |
 
 ### Rules for Error Propagation
@@ -3956,7 +4044,7 @@ Stable Diffusion inference with PyTorch allocates intermediate tensors (latent r
 7. Image generation concurrency limit violations are detected by the admission control concurrency limiter and mapped to HTTP 429 with `service_busy`. The rejection is immediate (no queuing).
 8. llama.cpp connection failures (connection refused, timeout, HTTP error) and circuit breaker rejections ([NFR50](#circuit-breaker-for-communication-with-the-large-language-model-service)) are caught at the integration layer and mapped to HTTP 502 with `upstream_service_unavailable`.
 9. Stable Diffusion failures (model loading, inference, out-of-memory) are caught at the integration layer and mapped to HTTP 502 with `model_unavailable`. **Error differentiation advisory:** All Stable Diffusion failure modes — model loading errors (persistent, non-retriable), out-of-memory conditions (transient, potentially retriable), and runtime inference errors (indeterminate) — are mapped to the same error code (`model_unavailable`). This means clients cannot distinguish between "retry in 30 seconds" and "do not retry until an operator intervenes." This conflation is a deliberate simplification for the current specification scope. A future version may split `model_unavailable` into differentiated error codes (for example, `model_loading_failed` for persistent failures, `inference_failed` for transient failures) or add a `retriable` boolean field to the error response schema to provide explicit retry guidance.
-10. The readiness endpoint returns HTTP 503 with `not_ready` when one or more backend services have not completed initialisation.
+10. The readiness endpoint returns HTTP 503 with `not_ready` when the image generation pipeline is unavailable, or HTTP 200 with `degraded` when image generation is available but the large language model server is unavailable.
 11. Timeout for end-to-end requests violations (total processing time exceeding `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS`) are detected by timeout middleware and mapped to HTTP 504 with `request_timeout`.
 12. All other exceptions are caught by the global exception handler middleware and mapped to HTTP 500 with `internal_server_error`.
 
@@ -3983,14 +4071,14 @@ The following matrix consolidates the service's behaviour under all component fa
 | llama.cpp Status | Stable Diffusion Status | `POST /v1/prompts/enhance` | `POST /v1/images/generations` (`use_enhancer: false`) | `POST /v1/images/generations` (`use_enhancer: true`) | `GET /health` | `GET /health/ready` |
 |------------------|------------------------|---------------------------|------------------------------------------------------|-----------------------------------------------------|---------------|---------------------|
 | Available | Available | HTTP 200 (normal) | HTTP 200 (normal) | HTTP 200 (normal) | HTTP 200 `healthy` | HTTP 200 `ready` |
-| Unavailable | Available | HTTP 502 `upstream_service_unavailable` | HTTP 200 (normal — llama.cpp not invoked) | HTTP 502 `upstream_service_unavailable` (fails at enhancement step) | HTTP 200 `healthy` | HTTP 503 `not_ready` (`large_language_model: unavailable`) |
+| Unavailable | Available | HTTP 502 `upstream_service_unavailable` | HTTP 200 (normal — llama.cpp not invoked) | HTTP 502 `upstream_service_unavailable` (fails at enhancement step) | HTTP 200 `healthy` | HTTP 200 `degraded` (`large_language_model: unavailable`) |
 | Available | Unavailable | HTTP 200 (normal — SD not invoked) | HTTP 502 `model_unavailable` | HTTP 502 `model_unavailable` (fails at generation step; enhanced prompt logged per [FR33](#error-handling-stable-diffusion-failures)) | HTTP 200 `healthy` | HTTP 503 `not_ready` (`image_generation: unavailable`) |
 | Unavailable | Unavailable | HTTP 502 `upstream_service_unavailable` | HTTP 502 `model_unavailable` | HTTP 502 `upstream_service_unavailable` (fails at enhancement step; generation not attempted) | HTTP 200 `healthy` | HTTP 503 `not_ready` (both checks `unavailable`) |
 
 **Operational notes:**
 
 1. The `GET /health` endpoint always returns HTTP 200 when the service process is running, regardless of backend availability. This is by design: the health endpoint tests process liveness, not dependency readiness. Kubernetes liveness probes use this endpoint to detect process hangs; dependency availability is monitored by the readiness probe (`GET /health/ready`).
-2. When llama.cpp is unavailable, image generation requests with `use_enhancer: false` continue to function normally ([NFR7](#partial-availability-under-component-failure), partial availability). However, the readiness probe reports `not_ready`, which in Kubernetes deployments causes the pod to be removed from load balancer rotation — meaning these otherwise-serviceable requests will not be routed to this pod. See the [FR37](#readiness-check-endpoint) binary readiness design decision for the rationale and mitigation strategies.
+2. When llama.cpp is unavailable, image generation requests with `use_enhancer: false` continue to function normally ([NFR7](#partial-availability-under-component-failure), partial availability). The readiness probe reports `degraded` (HTTP 200), keeping the pod in Kubernetes load balancer rotation so that these serviceable requests continue to be routed to the pod. See the [FR37](#readiness-check-endpoint) three-state readiness design decision for the rationale.
 3. When both backends are unavailable and a combined-workflow request is submitted, the service fails at the enhancement step (the first sequential operation) and does not attempt image generation. The error code is `upstream_service_unavailable` (not `model_unavailable`), reflecting the actual point of failure.
 
 ### Client Disconnect During Inference
@@ -4046,6 +4134,8 @@ All configuration shall be expressed exclusively as environment variables with f
 | `TEXT_TO_IMAGE_CORS_ALLOWED_ORIGINS` | Allowed CORS origins (JSON list); empty list disables CORS | `[]` | No |
 | `TEXT_TO_IMAGE_LOG_LEVEL` | Minimum log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`) | `INFO` | No |
 
+**Inference device classification for sentinel resolution:** The inference device shall be classified as GPU if `torch.cuda.is_available()` returns `True` at sentinel resolution time; otherwise CPU. This classification determines the resolved default values for all sentinel-based configuration variables listed above (`TEXT_TO_IMAGE_INFERENCE_TIMEOUT_BY_STABLE_DIFFUSION_PER_BASELINE_UNIT_IN_SECONDS`, `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION`, `TEXT_TO_IMAGE_RETRY_AFTER_BUSY_IN_SECONDS`, and `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS`). The classification is performed once during service initialisation and is logged in the `services_initialised` event via the `detected_inference_device` keyword argument.
+
 **Startup validation:** Required configuration values shall be validated during service initialisation. Missing or invalid values shall cause startup failure with a clear, human-readable error message written to stderr and to structured logs.
 
 **Runtime mutability:** Changes to configuration values take effect only on process restart. Hot-reload of configuration is not required.
@@ -4059,7 +4149,7 @@ This section consolidates logging, metrics, and tracing expectations.
 - **Structured logging:** All log output shall be JSON-formatted with the mandatory fields defined in requirement 10 (Structured Logging). Log entries shall be suitable for direct ingestion by log aggregation systems such as Elasticsearch, Splunk, or CloudWatch Logs.
 - **Correlation and tracing:** Every HTTP request shall be associated with a unique correlation identifier as specified in requirement 35 (Injection of the Correlation Identifier).
 - **Error logging:** Upstream failures shall produce ERROR-level log entries as specified in requirement 11 (Error Observability).
-- **Metrics:** The service shall expose performance metrics via a dedicated endpoint ([FR38](#metrics-endpoint)) with data quality as specified in [NFR12](#collection-of-performance-metrics) (Collection of Performance Metrics).
+- **Metrics:** The service shall expose performance metrics via a dedicated JSON endpoint ([FR38](#metrics-endpoint)) with data quality as specified in [NFR12](#collection-of-performance-metrics) (Collection of Performance Metrics), and via a Prometheus text exposition endpoint ([FR51](#prometheus-metrics-endpoint)) for integration with Prometheus-based monitoring infrastructure.
 
 **Log output destination:** The service shall emit all structured log output to **stdout** (standard output), consistent with the twelve-factor app methodology (factor XI: Logs) and container logging best practices. The service shall not write log files directly, manage log rotation, or implement log shipping. In containerised deployments, the container runtime's logging driver (for example, Docker's `json-file` driver, or Kubernetes' node-level log agent) is responsible for capturing stdout, applying rotation policies, and forwarding logs to aggregation infrastructure. In local (non-containerised) evaluation, stdout output can be redirected to a file or piped to a log viewer at the operator's discretion. Log retention, rotation, maximum file size, and shipping to external systems (for example, Elasticsearch, Splunk, CloudWatch Logs, or Loki) are the responsibility of the deployment infrastructure, not the application. The 90-day log retention recommendation in the [Compliance and Auditing](#compliance-and-auditing) section is an infrastructure-level policy to be enforced by the log aggregation platform.
 
@@ -4285,7 +4375,7 @@ The service is designed for horizontal scaling via stateless instance replicatio
 8. **Upstream retry and circuit breaker policy:** The current architecture follows a fail-fast pattern for llama.cpp calls: if the upstream server returns an error or is unreachable, the service immediately returns HTTP 502 to the client. For production environments with transient network faults, a future version could introduce a configurable retry policy (for example, 1 retry with a 2-second delay for connection errors and 5xx responses) combined with a circuit breaker that opens after N consecutive failures and remains open for a configurable cooldown period. This would improve availability under transient faults without the complexity of a full retry framework. The fail-fast approach is retained in the current specification as the architecturally simpler and more predictable choice for the stated evaluation context.
 9. **Response compression:** Image generation responses can reach 8–32 MB for multi-image requests at maximum resolution. A future version could introduce optional `Content-Encoding: gzip` response compression when the client sends `Accept-Encoding: gzip`, with a configurable minimum response size threshold (for example, 1 KB). Base64-encoded PNG data typically achieves 60–70% compression ratios with gzip, significantly reducing bandwidth consumption for clients that support transparent decompression.
 10. **Distributed tracing with W3C Trace Context:** The current architecture uses `X-Correlation-ID` for per-request correlation within a single service boundary. In multi-instance deployments behind a load balancer with a separate llama.cpp server, a complete distributed trace — spanning the reverse proxy → API service → llama.cpp boundary — cannot be reconstructed from correlation identifiers alone, because the `X-Correlation-ID` is generated within the API service and is not propagated to the llama.cpp upstream or to the originating client's trace. A future version could introduce W3C Trace Context propagation (`traceparent` and `tracestate` headers, as defined in the W3C Trace Context specification) combined with OpenTelemetry instrumentation, creating child spans for the two distinct inference calls (prompt enhancement and image generation). The `X-Correlation-ID` mechanism would be retained for backwards compatibility and single-service log querying; `traceparent` would be propagated as an HTTP header on calls to the llama.cpp server and optionally echoed in API responses to enable end-to-end trace reconstruction across the proxy boundary. Integration with an OpenTelemetry Collector would provide a vendor-neutral export path to tracing backends such as Jaeger, Zipkin, or cloud-native APM solutions.
-11. **Memory utilisation monitoring:** The current `/metrics` endpoint exposes request counts and latency statistics but does not expose memory utilisation. In long-running deployments, PyTorch tensors not released after inference can accumulate in memory — a documented behaviour in Diffusers pipeline usage — leading to gradual memory growth that is invisible until an out-of-memory process termination occurs. A future version could add `current_number_of_bytes_of_resident_set_size` (resident set size), `peak_number_of_bytes_of_resident_set_size`, and `stable_diffusion_pipeline_memory_bytes` (estimated model footprint) fields to the Schema for the Metrics Response. These values can be obtained from Python's `resource.getrusage()` and `torch.cuda.memory_allocated()` (on GPU). Exposing memory metrics would also provide a more precise signal for Kubernetes HPA scaling decisions than the current CPU utilisation threshold approach — enabling scale-out before memory pressure causes out-of-memory conditions, rather than reacting to it.
+11. **Memory utilisation monitoring:** The `/metrics` endpoint exposes request counts and latency statistics in JSON format, and the `/metrics/prometheus` endpoint ([FR51](#prometheus-metrics-endpoint)) exposes request counts and duration in Prometheus text exposition format. Neither endpoint currently exposes memory utilisation. In long-running deployments, PyTorch tensors not released after inference can accumulate in memory — a documented behaviour in Diffusers pipeline usage — leading to gradual memory growth that is invisible until an out-of-memory process termination occurs. A future version could add `current_number_of_bytes_of_resident_set_size` (resident set size), `peak_number_of_bytes_of_resident_set_size`, and `stable_diffusion_pipeline_memory_bytes` (estimated model footprint) fields to the Schema for the Metrics Response. These values can be obtained from Python's `resource.getrusage()` and `torch.cuda.memory_allocated()` (on GPU). Exposing memory metrics would also provide a more precise signal for Kubernetes HPA scaling decisions than the current CPU utilisation threshold approach — enabling scale-out before memory pressure causes out-of-memory conditions, rather than reacting to it.
 12. **API version coexistence and migration:** [NFR19](#api-versioning) mandates the `/v1/` path prefix and the specification governance framework defines deprecation processes and major version increment rules. However, the current architecture does not define how `/v2/` would coexist with `/v1/` on a single service instance. A future major version transition could adopt one of two strategies: (a) **path-based routing within a single instance**, where `/v1/` and `/v2/` route groups are registered on the same FastAPI application with separate router modules, enabling a single deployment to serve both versions simultaneously during a migration window; or (b) **separate deployments per version**, where `/v1/` and `/v2/` are served by independent service instances behind a path-based ingress rule, enabling independent scaling, deployment cadence, and lifecycle management at the cost of increased infrastructure complexity. Strategy (a) is recommended for the initial `/v1/` → `/v2/` transition due to lower operational overhead; strategy (b) is appropriate when the two versions have materially different resource profiles (for example, `/v2/` introduces GPU-only features). In either case, a version discovery mechanism (for example, a `GET /versions` endpoint returning an array of supported API versions with their deprecation status) should be introduced to enable clients to discover available versions programmatically. This pathway is deferred from the current specification because only `/v1/` exists and defining multi-version infrastructure before a second version is needed would be premature.
 13. **Per-image seed auto-incrementing for batch generation:** The current batch generation behaviour uses a single seed for all images in a request, producing identical outputs when `n > 1` with a fixed seed (see [FR28](#generation-of-images-in-batches) batch seed advisory). A future version could introduce automatic seed incrementing within a batch (`seed + i` for the i-th image), producing `n` deterministically distinct images from a single request. The response schema would be extended to include a `seeds` array (one entry per image) alongside the existing scalar `seed` field, preserving backward compatibility. This would align with the behaviour of most Stable Diffusion web interfaces and APIs, where batch generation with a fixed seed produces variations rather than duplicates. The scalar `seed` field would be retained as the base seed, and the `seeds` array would document the actual seed used for each image. This pathway is deferred because it changes the semantic meaning of the `seed` parameter for batch requests, which constitutes a behavioural change that should be introduced in a minor version increment with clear documentation.
 14. **`negative_prompt` support:** The Stable Diffusion v1.5 pipeline natively supports a `negative_prompt` parameter that specifies what should be excluded from the generated image (for example, "blurry, low quality, text, watermark, deformed"). Adding an optional `negative_prompt` string field to the Schema for the Image Generation Request (with validation constraints mirroring the `prompt` field) would provide clients with the single most impactful quality control mechanism available in Stable Diffusion inference. This pathway is deferred from the current specification to limit scope for the initial implementation; see the [Out of Scope](#out-of-scope) section.
@@ -4562,6 +4652,8 @@ Examples:
 **Environment variables:** Injected via ConfigMap (`text-to-image-api-configmap`) for non-sensitive values and via Secret (`text-to-image-api-secrets`) for any future sensitive values. See Appendix A for the complete variable list.
 
 **Horizontal scaling considerations:** The CPU request of `500m` ensures that Kubernetes schedules pods with sufficient baseline compute, while the `4000m` limit permits burst utilisation during inference. The 3-replica minimum guarantees that at least two pods remain available during a rolling update (with `maxUnavailable: 0`, the actual available count never drops below 3). The HPA configuration (defined below) scales between 3 and 10 replicas based on observed utilisation, providing elastic capacity without manual intervention.
+
+**Rolling update advisory:** For zero-downtime rolling updates, the deployment strategy specifies `maxUnavailable: 0` and `maxSurge: 1`, ensuring that a new pod is created and passes its readiness probe before an old pod is terminated. To prevent in-flight requests from being dropped during pod termination, operators should configure a `preStop` lifecycle hook with a `sleep 5` command. This 5-second delay ensures that the Kubernetes endpoints controller has time to remove the terminating pod from the Service's endpoint list before the pod begins its graceful shutdown sequence. Without this delay, the pod may begin refusing new connections (via Uvicorn's graceful shutdown) while the endpoints controller still considers it a valid backend, causing transient connection errors for clients whose requests are routed to the terminating pod during the propagation window.
 
 **GPU resource scheduling advisory:** In the GPU tier (primary), `nvidia.com/gpu: 1` ensures Kubernetes allocates exactly one GPU per pod via the NVIDIA device plugin, and the node selector ensures scheduling onto appropriately labelled nodes. Each pipeline instance consumes approximately 3.5 GB of VRAM at float16 precision ([NFR44](#concurrency-control-for-image-generation) intent); with the default concurrency of 2, approximately 7 GB of VRAM is required per pod. On multi-GPU nodes, Kubernetes assigns one GPU per pod by default; operators requiring GPU memory partitioning (for example, MIG on NVIDIA A100) should configure the NVIDIA device plugin accordingly — such partitioning is outside the scope of this specification. For CPU-tier (fallback) deployments, the GPU resource limit and node selector rows shall be omitted entirely from the manifest.
 
@@ -5544,6 +5636,7 @@ This section documents failure modes commonly encountered during initial setup a
 | 5.5.0 | 5 Mar 2026 | Added GPU and CPU tier annotations to the Configuration Limits table: renamed the "Default Value" column to "Default Value (GPU)" and introduced a "CPU Recommendation" column for the five tier-dependent configuration variables. See detailed v5.5.0 changelog below. |
 | 5.6.0 | 6 Mar 2026 | Introduced sentinel-based auto-resolution of tier-dependent configuration defaults. Four configuration variables (`inference_timeout_by_stable_diffusion_per_baseline_unit_in_seconds`, `maximum_number_of_concurrent_operations_of_image_generation`, `retry_after_busy_in_seconds`, `timeout_for_requests_in_seconds`) now default to `None` and auto-resolve to GPU or CPU values based on the detected Stable Diffusion inference device at startup. Explicit operator overrides take precedence unconditionally. Extended the `services_initialised` logging event with resolved configuration values and detected inference device. See detailed v5.6.0 changelog below. |
 | 5.6.1 | 6 Mar 2026 | Corrected Appendix A environment variable table to show `None` (auto-detected) defaults for the four sentinel-based configuration variables, aligning with the canonical §17 Configuration Requirements table updated in v5.6.0. See detailed v5.6.1 changelog below. |
+| 5.7.0 | 7 Mar 2026 | Three-state readiness model; circuit breaker failure condition enumeration; Prometheus metrics endpoint; documentation additions. See detailed v5.7.0 changelog below. |
 
 #### v4.0.0 Detailed Changelog
 
@@ -6031,6 +6124,40 @@ This section documents failure modes commonly encountered during initial setup a
 - Corrected the default value of `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION` in Appendix A from `2` to `None` (auto-detected: `2` on GPU, `1` on CPU), matching the canonical §17 table.
 - Corrected the default value of `TEXT_TO_IMAGE_RETRY_AFTER_BUSY_IN_SECONDS` in Appendix A from `5` to `None` (auto-detected: `5` on GPU, `30` on CPU), matching the canonical §17 table.
 - Corrected the default value of `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS` in Appendix A from `60` to `None` (auto-detected: `60` on GPU, `300` on CPU), matching the canonical §17 table.
+
+#### v5.7.0 Detailed Changelog
+
+**Three-state readiness model (FR37):**
+
+- Replaced the binary readiness model (`ready`/`not_ready`) with a three-state model (`ready`/`degraded`/`not_ready`). When the image generation pipeline is available but the large language model server is unavailable, the readiness endpoint now returns HTTP 200 with `"status": "degraded"` instead of HTTP 503 with `"status": "not_ready"`. This keeps the pod in Kubernetes load balancer rotation for image generation requests with `use_enhancer: false`, aligning with NFR7 (Partial availability under component failure).
+- Replaced the "Binary readiness design decision" section with a "Three-state readiness design decision" section explaining the rationale.
+- Updated the Schema for the Readiness Response to add `"degraded"` to the `status` enum.
+- Updated the Matrix for Degradation under Component Failure to reflect `degraded` instead of `not_ready` when llama.cpp is unavailable and Stable Diffusion is available.
+- Updated the API Contract Definition for `GET /health/ready` to document the three response states.
+- Updated the Error Classification table, Rules for Error Propagation, and Registry of Error Codes to reflect the narrower scope of HTTP 503 (image generation unavailable only).
+- The `Retry-After` header is now included only on HTTP 503 responses, not on `degraded` (HTTP 200) responses.
+
+**Circuit breaker failure condition enumeration (NFR50):**
+
+- Added a normative list of conditions that constitute a circuit breaker failure: connection refused/error, request timeout, HTTP 5xx, response exceeding maximum size, non-JSON response, unexpected streaming response, and empty/malformed enhanced prompt.
+- Added a normative statement that HTTP 4xx status codes shall NOT increment the circuit breaker failure counter, with rationale.
+- Split the Error Handling table's "HTTP error from llama.cpp" row into separate "HTTP 4xx error from llama.cpp" and "HTTP 5xx error from llama.cpp" rows with distinct circuit breaker impact descriptions.
+
+**Prometheus metrics endpoint (FR51):**
+
+- Added FR51 (Prometheus metrics endpoint): `GET /metrics/prometheus` returns `http_requests_received_total` (Counter) and `http_request_duration_in_seconds` (Histogram) in Prometheus text exposition format. Total requirement count increased from 50 to 51.
+- Added `GET /metrics/prometheus` to the endpoint cross-reference table, the Allow header table, the HEAD response behaviour specification, the Error Code to Endpoint Cross-Reference matrix, and the API Contract Definition section.
+- Updated future extensibility pathway 11 (Memory utilisation monitoring) to note that the Prometheus endpoint has been promoted from that pathway.
+- Added FR51 to the requirements traceability matrix and updated the numbering convention note.
+
+**Documentation additions:**
+
+- Added inference device classification normative statement to §17: the inference device is classified as GPU if `torch.cuda.is_available()` returns `True` at sentinel resolution time.
+- Added summary table of the `details` field type by error code to §16.
+- Added advisory on the atomic nature of batch generation to FR28, explaining that all-or-nothing failure is a consequence of Stable Diffusion's single forward pass for all `n` images.
+- Added advisory on safety checker determinism to FR45, clarifying that the safety checker is deterministic within an identical execution environment.
+- Added metrics self-inclusion statement to FR38/NFR12: all HTTP requests including infrastructure endpoints are recorded in metrics.
+- Added rolling update advisory to §21 recommending `maxUnavailable: 0`, `maxSurge: 1`, and a `preStop: sleep 5` lifecycle hook.
 
 ---
 

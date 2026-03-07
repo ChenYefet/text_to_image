@@ -2,7 +2,7 @@
 Pydantic schemas for the image generation endpoint.
 
 These schemas define the request body for POST /v1/images/generations,
-aligned with the v5.6.1 specification (Section 11 — Data Model and Schema
+aligned with the v5.7.0 specification (Section 11 — Data Model and Schema
 Definition).
 
 The response models (``ImageGenerationResponse``, ``GeneratedImageData``,

@@ -2,7 +2,7 @@
 Pool of independent ``StableDiffusionPipeline`` instances for concurrent
 image generation.
 
-The v5.6.1 specification (§14) mandates that when the concurrency limit is
+The v5.7.0 specification (§14) mandates that when the concurrency limit is
 greater than 1, the implementation must maintain a pool of ``n`` independent
 pipeline instances — one per concurrency slot — to prevent shared-state
 corruption.  This module provides that pool as an ``asyncio.Queue``-based
