@@ -1,10 +1,10 @@
 # Technical Specification: Text-to-Image Generation Service with Prompt Enhancement
 
-**Document Version:** 5.7.0
+**Document Version:** 5.8.0
 **Status:** Final — Panel Review Ready
 **Target Audience:** Senior Engineering Panel, Implementation Teams
 **Specification Authority:** Principal Technical Specification Authority
-**Date:** 7 March 2026
+**Date:** 8 March 2026
 
 ---
 
@@ -2305,14 +2305,17 @@ The `not_ready` state (HTTP 503) is reserved for the case where image generation
 
 ##### Prometheus metrics endpoint
 
-51. The service shall expose a `GET /metrics/prometheus` endpoint that returns request count and request duration metrics in Prometheus text exposition format (`text/plain; version=0.0.4; charset=utf-8`). The endpoint shall expose the following metrics:
+51. The service shall expose a `GET /metrics/prometheus` endpoint that returns request count, request duration, circuit breaker state, and pipeline pool instance count metrics in Prometheus text exposition format (`text/plain; version=0.0.4; charset=utf-8`). The endpoint shall expose the following metrics:
 
     - **`http_requests_received_total`** (Counter): Total number of HTTP requests received by the service, with labels `method`, `path`, and `status_code`. This counter is incremented for every HTTP request, including requests to infrastructure endpoints.
     - **`http_request_duration_in_seconds`** (Histogram): Duration of HTTP requests in seconds, with labels `method` and `path`. The histogram shall use the following bucket boundaries: 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 90.0.
+    - **`circuit_breaker_state`** (Enum): Current state of the circuit breaker, with label `circuit_name`. The instrument shall enumerate three states: `closed`, `half_open`, `open`. The circuit breaker shall update this instrument on every state transition (CLOSED → OPEN, OPEN → HALF_OPEN, HALF_OPEN → CLOSED, HALF_OPEN → OPEN). The initial state shall be set to `closed` when the circuit breaker is constructed.
+    - **`stable_diffusion_pipeline_pool_total_number_of_instances`** (Gauge): Total number of Stable Diffusion pipeline instances in the pool. This gauge shall be set once at startup and shall not change during the lifetime of the process.
+    - **`stable_diffusion_pipeline_pool_number_of_healthy_instances`** (Gauge): Number of healthy Stable Diffusion pipeline instances in the pool. This gauge shall be updated each time the readiness endpoint ([FR37](#readiness-check-endpoint)) is invoked, piggybacking on the existing readiness probe without introducing a separate code path.
 
     The endpoint shall use a custom `CollectorRegistry` (not the default global registry) to avoid exposing default Python process metrics that are not specified by this document. The endpoint shall include the `Cache-Control: no-store, no-cache` and `Pragma: no-cache` response headers consistent with all other infrastructure endpoints.
 
-**Intent:** To provide a Prometheus-compatible metrics endpoint that enables integration with industry-standard monitoring infrastructure (Prometheus, Grafana, alerting pipelines) without requiring translation from the JSON metrics format exposed by [FR38](#metrics-endpoint). The JSON endpoint ([FR38](#metrics-endpoint)) and the Prometheus endpoint serve different consumers: the JSON endpoint is designed for lightweight operational dashboards and ad hoc querying, while the Prometheus endpoint is designed for time-series monitoring systems that scrape metrics at regular intervals.
+**Intent:** To provide a Prometheus-compatible metrics endpoint that enables integration with industry-standard monitoring infrastructure (Prometheus, Grafana, alerting pipelines) without requiring translation from the JSON metrics format exposed by [FR38](#metrics-endpoint). The JSON endpoint ([FR38](#metrics-endpoint)) and the Prometheus endpoint serve different consumers: the JSON endpoint is designed for lightweight operational dashboards and ad hoc querying, while the Prometheus endpoint is designed for time-series monitoring systems that scrape metrics at regular intervals. The circuit breaker state instrument enables real-time alerting on upstream availability without log aggregation. The pipeline pool instance count instruments enable operators to observe pool health at a glance (for example, "2 of 3 instances healthy") during partial degradation events.
 
 **Preconditions:**
 
@@ -2324,7 +2327,7 @@ The `not_ready` state (HTTP 503) is reserved for the case where image generation
 
     1. Execute a `POST /v1/prompts/enhance` request with a valid prompt to generate some traffic
     2. Execute `curl -s -w "\nHTTP_STATUS:%{http_code}\n" http://localhost:8000/metrics/prometheus` and record the HTTP status code, response body, and `Content-Type` header
-    3. Verify the response body contains `http_requests_received_total` and `http_request_duration_in_seconds` metric families in Prometheus text exposition format
+    3. Verify the response body contains `http_requests_received_total`, `http_request_duration_in_seconds`, `circuit_breaker_state`, `stable_diffusion_pipeline_pool_total_number_of_instances`, and `stable_diffusion_pipeline_pool_number_of_healthy_instances` metric families in Prometheus text exposition format
 
 - Success criteria:
 
@@ -2332,6 +2335,8 @@ The `not_ready` state (HTTP 503) is reserved for the case where image generation
     - The `Content-Type` header is `text/plain; version=0.0.4; charset=utf-8`
     - The response body contains at least one `http_requests_received_total` sample with `method`, `path`, and `status_code` labels
     - The response body contains `http_request_duration_in_seconds_bucket`, `http_request_duration_in_seconds_count`, and `http_request_duration_in_seconds_sum` samples with `method` and `path` labels
+    - The response body contains `circuit_breaker_state` samples with `circuit_name` label and a value of `closed` (assuming no failures have occurred)
+    - The response body contains `stable_diffusion_pipeline_pool_total_number_of_instances` and `stable_diffusion_pipeline_pool_number_of_healthy_instances` samples with values matching the configured concurrency limit
     - The `Cache-Control` header is `no-store, no-cache` and the `Pragma` header is `no-cache`
 
 ---
@@ -2563,7 +2568,7 @@ Non-functional requirements that are not directly linked to functional requireme
 | 45 (Behaviour of the NSFW safety checker) | — | 10 (Structured logging), 20 (Consistency of the response format), 23 (Validity of image output), 24 (Compliance of the response schema) | Extended |
 | 46 (OpenAPI specification document) | — | 21 (Backward compatibility), 24 (Compliance of the response schema) | Advanced |
 | 49 (Validation of model files at startup) | — | 7 (Partial availability), 8 (Stability of the service process), 10 (Structured logging), 23 (Validity of image output), 24 (Compliance of the response schema) | Extended |
-| 51 (Prometheus metrics endpoint) | — | 12 (Performance metrics) | Extended |
+| 51 (Prometheus metrics endpoint) | — | 12 (Performance metrics), 44 (Concurrency control for image generation), 50 (Circuit breaker for communication with the large language model service) | Extended |
 
 ### Priority classification of non-functional requirements
 
@@ -3481,7 +3486,7 @@ Error responses for this endpoint are organised by the stage of request processi
 
 ### Endpoint: GET /metrics/prometheus
 
-**Purpose:** Expose request count and duration metrics in Prometheus text exposition format for integration with Prometheus-based monitoring infrastructure ([FR51](#prometheus-metrics-endpoint)).
+**Purpose:** Expose request count, request duration, circuit breaker state, and pipeline pool instance count metrics in Prometheus text exposition format for integration with Prometheus-based monitoring infrastructure ([FR51](#prometheus-metrics-endpoint)).
 
 **HTTP Status Code Mapping:**
 
@@ -3502,6 +3507,17 @@ http_requests_received_total{method="POST",path="/v1/prompts/enhance",status_cod
 http_request_duration_in_seconds_bucket{le="0.5",method="POST",path="/v1/prompts/enhance"} 3.0
 http_request_duration_in_seconds_count{method="POST",path="/v1/prompts/enhance"} 5.0
 http_request_duration_in_seconds_sum{method="POST",path="/v1/prompts/enhance"} 1.234
+# HELP circuit_breaker_state Current state of the circuit breaker
+# TYPE circuit_breaker_state gauge
+circuit_breaker_state{circuit_name="large_language_model",circuit_breaker_state="closed"} 1.0
+circuit_breaker_state{circuit_name="large_language_model",circuit_breaker_state="half_open"} 0.0
+circuit_breaker_state{circuit_name="large_language_model",circuit_breaker_state="open"} 0.0
+# HELP stable_diffusion_pipeline_pool_total_number_of_instances Total number of Stable Diffusion pipeline instances in the pool
+# TYPE stable_diffusion_pipeline_pool_total_number_of_instances gauge
+stable_diffusion_pipeline_pool_total_number_of_instances 2.0
+# HELP stable_diffusion_pipeline_pool_number_of_healthy_instances Number of healthy Stable Diffusion pipeline instances in the pool
+# TYPE stable_diffusion_pipeline_pool_number_of_healthy_instances gauge
+stable_diffusion_pipeline_pool_number_of_healthy_instances 2.0
 ```
 
 ---
@@ -4649,7 +4665,7 @@ Examples:
 | Termination grace period | 90 seconds | Provides a 30-second buffer beyond the application-level 60-second drain period to accommodate Python interpreter shutdown, final log flushing, and timing skew between `SIGTERM` delivery and the Uvicorn timeout |
 | Restart policy | `Always` | Ensures automatic recovery from process crashes ([NFR8](#stability-of-the-service-process-under-upstream-failure)) |
 
-**Environment variables:** Injected via ConfigMap (`text-to-image-api-configmap`) for non-sensitive values and via Secret (`text-to-image-api-secrets`) for any future sensitive values. See Appendix A for the complete variable list.
+**Environment variables:** Injected via ConfigMap (`text-to-image-api-configmap`) for non-sensitive values and via Secret (`text-to-image-api-secrets`) for any future sensitive values. See Appendix A for the complete variable list. The base Kubernetes manifests shall include a skeleton ConfigMap (`k8s/base/text-to-image-api-configmap.yaml`) listing the environment variables from `.env.example` with placeholder values, and a skeleton Secret (`k8s/base/text-to-image-api-secrets.yaml`) with no data entries. Operators shall customise the ConfigMap values for their environment and add sensitive values to the Secret as needed.
 
 **Horizontal scaling considerations:** The CPU request of `500m` ensures that Kubernetes schedules pods with sufficient baseline compute, while the `4000m` limit permits burst utilisation during inference. The 3-replica minimum guarantees that at least two pods remain available during a rolling update (with `maxUnavailable: 0`, the actual available count never drops below 3). The HPA configuration (defined below) scales between 3 and 10 replicas based on observed utilisation, providing elastic capacity without manual intervention.
 
@@ -4951,7 +4967,9 @@ text-to-image-service/
 │   │   ├── text-to-image-api-hpa.yaml
 │   │   ├── network-policy.yaml
 │   │   ├── persistent-volume-claims.yaml
-│   │   └── ingress.yaml
+│   │   ├── ingress.yaml
+│   │   ├── text-to-image-api-configmap.yaml
+│   │   └── text-to-image-api-secrets.yaml
 │   ├── components/
 │   │   ├── gpu/
 │   │   │   └── kustomization.yaml
@@ -5637,6 +5655,7 @@ This section documents failure modes commonly encountered during initial setup a
 | 5.6.0 | 6 Mar 2026 | Introduced sentinel-based auto-resolution of tier-dependent configuration defaults. Four configuration variables (`inference_timeout_by_stable_diffusion_per_baseline_unit_in_seconds`, `maximum_number_of_concurrent_operations_of_image_generation`, `retry_after_busy_in_seconds`, `timeout_for_requests_in_seconds`) now default to `None` and auto-resolve to GPU or CPU values based on the detected Stable Diffusion inference device at startup. Explicit operator overrides take precedence unconditionally. Extended the `services_initialised` logging event with resolved configuration values and detected inference device. See detailed v5.6.0 changelog below. |
 | 5.6.1 | 6 Mar 2026 | Corrected Appendix A environment variable table to show `None` (auto-detected) defaults for the four sentinel-based configuration variables, aligning with the canonical §17 Configuration Requirements table updated in v5.6.0. See detailed v5.6.1 changelog below. |
 | 5.7.0 | 7 Mar 2026 | Three-state readiness model; circuit breaker failure condition enumeration; Prometheus metrics endpoint; documentation additions. See detailed v5.7.0 changelog below. |
+| 5.8.0 | 8 Mar 2026 | Extended Prometheus metrics endpoint with circuit breaker state, pipeline pool instance counts; added skeleton ConfigMap and Secret manifests. See detailed v5.8.0 changelog below. |
 
 #### v4.0.0 Detailed Changelog
 
@@ -6158,6 +6177,21 @@ This section documents failure modes commonly encountered during initial setup a
 - Added advisory on safety checker determinism to FR45, clarifying that the safety checker is deterministic within an identical execution environment.
 - Added metrics self-inclusion statement to FR38/NFR12: all HTTP requests including infrastructure endpoints are recorded in metrics.
 - Added rolling update advisory to §21 recommending `maxUnavailable: 0`, `maxSurge: 1`, and a `preStop: sleep 5` lifecycle hook.
+
+#### v5.8.0 Detailed Changelog
+
+**Extended Prometheus metrics endpoint (FR51):**
+
+- Extended FR51 with three new Prometheus instruments: `circuit_breaker_state` (Enum with states `closed`, `half_open`, `open` and label `circuit_name`), `stable_diffusion_pipeline_pool_total_number_of_instances` (Gauge), and `stable_diffusion_pipeline_pool_number_of_healthy_instances` (Gauge).
+- Updated FR51 intent to note that the circuit breaker state instrument enables real-time alerting without log aggregation, and that the pipeline pool instance count instruments enable operators to observe pool health during partial degradation events.
+- Updated FR51 verification test procedure step 3 and added two success criteria for the new instruments.
+- Updated the API Contract Definition for `GET /metrics/prometheus` to include example output for all five instruments.
+- Added NFR44 (Concurrency control for image generation) and NFR50 (Circuit breaker for communication with the large language model service) to FR51's supported non-functional requirements in the requirements traceability matrix.
+
+**Skeleton ConfigMap and Secret manifests:**
+
+- Added a normative requirement for skeleton ConfigMap (`k8s/base/text-to-image-api-configmap.yaml`) and Secret (`k8s/base/text-to-image-api-secrets.yaml`) manifests to the Deployment: text-to-image-api section. The ConfigMap lists environment variables from `.env.example` with placeholder values; the Secret contains no data entries and serves as a placeholder for future sensitive values.
+- Added `text-to-image-api-configmap.yaml` and `text-to-image-api-secrets.yaml` to the `k8s/base/` directory in the Repository Structure tree.
 
 ---
 

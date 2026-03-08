@@ -5,7 +5,7 @@ Provides a thread-safe collector for request counts and latency
 observations, exposed via the ``GET /metrics`` endpoint in JSON format.
 
 The collector tracks two temporal metadata fields required by the
-v5.7.0 specification (FR38 and NFR12):
+v5.8.0 specification (FR38 and NFR12):
 
 - ``service_started_at``: an ISO 8601 UTC timestamp recording when the
   collector was created (which coincides with application startup).
@@ -35,7 +35,7 @@ import math
 import threading
 
 # The default upper bound on the number of latency observations retained
-# per endpoint.  The v5.7.0 specification notes that fewer than 10,000
+# per endpoint.  The v5.8.0 specification notes that fewer than 10,000
 # requests per endpoint is the expected evaluation scope.  This default
 # matches that expectation exactly, providing a safety net if the
 # assumption is violated in production without artificially constraining
@@ -79,7 +79,7 @@ class MetricsCollector:
             maximum_number_of_observations_per_endpoint: The maximum number of
                 latency observations retained per endpoint before the
                 oldest observations are evicted.  Defaults to 10,000,
-                matching the v5.7.0 specification's expected evaluation
+                matching the v5.8.0 specification's expected evaluation
                 scope.  Setting this to a lower value reduces memory
                 consumption at the cost of statistical window size.
         """
@@ -151,7 +151,7 @@ class MetricsCollector:
         Return a point-in-time snapshot of all collected metrics.
 
         The snapshot includes two temporal metadata fields required by
-        the v5.7.0 specification (FR38, Section 11):
+        the v5.8.0 specification (FR38, Section 11):
 
         - ``collected_at``: ISO 8601 UTC timestamp of when this snapshot
           was generated (e.g. ``"2026-02-23T14:32:10.123456Z"``).
@@ -208,7 +208,7 @@ def _format_current_utc_timestamp() -> str:
     """
     Generate the current UTC time as an ISO 8601 formatted string.
 
-    The format matches the v5.7.0 specification requirement (FR38,
+    The format matches the v5.8.0 specification requirement (FR38,
     Section 11): a full ISO 8601 UTC timestamp with microsecond
     precision and the ``Z`` suffix indicating Coordinated Universal
     Time.

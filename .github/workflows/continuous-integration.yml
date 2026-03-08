@@ -88,7 +88,7 @@ jobs:
   #  Job 2: Build and tag the Docker container image
   # ──────────────────────────────────────────────────────────────────────
   #
-  #  This job addresses FR43 of the v5.7.0 specification: the continuous
+  #  This job addresses FR43 of the v5.8.0 specification: the continuous
   #  integration pipeline must build a container image and tag it with the
   #  Git commit SHA for deployment traceability.
   #
