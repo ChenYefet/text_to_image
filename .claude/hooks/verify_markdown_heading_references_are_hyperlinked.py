@@ -30,8 +30,8 @@ import os
 import subprocess
 import sys
 
-from deny_then_allow import read_hook_input_from_stdin
-from deny_then_allow import run_deny_then_allow
+from helpers.deny_then_allow import read_hook_input_from_stdin
+from helpers.deny_then_allow import run_deny_then_allow
 
 MARKER_FILE_PREFIX = (
     ".heading_reference_hyperlink_review_pending_before_commit_session_"
@@ -40,13 +40,13 @@ MARKER_FILE_PREFIX = (
 
 def load_function_to_extract_anchors_from_headings():
     """Load ``extract_anchors_from_headings`` from
-    ``validate_markdown_anchors.py`` in the same directory as this hook.
+    ``helpers/validate_markdown_anchors.py``.
 
     Returns the function object.
     """
     directory_of_this_hook = os.path.dirname(os.path.abspath(__file__))
     path_to_validation_module = os.path.join(
-        directory_of_this_hook, "validate_markdown_anchors.py"
+        directory_of_this_hook, "helpers", "validate_markdown_anchors.py"
     )
     specification = importlib.util.spec_from_file_location(
         "validate_markdown_anchors", path_to_validation_module

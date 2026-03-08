@@ -30,14 +30,14 @@ def is_git_commit_command(command: str) -> bool:
 def load_anchor_validation_functions() -> tuple:
     """Load ``extract_anchors_from_headings`` and
     ``extract_same_file_anchor_references`` from
-    ``validate_markdown_anchors.py`` in the same directory as this hook.
+    ``helpers/validate_markdown_anchors.py``.
 
     Returns a tuple of (extract_anchors_from_headings,
     extract_same_file_anchor_references).
     """
     directory_of_this_hook = os.path.dirname(os.path.abspath(__file__))
     path_to_validation_module = os.path.join(
-        directory_of_this_hook, "validate_markdown_anchors.py"
+        directory_of_this_hook, "helpers", "validate_markdown_anchors.py"
     )
     specification = importlib.util.spec_from_file_location(
         "validate_markdown_anchors", path_to_validation_module

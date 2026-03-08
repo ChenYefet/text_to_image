@@ -7,7 +7,7 @@ This is a Claude Code PreToolUse hook for the Bash tool.  On the first
 via the ``claude`` CLI to determine whether each hook uses a
 non-deterministic check (such as an LLM call).  If a hook uses a
 non-deterministic check but does not import and use
-``deny_then_allow``, the commit is denied.  On the second attempt
+``helpers.deny_then_allow``, the commit is denied.  On the second attempt
 within the same session, the hook allows the commit to proceed
 regardless — because the analysis is itself non-deterministic.
 
@@ -27,24 +27,20 @@ import os
 import subprocess
 import sys
 
-from deny_then_allow import read_hook_input_from_stdin
-from deny_then_allow import run_deny_then_allow
+from helpers.deny_then_allow import read_hook_input_from_stdin
+from helpers.deny_then_allow import run_deny_then_allow
 
 MARKER_FILE_PREFIX = (
     ".non_deterministic_hook_deny_then_allow_review_pending_before_commit_session_"
 )
 
-# Files in .claude/hooks/ that are not hooks themselves and should be
-# excluded from analysis.
-FILES_TO_EXCLUDE = {
-    "deny_then_allow.py",
-    "validate_markdown_anchors.py",
-}
-
-
 def get_staged_hook_files() -> list[str]:
     """Return file paths of staged ``.claude/hooks/*.py`` files that were
     added or modified.
+
+    The glob ``.claude/hooks/*.py`` does not recurse into subdirectories,
+    so helper modules in ``.claude/hooks/helpers/`` are automatically
+    excluded.
     """
     result = subprocess.run(
         [
@@ -54,16 +50,11 @@ def get_staged_hook_files() -> list[str]:
         capture_output=True,
         text=True,
     )
-    staged_files = []
-    for line in result.stdout.strip().splitlines():
-        file_path = line.strip()
-        if not file_path:
-            continue
-        basename = os.path.basename(file_path)
-        if basename in FILES_TO_EXCLUDE:
-            continue
-        staged_files.append(file_path)
-    return staged_files
+    return [
+        line.strip()
+        for line in result.stdout.strip().splitlines()
+        if line.strip()
+    ]
 
 
 def get_staged_file_content(file_path: str) -> str:
@@ -90,8 +81,8 @@ def build_prompt_for_non_deterministic_check_analysis(
         "calling an LLM API, or invoking any generative AI service).\n"
         "\n"
         "If the hook uses a non-deterministic check, determine whether "
-        "it imports and uses the `deny_then_allow` module (specifically "
-        "the `run_deny_then_allow` function) to ensure that false "
+        "it imports and uses the `helpers.deny_then_allow` module "
+        "(specifically the `run_deny_then_allow` function) to ensure that false "
         "positives do not permanently block commits.\n"
         "\n"
         f"File: {file_path}\n"
@@ -105,7 +96,7 @@ def build_prompt_for_non_deterministic_check_analysis(
         "uses a non-deterministic check (LLM call, generative AI "
         "service, etc.), false otherwise.\n"
         '- "uses_deny_then_allow": boolean — true if the hook imports '
-        "and uses `run_deny_then_allow` from `deny_then_allow`, false "
+        "and uses `run_deny_then_allow` from `helpers.deny_then_allow`, false "
         "otherwise.\n"
         '- "explanation": string — a brief explanation of your '
         "reasoning.\n"
@@ -223,9 +214,10 @@ def build_blocking_message(
     """
     lines = [
         "The following hook files use non-deterministic checks (such as LLM",
-        "calls) but do not use the `deny_then_allow` module.  Hooks with",
-        "non-deterministic checks must import and use `run_deny_then_allow`",
-        "from `deny_then_allow` to ensure that false positives do not",
+        "calls) but do not use the `helpers.deny_then_allow` module.  Hooks",
+        "with non-deterministic checks must import and use",
+        "`run_deny_then_allow` from `helpers.deny_then_allow` to ensure that",
+        "false positives do not",
         "permanently block commits:",
         "",
     ]
@@ -237,7 +229,7 @@ def build_blocking_message(
     lines.append(
         "Update each hook to import and use `run_deny_then_allow` from"
     )
-    lines.append("`deny_then_allow`, stage the changes, and re-attempt")
+    lines.append("`helpers.deny_then_allow`, stage the changes, and re-attempt")
     lines.append("the commit.  If these are false positives, re-attempt")
     lines.append("the commit unchanged — it will be allowed on the")
     lines.append("second attempt.")

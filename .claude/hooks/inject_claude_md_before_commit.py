@@ -19,8 +19,8 @@ Exit code 0 -- always (output JSON controls blocking via permissionDecision).
 import pathlib
 import sys
 
-from deny_then_allow import read_hook_input_from_stdin
-from deny_then_allow import run_deny_then_allow
+from helpers.deny_then_allow import read_hook_input_from_stdin
+from helpers.deny_then_allow import run_deny_then_allow
 
 MARKER_FILE_PREFIX = ".claude_md_review_pending_before_commit_session_"
 
