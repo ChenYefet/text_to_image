@@ -1,6 +1,6 @@
 # Technical Specification: Text-to-Image Generation Service with Prompt Enhancement
 
-**Document Version:** 5.8.1
+**Document Version:** 5.9.0
 **Status:** Final — Panel Review Ready
 **Target Audience:** Senior Engineering Panel, Implementation Teams
 **Specification Authority:** Principal Technical Specification Authority
@@ -2305,17 +2305,19 @@ The `not_ready` state (HTTP 503) is reserved for the case where image generation
 
 ##### Prometheus metrics endpoint
 
-51. The service shall expose a `GET /metrics/prometheus` endpoint that returns request count, request duration, circuit breaker state, and pipeline pool instance count metrics in Prometheus text exposition format (`text/plain; version=0.0.4; charset=utf-8`). The endpoint shall expose the following metrics:
+51. The service shall expose a `GET /metrics/prometheus` endpoint that returns request count, request duration, circuit breaker state, pipeline pool instance count, in-flight request count, and safety filter rejection count metrics in Prometheus text exposition format (`text/plain; version=0.0.4; charset=utf-8`). The endpoint shall expose the following metrics:
 
     - **`http_requests_received_total`** (Counter): Total number of HTTP requests received by the service, with labels `method`, `path`, and `status_code`. This counter is incremented for every HTTP request, including requests to infrastructure endpoints.
     - **`http_request_duration_in_seconds`** (Histogram): Duration of HTTP requests in seconds, with labels `method` and `path`. The histogram shall use the following bucket boundaries: 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 90.0.
     - **`circuit_breaker_state`** (Enum): Current state of the circuit breaker, with label `circuit_name`. The instrument shall enumerate three states: `closed`, `half_open`, `open`. The circuit breaker shall update this instrument on every state transition (CLOSED → OPEN, OPEN → HALF_OPEN, HALF_OPEN → CLOSED, HALF_OPEN → OPEN). The initial state shall be set to `closed` when the circuit breaker is constructed.
     - **`stable_diffusion_pipeline_pool_total_number_of_instances`** (Gauge): Total number of Stable Diffusion pipeline instances in the pool. This gauge shall be set once at startup and shall not change during the lifetime of the process.
     - **`stable_diffusion_pipeline_pool_number_of_healthy_instances`** (Gauge): Number of healthy Stable Diffusion pipeline instances in the pool. This gauge shall be updated each time the readiness endpoint ([FR37](#readiness-check-endpoint)) is invoked, piggybacking on the existing readiness probe without introducing a separate code path.
+    - **`number_of_http_requests_in_flight`** (Gauge): The current number of HTTP requests being processed by the service. This gauge shall be incremented when a request enters the outermost middleware layer and decremented when the response is sent (including error responses). The decrement shall occur in a `finally` block to guarantee correctness under all exit paths. No labels are required — the gauge reflects total in-flight load across all endpoints.
+    - **`number_of_generated_images_rejected_by_safety_filter_total`** (Counter): Total number of generated images rejected by the NSFW safety checker. This counter shall be incremented once per rejected image, not per request — a request generating 4 images with 2 filtered increments the counter by 2. No labels are required.
 
     The endpoint shall use a custom `CollectorRegistry` (not the default global registry) to avoid exposing default Python process metrics that are not specified by this document. The endpoint shall include the `Cache-Control: no-store, no-cache` and `Pragma: no-cache` response headers consistent with all other infrastructure endpoints.
 
-**Intent:** To provide a Prometheus-compatible metrics endpoint that enables integration with industry-standard monitoring infrastructure (Prometheus, Grafana, alerting pipelines) without requiring translation from the JSON metrics format exposed by [FR38](#metrics-endpoint). The JSON endpoint ([FR38](#metrics-endpoint)) and the Prometheus endpoint serve different consumers: the JSON endpoint is designed for lightweight operational dashboards and ad hoc querying, while the Prometheus endpoint is designed for time-series monitoring systems that scrape metrics at regular intervals. The circuit breaker state instrument enables real-time alerting on upstream availability without log aggregation. The pipeline pool instance count instruments enable operators to observe pool health at a glance (for example, "2 of 3 instances healthy") during partial degradation events.
+**Intent:** To provide a Prometheus-compatible metrics endpoint that enables integration with industry-standard monitoring infrastructure (Prometheus, Grafana, alerting pipelines) without requiring translation from the JSON metrics format exposed by [FR38](#metrics-endpoint). The JSON endpoint ([FR38](#metrics-endpoint)) and the Prometheus endpoint serve different consumers: the JSON endpoint is designed for lightweight operational dashboards and ad hoc querying, while the Prometheus endpoint is designed for time-series monitoring systems that scrape metrics at regular intervals. The circuit breaker state instrument enables real-time alerting on upstream availability without log aggregation. The pipeline pool instance count instruments enable operators to observe pool health at a glance (for example, "2 of 3 instances healthy") during partial degradation events. The in-flight request gauge provides real-time concurrency visibility — unlike counters that track only completed requests, the gauge reveals how many requests are currently being processed at any given moment, enabling detection of stuck requests and early warning of cascading failures. The safety filter counter enables Prometheus-native alerting on elevated NSFW rejection rates without requiring log aggregation infrastructure.
 
 **Preconditions:**
 
@@ -2327,7 +2329,7 @@ The `not_ready` state (HTTP 503) is reserved for the case where image generation
 
     1. Execute a `POST /v1/prompts/enhance` request with a valid prompt to generate some traffic
     2. Execute `curl -s -w "\nHTTP_STATUS:%{http_code}\n" http://localhost:8000/metrics/prometheus` and record the HTTP status code, response body, and `Content-Type` header
-    3. Verify the response body contains `http_requests_received_total`, `http_request_duration_in_seconds`, `circuit_breaker_state`, `stable_diffusion_pipeline_pool_total_number_of_instances`, and `stable_diffusion_pipeline_pool_number_of_healthy_instances` metric families in Prometheus text exposition format
+    3. Verify the response body contains `http_requests_received_total`, `http_request_duration_in_seconds`, `circuit_breaker_state`, `stable_diffusion_pipeline_pool_total_number_of_instances`, `stable_diffusion_pipeline_pool_number_of_healthy_instances`, `number_of_http_requests_in_flight`, and `number_of_generated_images_rejected_by_safety_filter_total` metric families in Prometheus text exposition format
 
 - Success criteria:
 
@@ -2337,6 +2339,8 @@ The `not_ready` state (HTTP 503) is reserved for the case where image generation
     - The response body contains `http_request_duration_in_seconds_bucket`, `http_request_duration_in_seconds_count`, and `http_request_duration_in_seconds_sum` samples with `method` and `path` labels
     - The response body contains `circuit_breaker_state` samples with `circuit_name` label and a value of `closed` (assuming no failures have occurred)
     - The response body contains `stable_diffusion_pipeline_pool_total_number_of_instances` and `stable_diffusion_pipeline_pool_number_of_healthy_instances` samples with values matching the configured concurrency limit
+    - The response body contains a `number_of_http_requests_in_flight` sample (the value is non-negative)
+    - The response body contains a `number_of_generated_images_rejected_by_safety_filter_total` sample (the value is non-negative)
     - The `Cache-Control` header is `no-store, no-cache` and the `Pragma` header is `no-cache`
 
 ---
@@ -3486,7 +3490,7 @@ Error responses for this endpoint are organised by the stage of request processi
 
 ### Endpoint: GET /metrics/prometheus
 
-**Purpose:** Expose request count, request duration, circuit breaker state, and pipeline pool instance count metrics in Prometheus text exposition format for integration with Prometheus-based monitoring infrastructure ([FR51](#prometheus-metrics-endpoint)).
+**Purpose:** Expose request count, request duration, circuit breaker state, pipeline pool instance count, in-flight request count, and safety filter rejection count metrics in Prometheus text exposition format for integration with Prometheus-based monitoring infrastructure ([FR51](#prometheus-metrics-endpoint)).
 
 **HTTP Status Code Mapping:**
 
@@ -3518,6 +3522,12 @@ stable_diffusion_pipeline_pool_total_number_of_instances 2.0
 # HELP stable_diffusion_pipeline_pool_number_of_healthy_instances Number of healthy Stable Diffusion pipeline instances in the pool
 # TYPE stable_diffusion_pipeline_pool_number_of_healthy_instances gauge
 stable_diffusion_pipeline_pool_number_of_healthy_instances 2.0
+# HELP number_of_http_requests_in_flight The current number of HTTP requests being processed by the service
+# TYPE number_of_http_requests_in_flight gauge
+number_of_http_requests_in_flight 1.0
+# HELP number_of_generated_images_rejected_by_safety_filter_total Total number of generated images rejected by the NSFW safety checker
+# TYPE number_of_generated_images_rejected_by_safety_filter_total counter
+number_of_generated_images_rejected_by_safety_filter_total 0.0
 ```
 
 ---
@@ -5657,6 +5667,7 @@ This section documents failure modes commonly encountered during initial setup a
 | 5.7.0 | 7 Mar 2026 | Three-state readiness model; circuit breaker failure condition enumeration; Prometheus metrics endpoint; documentation additions. See detailed v5.7.0 changelog below. |
 | 5.8.0 | 8 Mar 2026 | Extended Prometheus metrics endpoint with circuit breaker state, pipeline pool instance counts; added skeleton ConfigMap and Secret manifests. See detailed v5.8.0 changelog below. |
 | 5.8.1 | 8 Mar 2026 | Removed the 30× CPU multiplier from the inference timeout scaling formula. See detailed v5.8.1 changelog below. |
+| 5.9.0 | 8 Mar 2026 | Extended Prometheus metrics endpoint with in-flight request gauge and safety filter rejection counter. See detailed v5.9.0 changelog below. |
 
 #### v4.0.0 Detailed Changelog
 
@@ -6201,6 +6212,17 @@ This section documents failure modes commonly encountered during initial setup a
 - Removed the 30× device-type multiplier from the `TEXT_TO_IMAGE_INFERENCE_TIMEOUT_BY_STABLE_DIFFUSION_PER_BASELINE_UNIT_IN_SECONDS` scaling formula. The formula is now uniformly `base × n_images × (w × h) / (512 × 512)` on both GPU and CPU; no additional multiplier is applied based on device type.
 - Corrected an internal inconsistency introduced in v5.6.0: the sentinel-based CPU auto-resolved default of `60` was incompatible with the 30× multiplier, yielding an effective timeout of 1800 seconds per baseline unit (60 × 30) rather than the 300 seconds stated in the v5.8.0 description of that variable. The auto-resolved CPU default of `60` now represents the direct effective timeout per 512×512 baseline unit, consistent with the NFR2 CPU latency target of ≤ 60 seconds per image.
 - Updated the description of `TEXT_TO_IMAGE_INFERENCE_TIMEOUT_BY_STABLE_DIFFUSION_PER_BASELINE_UNIT_IN_SECONDS` in the Configuration Requirements table to reflect the uniform scaling formula.
+
+#### v5.9.0 Detailed Changelog
+
+**Extended Prometheus metrics endpoint with in-flight request gauge and safety filter rejection counter (FR51):**
+
+- Extended FR51 with two new Prometheus instruments: `number_of_http_requests_in_flight` (Gauge tracking the current number of HTTP requests being processed by the service) and `number_of_generated_images_rejected_by_safety_filter_total` (Counter tracking the total number of generated images rejected by the NSFW safety checker, incremented per rejected image rather than per request).
+- Updated FR51 preamble to include in-flight request count and safety filter rejection count in the endpoint's metric category list.
+- Updated FR51 intent to explain the operational value of each new instrument: the in-flight request gauge provides real-time concurrency visibility for detection of stuck requests and early warning of cascading failures; the safety filter counter enables Prometheus-native alerting on elevated NSFW rejection rates without log aggregation.
+- Updated FR51 verification test procedure step 3 to include `number_of_http_requests_in_flight` and `number_of_generated_images_rejected_by_safety_filter_total` in the list of metric families that the response body must contain.
+- Added two success criteria to FR51 for the new instruments: the response body must contain a `number_of_http_requests_in_flight` sample (non-negative) and a `number_of_generated_images_rejected_by_safety_filter_total` sample (non-negative).
+- Updated the API Contract Definition for `GET /metrics/prometheus` purpose text and example output to include all seven instruments.
 
 ---
 

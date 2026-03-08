@@ -2,7 +2,7 @@
 Pydantic schemas for the prompt enhancement endpoint.
 
 These schemas define the request and response bodies for
-POST /v1/prompts/enhance, aligned with the v5.8.1 specification
+POST /v1/prompts/enhance, aligned with the v5.9.0 specification
 (Section 11 — Data Model and Schema Definition).
 """
 
