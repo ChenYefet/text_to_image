@@ -61,6 +61,8 @@ import time
 
 import structlog
 
+from application.prometheus_metrics import state_of_circuit_breaker
+
 logger = structlog.get_logger()
 
 
@@ -142,6 +144,10 @@ class CircuitBreaker:
         self._probe_in_progress: bool = False
         self._lock_for_state_transitions = asyncio.Lock()
 
+        state_of_circuit_breaker.labels(
+            circuit_name=self._name,
+        ).state(self._state.value)
+
     @property
     def state(self) -> CircuitState:
         """Return the current state of the circuit breaker."""
@@ -198,6 +204,9 @@ class CircuitBreaker:
                 # HALF_OPEN to allow a single probe request through.
                 self._state = CircuitState.HALF_OPEN
                 self._probe_in_progress = True
+                state_of_circuit_breaker.labels(
+                    circuit_name=self._name,
+                ).state(self._state.value)
                 logger.info(
                     "circuit_breaker_half_open",
                     circuit_name=self._name,
@@ -229,6 +238,9 @@ class CircuitBreaker:
             self._number_of_consecutive_failures = 0
             self._state = CircuitState.CLOSED
             self._probe_in_progress = False
+            state_of_circuit_breaker.labels(
+                circuit_name=self._name,
+            ).state(self._state.value)
 
             if previous_state == CircuitState.HALF_OPEN:
                 logger.info(
@@ -256,6 +268,9 @@ class CircuitBreaker:
                 # restart the recovery timer.
                 self._state = CircuitState.OPEN
                 self._probe_in_progress = False
+                state_of_circuit_breaker.labels(
+                    circuit_name=self._name,
+                ).state(self._state.value)
                 logger.warning(
                     "circuit_breaker_reopened",
                     circuit_name=self._name,
@@ -266,6 +281,9 @@ class CircuitBreaker:
 
             if self._state == CircuitState.CLOSED and self._number_of_consecutive_failures >= self._failure_threshold:
                 self._state = CircuitState.OPEN
+                state_of_circuit_breaker.labels(
+                    circuit_name=self._name,
+                ).state(self._state.value)
                 logger.warning(
                     "circuit_breaker_opened",
                     circuit_name=self._name,

@@ -11,14 +11,17 @@ Covers all state transitions and edge cases of the circuit breaker pattern:
   reopens it.
 - Property accessors for state and failure count.
 - Structured log events for state transitions.
+- Prometheus state gauge updates on each state transition.
 """
 
 import asyncio
 
+import prometheus_client
 import pytest
 import structlog.testing
 
 import application.circuit_breaker
+import application.prometheus_metrics
 
 
 class TestCircuitBreakerClosedState:
@@ -454,3 +457,110 @@ class TestCircuitOpenError:
 
         assert error.circuit_name == "test_circuit"
         assert error.remaining_number_of_seconds_until_recovery == 42.0
+
+
+class TestCircuitBreakerPrometheusStateGauge:
+    """Verify that the Prometheus state gauge is updated on every state transition."""
+
+    @pytest.fixture(autouse=True)
+    def fresh_prometheus_registry(self):
+        """
+        Replace the module-level Prometheus Enum instrument with a fresh
+        instance on an isolated registry for each test to prevent
+        cross-test pollution.
+        """
+        original_instrument = application.prometheus_metrics.state_of_circuit_breaker
+
+        test_registry = prometheus_client.CollectorRegistry()
+        application.prometheus_metrics.state_of_circuit_breaker = prometheus_client.Enum(
+            "circuit_breaker_state",
+            "Current state of the circuit breaker",
+            ["circuit_name"],
+            states=["closed", "half_open", "open"],
+            registry=test_registry,
+        )
+        # Re-import the reference used inside circuit_breaker.py.
+        application.circuit_breaker.state_of_circuit_breaker = application.prometheus_metrics.state_of_circuit_breaker
+
+        yield test_registry
+
+        application.prometheus_metrics.state_of_circuit_breaker = original_instrument
+        application.circuit_breaker.state_of_circuit_breaker = original_instrument
+
+    def _get_prometheus_state_value(self, circuit_name: str) -> str:
+        """Return the current Prometheus Enum state string for the given circuit name."""
+        # prometheus_client.Enum stores the active state as an integer
+        # index into its _states list.
+        child = application.prometheus_metrics.state_of_circuit_breaker.labels(
+            circuit_name=circuit_name,
+        )
+        return child._states[child._value]
+
+    @pytest.mark.asyncio
+    async def test_initial_state_sets_prometheus_gauge_to_closed(self) -> None:
+        """When the circuit breaker is constructed, the Prometheus gauge is set to 'closed'."""
+        application.circuit_breaker.CircuitBreaker(
+            failure_threshold=5,
+            name="test_prometheus",
+        )
+
+        assert self._get_prometheus_state_value("test_prometheus") == "closed"
+
+    @pytest.mark.asyncio
+    async def test_opening_sets_prometheus_gauge_to_open(self) -> None:
+        """When the circuit opens, the Prometheus gauge transitions to 'open'."""
+        breaker = application.circuit_breaker.CircuitBreaker(
+            failure_threshold=1,
+            name="test_prometheus",
+        )
+
+        await breaker.record_failure()
+
+        assert self._get_prometheus_state_value("test_prometheus") == "open"
+
+    @pytest.mark.asyncio
+    async def test_half_open_sets_prometheus_gauge_to_half_open(self) -> None:
+        """When the circuit transitions to HALF_OPEN, the Prometheus gauge updates."""
+        breaker = application.circuit_breaker.CircuitBreaker(
+            failure_threshold=1,
+            timeout_for_recovery_in_seconds=0.1,
+            name="test_prometheus",
+        )
+
+        await breaker.record_failure()
+        await asyncio.sleep(0.15)
+        await breaker.ensure_circuit_is_not_open()
+
+        assert self._get_prometheus_state_value("test_prometheus") == "half_open"
+
+    @pytest.mark.asyncio
+    async def test_closing_after_probe_sets_prometheus_gauge_to_closed(self) -> None:
+        """When a successful probe closes the circuit, the Prometheus gauge returns to 'closed'."""
+        breaker = application.circuit_breaker.CircuitBreaker(
+            failure_threshold=1,
+            timeout_for_recovery_in_seconds=0.1,
+            name="test_prometheus",
+        )
+
+        await breaker.record_failure()
+        await asyncio.sleep(0.15)
+        await breaker.ensure_circuit_is_not_open()
+        await breaker.record_success()
+
+        assert self._get_prometheus_state_value("test_prometheus") == "closed"
+
+    @pytest.mark.asyncio
+    async def test_reopening_after_failed_probe_sets_prometheus_gauge_to_open(self) -> None:
+        """When a failed probe reopens the circuit, the Prometheus gauge returns to 'open'."""
+        breaker = application.circuit_breaker.CircuitBreaker(
+            failure_threshold=1,
+            timeout_for_recovery_in_seconds=0.1,
+            name="test_prometheus",
+        )
+
+        await breaker.record_failure()
+        await asyncio.sleep(0.15)
+        await breaker.ensure_circuit_is_not_open()
+        await breaker.record_failure()
+
+        assert self._get_prometheus_state_value("test_prometheus") == "open"
