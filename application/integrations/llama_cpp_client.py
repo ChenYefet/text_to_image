@@ -299,10 +299,12 @@ class LlamaCppClient:
                 ),
             ) from connection_error
         except httpx.HTTPStatusError as http_status_error:
-            await self._record_circuit_breaker_failure()
+            status_code_from_upstream = http_status_error.response.status_code
+            if status_code_from_upstream >= 500:
+                await self._record_circuit_breaker_failure()
             logger.error(
                 "llama_cpp_http_error",
-                status_code=http_status_error.response.status_code,
+                status_code=status_code_from_upstream,
             )
             raise application.exceptions.LargeLanguageModelServiceUnavailableError(
                 detail="The large language model server returned an error response.",

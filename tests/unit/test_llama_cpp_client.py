@@ -752,8 +752,8 @@ class TestCircuitBreakerIntegration:
         assert breaker.number_of_consecutive_failures == 1
 
     @pytest.mark.asyncio
-    async def test_http_error_records_with_circuit_breaker(self) -> None:
-        """An HTTP status error increments the circuit breaker failure counter."""
+    async def test_http_5xx_error_records_with_circuit_breaker(self) -> None:
+        """An HTTP 5xx status error increments the circuit breaker failure counter."""
         breaker = application.circuit_breaker.CircuitBreaker(
             failure_threshold=5,
             name="test",
@@ -777,6 +777,53 @@ class TestCircuitBreakerIntegration:
             await service.enhance_prompt("A cat")
 
         assert breaker.number_of_consecutive_failures == 1
+
+    @pytest.mark.asyncio
+    async def test_http_4xx_error_does_not_record_with_circuit_breaker(self) -> None:
+        """An HTTP 4xx status error must not increment the circuit breaker failure counter."""
+        breaker = application.circuit_breaker.CircuitBreaker(
+            failure_threshold=5,
+            name="test",
+        )
+
+        service = _build_llama_cpp_client(circuit_breaker=breaker)
+        mock_error_response = MagicMock(spec=httpx.Response)
+        mock_error_response.status_code = 400
+        mock_response = _build_mock_of_streaming_response(
+            body_bytes=b"",
+            status_code=400,
+            raise_for_status_side_effect=httpx.HTTPStatusError(
+                "Bad request",
+                request=MagicMock(),
+                response=mock_error_response,
+            ),
+        )
+        _configure_stream_mock(service, mock_response)
+
+        with pytest.raises(application.exceptions.LargeLanguageModelServiceUnavailableError):
+            await service.enhance_prompt("A cat")
+
+        assert breaker.number_of_consecutive_failures == 0
+
+    @pytest.mark.asyncio
+    async def test_http_4xx_error_raises_unavailable_error(self) -> None:
+        """An HTTP 4xx status error still raises LargeLanguageModelServiceUnavailableError."""
+        service = _build_llama_cpp_client()
+        mock_error_response = MagicMock(spec=httpx.Response)
+        mock_error_response.status_code = 422
+        mock_response = _build_mock_of_streaming_response(
+            body_bytes=b"",
+            status_code=422,
+            raise_for_status_side_effect=httpx.HTTPStatusError(
+                "Unprocessable entity",
+                request=MagicMock(),
+                response=mock_error_response,
+            ),
+        )
+        _configure_stream_mock(service, mock_response)
+
+        with pytest.raises(application.exceptions.LargeLanguageModelServiceUnavailableError):
+            await service.enhance_prompt("A cat")
 
     @pytest.mark.asyncio
     async def test_request_error_records_with_circuit_breaker(self) -> None:
