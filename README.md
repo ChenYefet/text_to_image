@@ -466,6 +466,30 @@ docker compose down --volumes
 
 ---
 
+## Kubernetes Deployment Notes
+
+### Model Download Caching in Multi-Replica Deployments
+
+The Stable Diffusion model weights (~4 GB) are downloaded from HuggingFace Hub on first startup and cached on the `stable-diffusion-model-cache-pvc` persistent volume. In multi-replica deployments, the first pod to start downloads the model to the shared PVC, and subsequent pods reuse the cached copy.
+
+To avoid concurrent download races when scaling from zero to multiple replicas, pre-populate the PVC before scaling up:
+
+1. Deploy a single replica and wait for it to pass the readiness probe (model fully loaded).
+2. Scale to the desired replica count.
+
+Alternatively, use an init container that downloads the model before the main container starts.
+
+### ReadWriteMany PVC Storage Class Requirement
+
+The `stable-diffusion-model-cache-pvc` is configured with `ReadWriteMany` access mode, which allows multiple pods to mount the volume simultaneously. This requires a storage class that supports `ReadWriteMany` (for example, NFS, CephFS, or AWS EFS).
+
+Operators whose clusters only provide `ReadWriteOnce` storage (for example, AWS EBS, GCP Persistent Disk, Azure Disk) have two options:
+
+- **Single replica:** Use a single replica deployment, which only requires `ReadWriteOnce`.
+- **Local storage per pod:** Remove the shared PVC and use an init container to download the model into each pod's local `emptyDir` volume. This duplicates storage but avoids the `ReadWriteMany` requirement.
+
+---
+
 ## API Endpoints
 
 ### POST /v1/prompts/enhance
