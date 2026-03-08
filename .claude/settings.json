@@ -6,6 +6,10 @@
         "hooks": [
           {
             "type": "command",
+            "command": "python3 .claude/hooks/inject_claude_md_before_commit.py"
+          },
+          {
+            "type": "command",
             "command": "python3 .claude/hooks/verify_readme_project_structure_includes_added_files.py"
           },
           {
