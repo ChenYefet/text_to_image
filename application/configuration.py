@@ -62,10 +62,12 @@ class ApplicationConfiguration(pydantic_settings.BaseSettings):
     ----------------------
     The ``inference_timeout_by_stable_diffusion_per_baseline_unit_in_seconds``
     is the base timeout for generating a single 512×512 baseline unit image.
-    The service scales it automatically for larger or batched requests and
-    applies a 30× multiplier on CPU::
+    The service scales it automatically for larger or batched requests::
 
-        timeout = base × n_images × (w × h) / (512 × 512)  [× 30 on CPU]
+        timeout = base × n_images × (w × h) / (512 × 512)
+
+    No device-type multiplier is applied; the sentinel-based auto-resolution
+    provides device-appropriate values directly (10 s on GPU, 60 s on CPU).
     """
 
     # ── Application settings ─────────────────────────────────────────────
@@ -223,9 +225,9 @@ class ApplicationConfiguration(pydantic_settings.BaseSettings):
         description=(
             "Base timeout (seconds) for one 512x512 baseline unit image. "
             "None triggers auto-resolution: 10 on GPU, 60 on CPU. An explicit "
-            "value overrides auto-detection unconditionally. A 30x multiplier is "
-            "auto-applied on CPU. Actual timeout: "
-            "base x n_images x (w x h) / (512 x 512) [x 30 on CPU]."
+            "value overrides auto-detection unconditionally. No device-type "
+            "multiplier is applied; the resolved value is the direct effective "
+            "timeout. Actual timeout: base x n_images x (w x h) / (512 x 512)."
         ),
     )
 

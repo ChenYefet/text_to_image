@@ -508,17 +508,17 @@ class TestComputeTimeout:
     def test_cpu_baseline_image(self):
         service = _build_image_generation_service_with_mock_pipeline(device_type="cpu")
         service._inference_timeout_per_baseline_unit_in_seconds = 60.0
-        # 1 image × 512×512 × 30 → 1800s
-        assert service._compute_timeout(512, 512, 1) == pytest.approx(1800.0)
+        # 1 image × 512×512 → 60s (no multiplier; base encodes device tier)
+        assert service._compute_timeout(512, 512, 1) == pytest.approx(60.0)
 
     def test_cpu_double_resolution(self):
         service = _build_image_generation_service_with_mock_pipeline(device_type="cpu")
         service._inference_timeout_per_baseline_unit_in_seconds = 60.0
-        # 1 image × 1024×1024 × 30 → 7200s
-        assert service._compute_timeout(1024, 1024, 1) == pytest.approx(7200.0)
+        # 1 image × 1024×1024 → ratio_of_pixel_area_to_baseline=4.0 → 240s
+        assert service._compute_timeout(1024, 1024, 1) == pytest.approx(240.0)
 
     def test_cpu_worst_case(self):
         service = _build_image_generation_service_with_mock_pipeline(device_type="cpu")
         service._inference_timeout_per_baseline_unit_in_seconds = 60.0
-        # 4 images × 1024×1024 × 30 → 28800s
-        assert service._compute_timeout(1024, 1024, 4) == pytest.approx(28800.0)
+        # 4 images × 1024×1024 → 960s
+        assert service._compute_timeout(1024, 1024, 4) == pytest.approx(960.0)

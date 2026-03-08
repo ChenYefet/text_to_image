@@ -66,12 +66,6 @@ logger = structlog.get_logger()
 # Larger images scale proportionally (e.g. 1024×1024 = 4.0× base).
 _NUMBER_OF_PIXELS_IN_BASELINE = 512 * 512
 
-# On GPU, inference is approximately 30× faster than on CPU hardware.
-# This multiplier is applied to the computed timeout when the inference
-# device is not a CUDA GPU, ensuring that CPU-bound generation requests
-# receive a proportionally longer timeout window.
-_MULTIPLIER_FOR_TIMEOUT_ON_CPU = 30
-
 
 class StableDiffusionPipeline:
     """
@@ -88,12 +82,14 @@ class StableDiffusionPipeline:
     pipeline.  This pipeline therefore does not maintain its own lock or
     concurrency limiter.
 
-    The inference timeout scales automatically with request complexity and
-    device type::
+    The inference timeout scales automatically with request complexity::
 
-        timeout = base × number_of_images × (width × height) / (512 × 512) [× 30 on CPU]
+        timeout = base × number_of_images × (width × height) / (512 × 512)
 
-    so large or CPU-bound requests get proportionally more time.
+    The base value is device-aware through sentinel-based configuration
+    resolution (10 s on GPU, 60 s on CPU by default); no additional
+    device-type multiplier is applied at the pipeline level.  Large
+    batches and high-resolution requests get proportionally more time.
     """
 
     DEFAULT_TIMEOUT_OF_INFERENCE_PER_BASELINE_UNIT_IN_SECONDS = 10.0
@@ -355,11 +351,13 @@ class StableDiffusionPipeline:
         Compute the inference timeout for a specific request.
 
         The timeout scales linearly with both the number of images and the
-        pixel area relative to a 512×512 baseline.  On CPU hardware, a
-        fixed multiplier is applied to account for the substantially
-        slower inference speed::
+        pixel area relative to a 512×512 baseline::
 
-            timeout = base × number_of_images × (width × height) / (512 × 512) [× CPU multiplier]
+            timeout = base × number_of_images × (width × height) / (512 × 512)
+
+        The base value already encodes device-tier expectations through
+        sentinel-based configuration resolution (10 s on GPU, 60 s on CPU
+        by default).  No additional device-type multiplier is applied here.
 
         Args:
             image_width: Width of each generated image in pixels.
@@ -370,12 +368,7 @@ class StableDiffusionPipeline:
             The computed timeout in seconds.
         """
         ratio_of_pixel_area_to_baseline = (image_width * image_height) / _NUMBER_OF_PIXELS_IN_BASELINE
-        timeout_for_inference_in_seconds = (
-            self._inference_timeout_per_baseline_unit_in_seconds * number_of_images * ratio_of_pixel_area_to_baseline
-        )
-        if self._device.type != "cuda":
-            timeout_for_inference_in_seconds *= _MULTIPLIER_FOR_TIMEOUT_ON_CPU
-        return timeout_for_inference_in_seconds
+        return self._inference_timeout_per_baseline_unit_in_seconds * number_of_images * ratio_of_pixel_area_to_baseline
 
     async def generate_images(
         self,
