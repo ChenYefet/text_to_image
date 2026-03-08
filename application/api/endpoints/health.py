@@ -93,23 +93,28 @@ async def health_check() -> fastapi.responses.JSONResponse:
     description=(
         "Checks that backend services (large language model server and"
         " image generation pipeline) are initialised and reachable."
-        " Returns HTTP 503 with a Retry-After header when any backend"
-        " is unavailable."
+        " Returns HTTP 200 with status ``degraded`` when the large"
+        " language model is unavailable but image generation is healthy."
+        " Returns HTTP 503 with a Retry-After header when image"
+        " generation is unavailable."
     ),
     status_code=200,
     responses={
         200: {
-            "description": "All backend services are healthy and ready to accept requests.",
+            "description": (
+                "Image generation is available. The service is either fully"
+                " ready or degraded (large language model unavailable)."
+            ),
             "content": {
                 "application/json": {
                     "schema": {
                         "type": "object",
                         "properties": {
-                            "status": {"type": "string", "enum": ["ready"]},
+                            "status": {"type": "string", "enum": ["ready", "degraded"]},
                             "checks": {
                                 "type": "object",
                                 "properties": {
-                                    "large_language_model": {"type": "string", "enum": ["ok"]},
+                                    "large_language_model": {"type": "string", "enum": ["ok", "unavailable"]},
                                     "image_generation": {"type": "string", "enum": ["ok"]},
                                 },
                                 "required": ["large_language_model", "image_generation"],
@@ -119,9 +124,21 @@ async def health_check() -> fastapi.responses.JSONResponse:
                         "required": ["status", "checks"],
                         "additionalProperties": False,
                     },
-                    "example": {
-                        "status": "ready",
-                        "checks": {"large_language_model": "ok", "image_generation": "ok"},
+                    "examples": {
+                        "ready": {
+                            "summary": "Fully ready",
+                            "value": {
+                                "status": "ready",
+                                "checks": {"large_language_model": "ok", "image_generation": "ok"},
+                            },
+                        },
+                        "degraded": {
+                            "summary": "Degraded — large language model unavailable",
+                            "value": {
+                                "status": "degraded",
+                                "checks": {"large_language_model": "unavailable", "image_generation": "ok"},
+                            },
+                        },
                     },
                 },
             },
@@ -177,8 +194,10 @@ async def readiness_check(request: fastapi.Request) -> fastapi.responses.JSONRes
     Check the initialisation status of all backend services.
 
     Queries each backend independently and aggregates the results into
-    a ``checks`` dictionary.  If any backend reports as unavailable, the
-    overall status is ``"not_ready"`` with HTTP 503.
+    a ``checks`` dictionary.  If image generation is unavailable, the
+    overall status is ``"not_ready"`` with HTTP 503.  If only the large
+    language model is unavailable, the status is ``"degraded"`` with
+    HTTP 200.
 
     The readiness probe checks:
         - **image_generation**: Whether the Stable Diffusion pipeline
@@ -224,18 +243,28 @@ async def readiness_check(request: fastapi.Request) -> fastapi.responses.JSONRes
         checks["large_language_model"] = "unavailable"
 
     # ── Aggregate results ─────────────────────────────────────────────
-    all_backends_are_healthy = all(check_status == "ok" for check_status in checks.values())
-    status_code = 200 if all_backends_are_healthy else 503
+    image_generation_is_available = checks["image_generation"] == "ok"
+    large_language_model_is_available = checks["large_language_model"] == "ok"
+
+    if image_generation_is_available and large_language_model_is_available:
+        readiness_status = "ready"
+        status_code = 200
+    elif image_generation_is_available:
+        readiness_status = "degraded"
+        status_code = 200
+    else:
+        readiness_status = "not_ready"
+        status_code = 503
 
     response_headers: dict[str, str] = dict(_INFRASTRUCTURE_CACHE_SUPPRESSION_HEADERS)
 
-    if not all_backends_are_healthy:
+    if status_code == 503:
         retry_after_not_ready_in_seconds = getattr(request.app.state, "retry_after_not_ready_in_seconds", 10)
         response_headers["Retry-After"] = str(retry_after_not_ready_in_seconds)
 
     return fastapi.responses.JSONResponse(
         content={
-            "status": "ready" if all_backends_are_healthy else "not_ready",
+            "status": readiness_status,
             "checks": checks,
         },
         status_code=status_code,

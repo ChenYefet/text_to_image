@@ -1088,24 +1088,24 @@ class TestReadinessCheckReturning503FullStackIntegration:
         assert "x-correlation-id" in response.headers
 
     @pytest.mark.asyncio
-    async def test_readiness_returns_503_when_llama_cpp_client_unhealthy(
+    async def test_readiness_returns_degraded_when_llama_cpp_client_unhealthy(
         self,
         integration_client,
         mock_of_llama_cpp_client,
     ):
         """When the llama.cpp client reports unhealthy, the readiness
-        endpoint returns HTTP 503 with the ``large_language_model`` check
-        marked as ``unavailable`` and a ``Retry-After`` header."""
+        endpoint returns HTTP 200 with the ``degraded`` status and the
+        ``large_language_model`` check marked as ``unavailable``."""
         mock_of_llama_cpp_client.check_health.return_value = False
 
         response = await integration_client.get("/health/ready")
 
-        assert response.status_code == 503
+        assert response.status_code == 200
         response_body = response.json()
-        assert response_body["status"] == "not_ready"
+        assert response_body["status"] == "degraded"
         assert response_body["checks"]["large_language_model"] == "unavailable"
         assert response_body["checks"]["image_generation"] == "ok"
-        assert "Retry-After" in response.headers
+        assert "Retry-After" not in response.headers
 
     @pytest.mark.asyncio
     async def test_readiness_returns_503_when_both_services_unhealthy(

@@ -227,12 +227,15 @@ paths:
       - Health
       summary: Readiness check
       description: Checks that backend services (large language model server and image
-        generation pipeline) are initialised and reachable. Returns HTTP 503 with
-        a Retry-After header when any backend is unavailable.
+        generation pipeline) are initialised and reachable. Returns HTTP 200 with
+        status ``degraded`` when the large language model is unavailable but image
+        generation is healthy. Returns HTTP 503 with a Retry-After header when image
+        generation is unavailable.
       operationId: readiness_check_health_ready_get
       responses:
         '200':
-          description: All backend services are healthy and ready to accept requests.
+          description: Image generation is available. The service is either fully
+            ready or degraded (large language model unavailable).
           content:
             application/json:
               schema:
@@ -241,12 +244,14 @@ paths:
                     type: string
                     enum:
                     - ready
+                    - degraded
                   checks:
                     properties:
                       large_language_model:
                         type: string
                         enum:
                         - ok
+                        - unavailable
                       image_generation:
                         type: string
                         enum:
@@ -261,11 +266,21 @@ paths:
                 required:
                 - status
                 - checks
-              example:
-                status: ready
-                checks:
-                  large_language_model: ok
-                  image_generation: ok
+              examples:
+                ready:
+                  summary: Fully ready
+                  value:
+                    status: ready
+                    checks:
+                      large_language_model: ok
+                      image_generation: ok
+                degraded:
+                  summary: Degraded — large language model unavailable
+                  value:
+                    status: degraded
+                    checks:
+                      large_language_model: unavailable
+                      image_generation: ok
         '503':
           description: Service Unavailable — one or more backend services are unhealthy.
             The ``Retry-After`` header indicates how long to wait before retrying.
