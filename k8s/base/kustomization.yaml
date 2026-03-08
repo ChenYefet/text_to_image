@@ -13,6 +13,8 @@ resources:
   - network-policy.yaml
   - persistent-volume-claims.yaml
   - ingress.yaml
+  - text-to-image-api-configmap.yaml
+  - text-to-image-api-secrets.yaml
 
 commonLabels:
   app.kubernetes.io/part-of: text-to-image-service
