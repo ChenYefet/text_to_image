@@ -37,6 +37,7 @@ import application.integrations.stable_diffusion_pipeline
 import application.integrations.stable_diffusion_pipeline_pool
 import application.logging_config
 import application.metrics
+import application.prometheus_metrics
 import application.services.image_generation_service
 import application.services.prompt_enhancement_service
 
@@ -206,6 +207,9 @@ def create_application() -> fastapi.FastAPI:
                     pipeline_instances=loaded_pipeline_instances,
                 )
             )
+            application.prometheus_metrics.gauge_of_total_number_of_instances_in_pipeline_pool_of_stable_diffusion.set(
+                instance_of_stable_diffusion_pipeline_pool.number_of_instances,
+            )
 
         # ── Startup warmup (SA-3) ────────────────────────────────────
         #
@@ -242,6 +246,7 @@ def create_application() -> fastapi.FastAPI:
 
         fastapi_application.state.prompt_enhancement_service = instance_of_prompt_enhancement_service
         fastapi_application.state.image_generation_service = instance_of_image_generation_service
+        fastapi_application.state.stable_diffusion_pipeline_pool = instance_of_stable_diffusion_pipeline_pool
         fastapi_application.state.admission_controller_for_image_generation = (
             instance_of_admission_controller_for_image_generation
         )

@@ -104,6 +104,16 @@ class StableDiffusionPipelinePool:
         """
         return any(instance.check_health() for instance in self._all_instances)
 
+    def count_healthy_instances(self) -> int:
+        """
+        Return the number of pipeline instances that are currently healthy.
+
+        Unlike ``check_health()``, which short-circuits on the first healthy
+        instance, this method iterates all instances to produce a count
+        suitable for the Prometheus pipeline pool healthy instances gauge.
+        """
+        return sum(1 for instance in self._all_instances if instance.check_health())
+
     async def close(self) -> None:
         """
         Close all pipeline instances in the pool and free GPU memory.

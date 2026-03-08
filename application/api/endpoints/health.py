@@ -228,6 +228,18 @@ async def readiness_check(request: fastapi.Request) -> fastapi.responses.JSONRes
     else:
         checks["image_generation"] = "unavailable"
 
+    # Update the Prometheus healthy instances gauge, piggybacking on the
+    # readiness probe to avoid a separate code path.
+    stable_diffusion_pipeline_pool = getattr(
+        request.app.state,
+        "stable_diffusion_pipeline_pool",
+        None,
+    )
+    if stable_diffusion_pipeline_pool is not None:
+        application.prometheus_metrics.gauge_of_number_of_healthy_instances_in_pipeline_pool_of_stable_diffusion.set(
+            stable_diffusion_pipeline_pool.count_healthy_instances(),
+        )
+
     # ── Language model backend check ──────────────────────────────────
     #
     # The prompt enhancement service delegates to the llama.cpp client,
