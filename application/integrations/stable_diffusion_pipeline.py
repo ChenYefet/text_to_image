@@ -57,6 +57,7 @@ import structlog
 import torch
 
 import application.exceptions
+import application.prometheus_metrics
 
 logger = structlog.get_logger()
 
@@ -507,6 +508,12 @@ class StableDiffusionPipeline:
                 "image_generation_safety_filtered",
                 flagged_indices=indices_flagged_by_content_safety_checker,
                 total_number_of_images=len(output_images_from_pipeline),
+            )
+
+            # Increment the Prometheus safety filter counter by the number
+            # of rejected images (per image, not per request) — FR51.
+            application.prometheus_metrics.counter_of_number_of_generated_images_rejected_by_safety_filter.inc(
+                len(indices_flagged_by_content_safety_checker)
             )
 
         # Convert the flagged indices list to a frozenset for O(1)

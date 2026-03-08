@@ -22,6 +22,8 @@ import starlette.types
 import structlog
 import structlog.contextvars
 
+import application.prometheus_metrics
+
 
 class InFlightRequestCounter:
     """
@@ -142,6 +144,10 @@ class CorrelationIdMiddleware:
         if self._in_flight_request_counter is not None:
             self._in_flight_request_counter.increment()
 
+        # Increment the Prometheus in-flight gauge for real-time
+        # concurrency visibility (FR51).
+        application.prometheus_metrics.gauge_of_number_of_http_requests_in_flight.inc()
+
         async def send_with_correlation_id(
             message: starlette.types.Message,
         ) -> None:
@@ -189,3 +195,6 @@ class CorrelationIdMiddleware:
             # completed, regardless of whether it succeeded or failed.
             if self._in_flight_request_counter is not None:
                 self._in_flight_request_counter.decrement()
+
+            # Decrement the Prometheus in-flight gauge (FR51).
+            application.prometheus_metrics.gauge_of_number_of_http_requests_in_flight.dec()

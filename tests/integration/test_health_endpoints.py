@@ -295,6 +295,20 @@ class TestPrometheusMetricsEndpoint:
         assert "http_request_duration_in_seconds" in body
 
     @pytest.mark.asyncio
+    async def test_prometheus_metrics_contains_in_flight_gauge(self, client):
+        response = await client.get("/metrics/prometheus")
+        body = response.text
+
+        assert "number_of_http_requests_in_flight" in body
+
+    @pytest.mark.asyncio
+    async def test_prometheus_metrics_contains_safety_filter_counter(self, client):
+        response = await client.get("/metrics/prometheus")
+        body = response.text
+
+        assert "number_of_generated_images_rejected_by_safety_filter_total" in body
+
+    @pytest.mark.asyncio
     async def test_prometheus_metrics_has_cache_control_header(self, client):
         response = await client.get("/metrics/prometheus")
 

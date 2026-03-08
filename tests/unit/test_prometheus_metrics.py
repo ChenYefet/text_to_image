@@ -28,6 +28,8 @@ class TestPrometheusMetrics:
         original_healthy_instances_gauge = (
             prometheus.gauge_of_number_of_healthy_instances_in_pipeline_pool_of_stable_diffusion
         )
+        original_in_flight_gauge = prometheus.gauge_of_number_of_http_requests_in_flight
+        original_safety_filter_counter = prometheus.counter_of_number_of_generated_images_rejected_by_safety_filter
 
         test_registry = prometheus_client.CollectorRegistry()
         prometheus.registry_for_prometheus_metrics = test_registry
@@ -76,6 +78,16 @@ class TestPrometheusMetrics:
             "Number of healthy Stable Diffusion pipeline instances in the pool",
             registry=test_registry,
         )
+        prometheus.gauge_of_number_of_http_requests_in_flight = prometheus_client.Gauge(
+            "number_of_http_requests_in_flight",
+            "The current number of HTTP requests being processed by the service",
+            registry=test_registry,
+        )
+        prometheus.counter_of_number_of_generated_images_rejected_by_safety_filter = prometheus_client.Counter(
+            "number_of_generated_images_rejected_by_safety_filter_total",
+            "Total number of generated images rejected by the NSFW safety checker",
+            registry=test_registry,
+        )
 
         yield test_registry
 
@@ -89,6 +101,8 @@ class TestPrometheusMetrics:
         prometheus.gauge_of_number_of_healthy_instances_in_pipeline_pool_of_stable_diffusion = (
             original_healthy_instances_gauge
         )
+        prometheus.gauge_of_number_of_http_requests_in_flight = original_in_flight_gauge
+        prometheus.counter_of_number_of_generated_images_rejected_by_safety_filter = original_safety_filter_counter
 
     def test_counter_increments(self):
         prometheus.counter_of_http_requests_received.labels(
@@ -138,6 +152,23 @@ class TestPrometheusMetrics:
         healthy_gauge.set(2)
 
         assert healthy_gauge._value.get() == 2.0
+
+    def test_in_flight_gauge_increments_and_decrements(self):
+        gauge = prometheus.gauge_of_number_of_http_requests_in_flight
+        gauge.inc()
+        assert gauge._value.get() == 1.0
+
+        gauge.inc()
+        assert gauge._value.get() == 2.0
+
+        gauge.dec()
+        assert gauge._value.get() == 1.0
+
+    def test_safety_filter_counter_increments(self):
+        counter = prometheus.counter_of_number_of_generated_images_rejected_by_safety_filter
+        counter.inc(3)
+
+        assert counter._value.get() == 3.0
 
     def test_generate_latest_produces_text(self):
         output = prometheus_client.generate_latest(

@@ -17,6 +17,11 @@ instruments:
 - ``gauge_of_number_of_healthy_instances_in_pipeline_pool_of_stable_diffusion``:
   A ``Gauge`` reporting the number of healthy pipeline instances in the
   Stable Diffusion pipeline pool.
+- ``gauge_of_number_of_http_requests_in_flight``: A ``Gauge`` reporting
+  the current number of HTTP requests being processed by the service.
+- ``counter_of_number_of_generated_images_rejected_by_safety_filter``:
+  A ``Counter`` tracking the total number of generated images rejected
+  by the NSFW safety checker.
 
 The custom registry avoids exposing default Python process metrics that
 are not specified by the application specification.
@@ -58,5 +63,17 @@ gauge_of_total_number_of_instances_in_pipeline_pool_of_stable_diffusion = promet
 gauge_of_number_of_healthy_instances_in_pipeline_pool_of_stable_diffusion = prometheus_client.Gauge(
     "stable_diffusion_pipeline_pool_number_of_healthy_instances",
     "Number of healthy Stable Diffusion pipeline instances in the pool",
+    registry=registry_for_prometheus_metrics,
+)
+
+gauge_of_number_of_http_requests_in_flight = prometheus_client.Gauge(
+    "number_of_http_requests_in_flight",
+    "The current number of HTTP requests being processed by the service",
+    registry=registry_for_prometheus_metrics,
+)
+
+counter_of_number_of_generated_images_rejected_by_safety_filter = prometheus_client.Counter(
+    "number_of_generated_images_rejected_by_safety_filter_total",
+    "Total number of generated images rejected by the NSFW safety checker",
     registry=registry_for_prometheus_metrics,
 )
