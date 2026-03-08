@@ -1,11 +1,21 @@
 """Pre-commit hook that verifies all prose references to markdown headings
 are wrapped in hyperlinks.
 
-This is a Claude Code PreToolUse hook for the Bash tool. It intercepts
-``git commit`` commands, extracts added lines from staged ``.md`` files,
-and delegates semantic analysis to Claude Sonnet via the ``claude`` CLI to
-detect prose text that references a heading without a ``[...](#...)``
-hyperlink. If un-hyperlinked references are found, the commit is denied.
+This is a Claude Code PreToolUse hook for the Bash tool.  On the first
+``git commit`` attempt within a session, it extracts added lines from
+staged ``.md`` files and delegates semantic analysis to Claude Sonnet
+via the ``claude`` CLI to detect prose text that references a heading
+without a ``[...](#...)`` hyperlink.  If un-hyperlinked references are
+found, the commit is denied and the violations are injected as a
+``systemMessage``.  On the second attempt within the same session, the
+hook allows the commit to proceed regardless — this ensures that false
+positives from the non-deterministic LLM analysis never permanently
+block a commit.
+
+Session isolation is achieved via a marker file whose name includes the
+``session_id`` from the hook input.  A marker created by a different
+session is ignored and cleaned up, preventing stale markers from
+allowing commits without review.
 
 Graceful degradation: If the ``claude`` CLI is not found, times out,
 returns an error, or produces unparseable output, the hook allows the
@@ -14,12 +24,19 @@ commit and logs a warning to stderr.
 Exit code 0 — always (output JSON controls blocking via permissionDecision).
 """
 
+import glob
 import importlib.util
 import json
 import os
+import pathlib
 import re
 import subprocess
 import sys
+
+
+MARKER_FILE_PREFIX = (
+    ".heading_reference_hyperlink_review_pending_before_commit_session_"
+)
 
 
 def read_hook_input_from_stdin() -> dict:
@@ -30,6 +47,18 @@ def read_hook_input_from_stdin() -> dict:
 def is_git_commit_command(command: str) -> bool:
     """Return True if the command is a git commit invocation."""
     return bool(re.search(r"\bgit\s+commit\b", command))
+
+
+def get_marker_file_path_for_session(session_id: str) -> pathlib.Path:
+    """Return the path to the session-scoped marker file."""
+    return pathlib.Path(f"{MARKER_FILE_PREFIX}{session_id}")
+
+
+def clean_up_stale_marker_files(current_session_id: str) -> None:
+    """Remove marker files left behind by previous sessions."""
+    for stale_marker_path in glob.glob(f"{MARKER_FILE_PREFIX}*"):
+        if current_session_id not in stale_marker_path:
+            pathlib.Path(stale_marker_path).unlink(missing_ok=True)
 
 
 def load_function_to_extract_anchors_from_headings():
@@ -304,23 +333,22 @@ def build_blocking_message(
     lines.append(
         "Wrap each reference in a hyperlink, stage the changes, and"
     )
-    lines.append("re-attempt the commit.")
+    lines.append("re-attempt the commit.  If these are false positives,")
+    lines.append("re-attempt the commit unchanged — it will be allowed")
+    lines.append("on the second attempt.")
     return "\n".join(lines)
 
 
-def main() -> int:
-    hook_input = read_hook_input_from_stdin()
+def collect_violations() -> dict[str, list[dict]]:
+    """Run the heading reference analysis on all staged markdown files.
 
-    tool_input = hook_input.get("tool_input", {})
-    command = tool_input.get("command", "")
-
-    # Fast path: not a git commit command.
-    if not is_git_commit_command(command):
-        return 0
-
+    Returns a dictionary mapping file paths to their violation lists.
+    Empty if no staged markdown files exist, no headings are found, or
+    no violations are detected.
+    """
     staged_markdown_files = get_staged_markdown_files()
     if not staged_markdown_files:
-        return 0
+        return {}
 
     extract_anchors_from_headings = (
         load_function_to_extract_anchors_from_headings()
@@ -353,15 +381,75 @@ def main() -> int:
         if violations:
             violations_indexed_by_file_path[file_path] = violations
 
+    return violations_indexed_by_file_path
+
+
+def run_analysis_and_report() -> int:
+    """Run the analysis and report violations without blocking.
+
+    This is the fallback path when no session ID is available.  Without
+    a session ID, the marker file mechanism cannot guarantee that a
+    second attempt will be allowed, so violations are reported as an
+    advisory systemMessage rather than a blocking deny.
+    """
+    violations_indexed_by_file_path = collect_violations()
+
     if violations_indexed_by_file_path:
         message = build_blocking_message(violations_indexed_by_file_path)
         output = {
-            "hookSpecificOutput": {
-                "permissionDecision": "deny",
-            },
             "systemMessage": message,
         }
         print(json.dumps(output))
+
+    return 0
+
+
+def main() -> int:
+    hook_input = read_hook_input_from_stdin()
+
+    tool_input = hook_input.get("tool_input", {})
+    command = tool_input.get("command", "")
+
+    # Fast path: not a git commit command.
+    if not is_git_commit_command(command):
+        return 0
+
+    session_id = hook_input.get("session_id", "")
+    if not session_id:
+        # If no session ID is available, fall back to running the
+        # analysis without marker file logic to avoid permanently
+        # blocking commits.
+        return run_analysis_and_report()
+
+    clean_up_stale_marker_files(session_id)
+
+    marker_file_path = get_marker_file_path_for_session(session_id)
+
+    if marker_file_path.exists():
+        # Second attempt within this session: allow the commit and
+        # remove the marker so the next commit in this session is
+        # also checked.
+        marker_file_path.unlink(missing_ok=True)
+        return 0
+
+    # First attempt within this session: run the analysis.
+    violations_indexed_by_file_path = collect_violations()
+
+    if not violations_indexed_by_file_path:
+        return 0
+
+    # Violations found: create the marker so the second attempt is
+    # allowed, then deny this attempt with the violations message.
+    marker_file_path.touch()
+
+    message = build_blocking_message(violations_indexed_by_file_path)
+    output = {
+        "hookSpecificOutput": {
+            "permissionDecision": "deny",
+        },
+        "systemMessage": message,
+    }
+    print(json.dumps(output))
 
     return 0
 

@@ -25,8 +25,9 @@ htmlcov/
 .coverage
 coverage.xml
 
-# Pre-commit CLAUDE.md review marker files (session-scoped)
+# Pre-commit review marker files (session-scoped)
 .claude_md_review_pending_before_commit_session_*
+.heading_reference_hyperlink_review_pending_before_commit_session_*
 
 # OS files
 .DS_Store
