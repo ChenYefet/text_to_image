@@ -16,53 +16,25 @@ allowing commits without review.
 Exit code 0 -- always (output JSON controls blocking via permissionDecision).
 """
 
-import glob
-import json
 import pathlib
-import re
 import sys
+
+from deny_then_allow import read_hook_input_from_stdin
+from deny_then_allow import run_deny_then_allow
 
 MARKER_FILE_PREFIX = ".claude_md_review_pending_before_commit_session_"
 
 
-def read_hook_input_from_stdin() -> dict:
-    """Read the JSON hook input provided by Claude Code on stdin."""
-    return json.loads(sys.stdin.read())
+def check_and_build_blocking_message() -> str | None:
+    """Read CLAUDE.md and build the blocking message.
 
-
-def is_git_commit_command(command: str) -> bool:
-    """Return True if the command is a git commit invocation."""
-    return bool(re.search(r"\bgit\s+commit\b", command))
-
-
-def get_marker_file_path_for_session(session_id: str) -> pathlib.Path:
-    """Return the path to the session-scoped marker file."""
-    return pathlib.Path(f"{MARKER_FILE_PREFIX}{session_id}")
-
-
-def clean_up_stale_marker_files(current_session_id: str) -> None:
-    """Remove marker files left behind by previous sessions."""
-    for stale_marker_path in glob.glob(f"{MARKER_FILE_PREFIX}*"):
-        if current_session_id not in stale_marker_path:
-            pathlib.Path(stale_marker_path).unlink(missing_ok=True)
-
-
-def read_claude_md_content() -> str | None:
-    """Read the CLAUDE.md file from the repository root.
-
-    Returns the file content as a string, or None if the file does not
+    Returns the blocking message string, or None if CLAUDE.md does not
     exist or cannot be read.
     """
     claude_md_path = pathlib.Path("CLAUDE.md")
     if not claude_md_path.is_file():
         return None
-    return claude_md_path.read_text(encoding="utf-8")
-
-
-def build_blocking_message(claude_md_content: str) -> str:
-    """Build the systemMessage that denies the commit and injects
-    CLAUDE.md for review.
-    """
+    claude_md_content = claude_md_path.read_text(encoding="utf-8")
     return (
         "MANDATORY PRE-COMMIT REVIEW — COMMIT BLOCKED.\n"
         "\n"
@@ -95,58 +67,11 @@ def build_blocking_message(claude_md_content: str) -> str:
 
 def main() -> int:
     hook_input = read_hook_input_from_stdin()
-
-    tool_input = hook_input.get("tool_input", {})
-    command = tool_input.get("command", "")
-
-    # Fast path: Not a git commit command.
-    if not is_git_commit_command(command):
-        return 0
-
-    session_id = hook_input.get("session_id", "")
-    if not session_id:
-        # If no session ID is available, fall back to non-blocking
-        # injection to avoid permanently blocking commits.
-        claude_md_content = read_claude_md_content()
-        if claude_md_content is not None:
-            output = {
-                "hookSpecificOutput": {
-                    "permissionDecision": "allow",
-                },
-                "systemMessage": build_blocking_message(claude_md_content),
-            }
-            print(json.dumps(output))
-        return 0
-
-    clean_up_stale_marker_files(session_id)
-
-    marker_file_path = get_marker_file_path_for_session(session_id)
-
-    if marker_file_path.exists():
-        # Second attempt within this session: allow the commit and
-        # remove the marker so the next commit in this session is
-        # also reviewed.
-        marker_file_path.unlink(missing_ok=True)
-        return 0
-
-    # First attempt within this session: block the commit, create
-    # the marker, and inject CLAUDE.md for review.
-    claude_md_content = read_claude_md_content()
-    if claude_md_content is None:
-        return 0
-
-    marker_file_path.touch()
-
-    message = build_blocking_message(claude_md_content)
-    output = {
-        "hookSpecificOutput": {
-            "permissionDecision": "deny",
-        },
-        "systemMessage": message,
-    }
-    print(json.dumps(output))
-
-    return 0
+    return run_deny_then_allow(
+        hook_input,
+        MARKER_FILE_PREFIX,
+        check_and_build_blocking_message,
+    )
 
 
 if __name__ == "__main__":
