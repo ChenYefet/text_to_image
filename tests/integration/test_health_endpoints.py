@@ -261,3 +261,47 @@ class TestMetricsEndpoints:
         assert "service_started_at" in body
         assert body["request_counts"] == {}
         assert body["request_latencies"] == {}
+
+
+class TestPrometheusMetricsEndpoint:
+    @pytest.mark.asyncio
+    async def test_prometheus_metrics_returns_200(self, client):
+        response = await client.get("/metrics/prometheus")
+
+        assert response.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_prometheus_metrics_has_correct_content_type(self, client):
+        response = await client.get("/metrics/prometheus")
+
+        assert "text/plain" in response.headers.get("content-type", "")
+
+    @pytest.mark.asyncio
+    async def test_prometheus_metrics_contains_counter_after_requests(self, client):
+        await client.get("/health")
+
+        response = await client.get("/metrics/prometheus")
+        body = response.text
+
+        assert "http_requests_received_total" in body
+
+    @pytest.mark.asyncio
+    async def test_prometheus_metrics_contains_histogram_after_requests(self, client):
+        await client.get("/health")
+
+        response = await client.get("/metrics/prometheus")
+        body = response.text
+
+        assert "http_request_duration_in_seconds" in body
+
+    @pytest.mark.asyncio
+    async def test_prometheus_metrics_has_cache_control_header(self, client):
+        response = await client.get("/metrics/prometheus")
+
+        assert response.headers.get("cache-control") == "no-store, no-cache"
+
+    @pytest.mark.asyncio
+    async def test_prometheus_metrics_has_pragma_no_cache_header(self, client):
+        response = await client.get("/metrics/prometheus")
+
+        assert response.headers.get("pragma") == "no-cache"

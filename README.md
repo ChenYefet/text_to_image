@@ -699,13 +699,14 @@ text_to_image/
 │   ├── metrics.py                                 # In-memory performance metrics collector
 │   ├── admission_control.py                       # Admission control for image generation (limiting of concurrent operations)
 │   ├── circuit_breaker.py                         # Circuit breaker for communication with the llama.cpp server
+│   ├── prometheus_metrics.py                       # Prometheus metric instruments for HTTP request observability
 │   ├── api/
 │   │   ├── dependencies.py                        # FastAPI dependency providers
 │   │   ├── error_handlers.py                      # Centralised error handler registration
 │   │   ├── endpoints/
 │   │   │   ├── prompt_enhancement.py              # POST /v1/prompts/enhance
 │   │   │   ├── image_generation.py                # POST /v1/images/generations
-│   │   │   └── health.py                          # GET /health, GET /health/ready, GET /metrics
+│   │   │   └── health.py                          # GET /health, GET /health/ready, GET /metrics, GET /metrics/prometheus
 │   │   ├── middleware/
 │   │   │   ├── correlation_identifier.py          # Correlation ID assignment and in-flight request tracking
 │   │   │   ├── request_logging.py                 # HTTP request and response logging with metrics
@@ -737,6 +738,7 @@ text_to_image/
     │   ├── test_llama_cpp_client.py
     │   ├── test_logging_config.py
     │   ├── test_metrics.py
+    │   ├── test_prometheus_metrics.py
     │   ├── test_middleware.py
     │   ├── test_schemas.py
     │   ├── test_stable_diffusion_pipeline.py

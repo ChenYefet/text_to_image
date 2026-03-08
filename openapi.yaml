@@ -429,6 +429,44 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
           description: Internal Server Error — an unexpected error occurred during
             request processing (``internal_server_error``).
+  /metrics/prometheus:
+    get:
+      tags:
+      - Health
+      summary: Prometheus metrics
+      description: Returns request count and latency metrics in Prometheus text exposition
+        format for scraping by Prometheus-compatible monitoring systems.
+      operationId: get_metrics_in_prometheus_format_metrics_prometheus_get
+      responses:
+        '200':
+          description: Prometheus text exposition format metrics.
+          content:
+            application/json:
+              schema: {}
+            text/plain; version=0.0.4; charset=utf-8:
+              schema:
+                type: string
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Not Found — the requested endpoint does not exist (``not_found``).
+        '405':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Method Not Allowed — the HTTP method is not supported for this
+            endpoint (``method_not_allowed``). The ``Allow`` header lists permitted
+            methods.
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Internal Server Error — an unexpected error occurred during
+            request processing (``internal_server_error``).
 components:
   schemas:
     ErrorDetail:

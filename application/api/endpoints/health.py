@@ -30,6 +30,9 @@ import datetime
 import typing
 
 import fastapi
+import prometheus_client
+
+import application.prometheus_metrics
 
 health_router = fastapi.APIRouter(tags=["Health"])
 
@@ -369,5 +372,42 @@ async def get_metrics(request: fastapi.Request) -> fastapi.responses.JSONRespons
 
     return fastapi.responses.JSONResponse(
         content=content,
+        headers=_INFRASTRUCTURE_CACHE_SUPPRESSION_HEADERS,
+    )
+
+
+@health_router.get(
+    "/metrics/prometheus",
+    summary="Prometheus metrics",
+    description=(
+        "Returns request count and latency metrics in Prometheus text"
+        " exposition format for scraping by Prometheus-compatible monitoring systems."
+    ),
+    status_code=200,
+    responses={
+        200: {
+            "description": "Prometheus text exposition format metrics.",
+            "content": {
+                "text/plain; version=0.0.4; charset=utf-8": {
+                    "schema": {"type": "string"},
+                },
+            },
+        },
+    },
+)
+async def get_metrics_in_prometheus_format() -> fastapi.responses.Response:
+    """
+    Return request count and latency metrics in Prometheus text exposition format.
+
+    Uses a custom ``CollectorRegistry`` that contains only the application-defined
+    instruments (HTTP request counter and duration histogram), excluding the
+    default Python process metrics.
+    """
+    metrics_output = prometheus_client.generate_latest(
+        application.prometheus_metrics.registry_for_prometheus_metrics,
+    )
+    return fastapi.responses.Response(
+        content=metrics_output,
+        media_type="text/plain; version=0.0.4; charset=utf-8",
         headers=_INFRASTRUCTURE_CACHE_SUPPRESSION_HEADERS,
     )

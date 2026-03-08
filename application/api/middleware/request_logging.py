@@ -25,6 +25,7 @@ import structlog
 
 import application.api.middleware.correlation_identifier
 import application.metrics
+import application.prometheus_metrics
 
 logger = structlog.get_logger()
 
@@ -122,3 +123,12 @@ class RequestLoggingMiddleware:
                     status=response_status,
                     duration_in_milliseconds=round(duration_in_milliseconds, 1),
                 )
+            application.prometheus_metrics.counter_of_http_requests_received.labels(
+                method=method,
+                path=path,
+                status_code=str(response_status),
+            ).inc()
+            application.prometheus_metrics.histogram_of_duration_of_http_requests_in_seconds.labels(
+                method=method,
+                path=path,
+            ).observe(duration_in_milliseconds / 1000.0)
