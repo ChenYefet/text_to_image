@@ -1,6 +1,6 @@
 # Technical Specification: Text-to-Image Generation Service with Prompt Enhancement
 
-**Document Version:** 5.10.0
+**Document Version:** 5.11.0
 **Status:** Final — Panel Review Ready
 **Target Audience:** Senior Engineering Panel, Implementation Teams
 **Specification Authority:** Principal Technical Specification Authority
@@ -4617,7 +4617,10 @@ For local evaluation, configuration values (including the llama.cpp server URL) 
 ### Security Hardening of the Infrastructure (Kubernetes Deployments)
 
 1. **Network policy:** Inter-pod communication restricted to necessary paths only (see [Infrastructure Definition: Network Policy](#network-policy))
-2. **Pod security:** Containers run as non-root with read-only root filesystem where feasible
+2. **Pod security:** Both deployments shall enforce the following security context constraints:
+   - **Pod-level:** `runAsNonRoot: true`. For the llama-cpp-server deployment, which uses a third-party image without a `USER` directive, `runAsUser: 65534` and `runAsGroup: 65534` (the `nobody` user) shall also be set at pod level.
+   - **Container-level:** `readOnlyRootFilesystem: true` and `allowPrivilegeEscalation: false`.
+   - **Volume for the temporary filesystem:** An `emptyDir` volume named `temporary-filesystem` shall be mounted at `/tmp` in both deployments, providing a writable ephemeral directory for temporary files while the root filesystem remains read-only.
 3. **Image provenance:** Container images should be signed and verified before deployment (recommended: Sigstore Cosign)
 4. **Cluster access:** Kubernetes API access should be restricted to authorised personnel via RBAC
 
@@ -4928,6 +4931,9 @@ Examples:
 | Startup probe | `GET /health`, period 10s, timeout 5s, failure threshold 60 | Allows up to 600 seconds (10 minutes) for model loading before the liveness probe activates; prevents liveness-probe crash loops during the expected multi-minute model loading phase |
 | Strategy | `RollingUpdate`, maxSurge 1, maxUnavailable 0 | Zero-downtime deployments; new pods must pass readiness before old pods are terminated |
 | Termination grace period | 90 seconds | Provides a 30-second buffer beyond the application-level 60-second drain period to accommodate Python interpreter shutdown, final log flushing, and timing skew between `SIGTERM` delivery and the Uvicorn timeout |
+| Pod security context | `runAsNonRoot: true` | Prevents the container from running as UID 0; enforces the non-root requirement at the kubelet level |
+| Container security context | `readOnlyRootFilesystem: true`, `allowPrivilegeEscalation: false` | Prevents filesystem writes outside explicitly mounted volumes and blocks privilege escalation via `setuid`/`setgid` binaries |
+| Volume for the temporary filesystem | `emptyDir` mounted at `/tmp` | Provides a writable ephemeral directory for temporary files while the root filesystem remains read-only |
 | Restart policy | `Always` | Ensures automatic recovery from process crashes ([NFR8](#stability-of-the-service-process-under-upstream-failure)) |
 
 **CPU tier (fallback):**
@@ -4947,6 +4953,9 @@ Examples:
 | Startup probe | `GET /health`, period 10s, timeout 5s, failure threshold 60 | Allows up to 600 seconds (10 minutes) for model loading before the liveness probe activates; prevents liveness-probe crash loops during the expected multi-minute model loading phase |
 | Strategy | `RollingUpdate`, maxSurge 1, maxUnavailable 0 | Zero-downtime deployments; new pods must pass readiness before old pods are terminated |
 | Termination grace period | 90 seconds | Provides a 30-second buffer beyond the application-level 60-second drain period to accommodate Python interpreter shutdown, final log flushing, and timing skew between `SIGTERM` delivery and the Uvicorn timeout |
+| Pod security context | `runAsNonRoot: true` | Prevents the container from running as UID 0; enforces the non-root requirement at the kubelet level |
+| Container security context | `readOnlyRootFilesystem: true`, `allowPrivilegeEscalation: false` | Prevents filesystem writes outside explicitly mounted volumes and blocks privilege escalation via `setuid`/`setgid` binaries |
+| Volume for the temporary filesystem | `emptyDir` mounted at `/tmp` | Provides a writable ephemeral directory for temporary files while the root filesystem remains read-only |
 | Restart policy | `Always` | Ensures automatic recovery from process crashes ([NFR8](#stability-of-the-service-process-under-upstream-failure)) |
 
 **Environment variables:** Injected via ConfigMap (`text-to-image-api-configmap`) for non-sensitive values and via Secret (`text-to-image-api-secrets`) for any future sensitive values. See Appendix A for the complete variable list. The base Kubernetes manifests shall include a skeleton ConfigMap (`k8s/base/text-to-image-api-configmap.yaml`) listing the environment variables from `.env.example` with placeholder values, and a skeleton Secret (`k8s/base/text-to-image-api-secrets.yaml`) with no data entries. Operators shall customise the ConfigMap values for their environment and add sensitive values to the Secret as needed.
@@ -4972,9 +4981,12 @@ Examples:
 | Memory limit | `6Gi` | Headroom for inference working memory |
 | GPU resource limit | `nvidia.com/gpu: 1` | Requests one NVIDIA GPU per pod for GPU-accelerated large language model inference |
 | Node selector | `accelerator: nvidia-gpu` | Ensures pods are scheduled onto GPU-capable nodes. The label key and value should match the cluster's GPU node labelling convention. |
-| Readiness probe | `GET /health`, period 10s, timeout 5s | Routes traffic only after model is fully loaded |
-| Liveness probe | `GET /health`, period 30s, timeout 5s | Restarts on process hang |
+| Readiness probe | `GET /health`, period 10s, timeout 5s, failure threshold 3 | Routes traffic only after model is fully loaded; explicit failure threshold matches text-to-image-api for manifest consistency |
+| Liveness probe | `GET /health`, period 30s, timeout 5s, failure threshold 3 | Restarts on process hang; explicit failure threshold matches text-to-image-api for manifest consistency |
 | Startup probe | `GET /health`, period 10s, timeout 5s, failure threshold 60 | Allows up to 600 seconds (10 minutes) for GGUF model loading before the liveness probe activates; prevents liveness-probe crash loops during the expected multi-minute model loading phase, matching the text-to-image-api startup probe pattern |
+| Pod security context | `runAsNonRoot: true`, `runAsUser: 65534`, `runAsGroup: 65534` | Prevents the container from running as UID 0; the llama.cpp server image has no `USER` directive, so explicit UID/GID assignment to `nobody` (65534) is required |
+| Container security context | `readOnlyRootFilesystem: true`, `allowPrivilegeEscalation: false` | Prevents filesystem writes outside explicitly mounted volumes and blocks privilege escalation via `setuid`/`setgid` binaries |
+| Volume for the temporary filesystem | `emptyDir` mounted at `/tmp` | Provides a writable ephemeral directory for temporary files while the root filesystem remains read-only |
 | Volume mount | `/models` (read-only, from `llama-model-pvc`) | Model files provided via persistent volume |
 
 **CPU tier (fallback):**
@@ -4988,9 +5000,12 @@ Examples:
 | CPU limit | `4000m` | Upper bound for inference bursts |
 | Memory request | `4Gi` | Minimum for loaded GGUF model (Q4_K_M quantisation of a 7B model requires approximately 3.8 GB) |
 | Memory limit | `6Gi` | Headroom for inference working memory |
-| Readiness probe | `GET /health`, period 10s, timeout 5s | Routes traffic only after model is fully loaded |
-| Liveness probe | `GET /health`, period 30s, timeout 5s | Restarts on process hang |
+| Readiness probe | `GET /health`, period 10s, timeout 5s, failure threshold 3 | Routes traffic only after model is fully loaded; explicit failure threshold matches text-to-image-api for manifest consistency |
+| Liveness probe | `GET /health`, period 30s, timeout 5s, failure threshold 3 | Restarts on process hang; explicit failure threshold matches text-to-image-api for manifest consistency |
 | Startup probe | `GET /health`, period 10s, timeout 5s, failure threshold 60 | Allows up to 600 seconds (10 minutes) for GGUF model loading before the liveness probe activates; prevents liveness-probe crash loops during the expected multi-minute model loading phase, matching the text-to-image-api startup probe pattern |
+| Pod security context | `runAsNonRoot: true`, `runAsUser: 65534`, `runAsGroup: 65534` | Prevents the container from running as UID 0; the llama.cpp server image has no `USER` directive, so explicit UID/GID assignment to `nobody` (65534) is required |
+| Container security context | `readOnlyRootFilesystem: true`, `allowPrivilegeEscalation: false` | Prevents filesystem writes outside explicitly mounted volumes and blocks privilege escalation via `setuid`/`setgid` binaries |
+| Volume for the temporary filesystem | `emptyDir` mounted at `/tmp` | Provides a writable ephemeral directory for temporary files while the root filesystem remains read-only |
 | Volume mount | `/models` (read-only, from `llama-model-pvc`) | Model files provided via persistent volume |
 
 **Readiness probe endpoint advisory:** The llama-cpp-server deployment tables above use `GET /health` for both the readiness probe and the liveness probe, unlike the text-to-image-api deployment which uses separate endpoints (`GET /health` for liveness, `GET /health/ready` for readiness). This is not an inconsistency — llama.cpp does not expose a separate readiness endpoint. Its `GET /health` endpoint returns HTTP 503 while the model is loading and HTTP 200 only after the model is fully loaded and ready to serve inference requests, providing equivalent readiness semantics. The startup probe prevents the liveness probe from terminating the pod during the model loading phase; once the startup probe succeeds, `GET /health` returning HTTP 200 reliably indicates that the server is both alive and ready to accept requests.
@@ -5038,6 +5053,30 @@ Examples:
 **Future extensibility:** The HPA can be extended to scale on custom metrics (for example, the number of in-flight image generation requests, available via the `/metrics` endpoint defined in [FR38](#metrics-endpoint)) by deploying a Prometheus adapter or equivalent custom metrics server. This pathway enables more precise scaling decisions based on application-level demand rather than infrastructure-level utilisation.
 
 **Scaling warm-up latency advisory:** When the HPA triggers a scale-out event, each new pod must download or load the Stable Diffusion model (which can take 60–120 seconds on CPU hardware with cached model files, or several minutes if a model download is required), initialise the pipeline, and pass the readiness probe before receiving traffic. During this entire warm-up period, the new pod fails readiness probes and receives no traffic, meaning the existing pods bear the full load spike that triggered the scale-out. The `scaleUpStabilizationWindowSeconds` of 60 seconds is shorter than the expected time to readiness for a cold-started pod (60–120 seconds for model loading alone). This creates a scaling dead zone where the HPA has decided to scale but the new capacity is not yet available. Mitigations: (a) use the `stable-diffusion-model-cache-pvc` shared PersistentVolumeClaim to ensure model files are pre-downloaded, reducing cold-start time to pipeline loading only (30–60 seconds); (b) consider maintaining a warm spare pod by setting the HPA minimum replicas higher than the baseline traffic requires; (c) use pod anti-affinity rules to distribute pods across nodes, ensuring that model cache PVCs are accessible from multiple nodes; (d) optionally perform a warm-up inference during startup (before reporting readiness) to absorb the first-inference latency overhead documented in the [Stable Diffusion Integration](#stable-diffusion-integration) section.
+
+#### PodDisruptionBudget: text-to-image-api-pod-disruption-budget
+
+| Property | Value | Rationale |
+|----------|-------|-----------|
+| API version | `policy/v1` | Stable PodDisruptionBudget API |
+| Name | `text-to-image-api-pod-disruption-budget` | |
+| Namespace | `text-to-image-service` | |
+| Labels | `app.kubernetes.io/name: text-to-image-api`, `app.kubernetes.io/component: api` | Consistent with deployment labels |
+| Selector | `matchLabels: { app: text-to-image-api }` | Matches deployment pod selector |
+| `minAvailable` | 1 | Guarantees at least one pod survives any voluntary disruption. Permits draining up to two of three pods simultaneously, prioritising operational flexibility of the cluster over strict availability during maintenance windows. For stricter availability, increase to 2. |
+
+**Rationale:** The existing `maxUnavailable: 0` on the rolling update strategy only governs deployment-initiated rollouts. It does not protect against voluntary disruptions initiated by cluster operations — node drains during Kubernetes upgrades, evictions of spot/preemptible nodes, scale-downs by the cluster autoscaler, or manual `kubectl drain` operations. Without a PodDisruptionBudget, simultaneous drains on multiple nodes could evict every pod at once, causing a full outage.
+
+#### PodDisruptionBudget: llama-cpp-server-pod-disruption-budget
+
+| Property | Value | Rationale |
+|----------|-------|-----------|
+| API version | `policy/v1` | Stable PodDisruptionBudget API |
+| Name | `llama-cpp-server-pod-disruption-budget` | |
+| Namespace | `text-to-image-service` | |
+| Labels | `app.kubernetes.io/name: llama-cpp-server`, `app.kubernetes.io/component: inference` | Consistent with deployment labels |
+| Selector | `matchLabels: { app: llama-cpp-server }` | Matches deployment pod selector |
+| `minAvailable` | 1 | Guarantees at least one pod survives any voluntary disruption. With two replicas, only one pod can be evicted at a time — a cluster drain must proceed node-by-node. |
 
 #### PersistentVolumeClaims
 
@@ -5257,7 +5296,9 @@ text-to-image-service/
 │   │   ├── persistent-volume-claims.yaml
 │   │   ├── ingress.yaml
 │   │   ├── text-to-image-api-configmap.yaml
-│   │   └── text-to-image-api-secrets.yaml
+│   │   ├── text-to-image-api-secrets.yaml
+│   │   ├── text-to-image-api-pod-disruption-budget.yaml
+│   │   └── llama-cpp-server-pod-disruption-budget.yaml
 │   ├── components/
 │   │   ├── gpu/
 │   │   │   └── kustomization.yaml
@@ -5947,6 +5988,7 @@ This section documents failure modes commonly encountered during initial setup a
 | 5.8.1 | 8 Mar 2026 | Removed the 30× CPU multiplier from the inference timeout scaling formula. See detailed v5.8.1 changelog below. |
 | 5.9.0 | 8 Mar 2026 | Extended Prometheus metrics endpoint with in-flight request gauge and safety filter rejection counter. See detailed v5.9.0 changelog below. |
 | 5.10.0 | 9 Mar 2026 | Added operational runbook for critical failure modes, Prometheus alerting rule examples, and combined-workflow service level objective to the Logging and Observability section; added progressive delivery advisory to the Infrastructure Definition section; added architectural rationale for the absence of application-level admission control on prompt enhancement to the Security Considerations section; tightened Python version requirement from 3.11+ to 3.12+; updated future extensibility pathway 8 to acknowledge circuit breaker implementation; corrected `service_busy` `details` field classification in summary table; added readiness probe endpoint advisory for llama-cpp-server; added service lifecycle state diagram to FR37. See detailed v5.10.0 changelog below. |
+| 5.11.0 | 9 Mar 2026 | Kubernetes infrastructure hardening: expanded pod security normative text with explicit security context constraints; added PodDisruptionBudgets for both deployments; added explicit failure threshold to llama-cpp-server readiness and liveness probes. See detailed v5.11.0 changelog below. |
 
 #### v4.0.0 Detailed Changelog
 
@@ -6554,6 +6596,28 @@ This section documents failure modes commonly encountered during initial setup a
 **Tightened Python version requirement from 3.11+ to 3.12+ (§13, Technology Stack and Justification; §25, README):**
 
 - Changed the backend language heading from "Python 3.11+" to "Python 3.12+" in §13 and the environment prerequisites from "Version 3.11 or later" to "Version 3.12 or later" in §25. The previous "3.11+" bound was technically correct but misleading: the CI pipeline, the Dockerfile, and the model revision pin all specify Python 3.12 exclusively, and no testing on 3.11 is performed. The tightened requirement matches the actual tested configuration and prevents false expectations.
+
+#### v5.11.0 Detailed Changelog
+
+**Expanded pod security normative text (§19, Security Hardening of the Infrastructure):**
+
+- Replaced the single-line "Containers run as non-root with read-only root filesystem where feasible" advisory with detailed normative prescriptions specifying pod-level security context (`runAsNonRoot: true`), container-level security context (`readOnlyRootFilesystem: true`, `allowPrivilegeEscalation: false`), and an `emptyDir` volume mounted at `/tmp` for both deployments.
+- For the llama-cpp-server deployment, added `runAsUser: 65534` and `runAsGroup: 65534` at pod level because the upstream image has no `USER` directive.
+
+**Added security context and temporary filesystem volume rows to deployment tables (§21, Infrastructure Definition):**
+
+- Added Pod security context, Container security context, and Volume for the temporary filesystem rows to both the GPU tier and CPU tier tables for the text-to-image-api deployment.
+- Added Pod security context (with `runAsUser`/`runAsGroup` for the `nobody` user), Container security context, and Volume for the temporary filesystem rows to both the GPU tier and CPU tier tables for the llama-cpp-server deployment.
+
+**Added explicit failure threshold to llama-cpp-server readiness and liveness probes (§21, Infrastructure Definition):**
+
+- Added `failure threshold 3` to the readiness and liveness probe descriptions in both the GPU tier and CPU tier tables for the llama-cpp-server deployment, matching the text-to-image-api deployment's explicit declarations. The runtime behaviour is unchanged (Kubernetes defaults `failureThreshold` to 3 when omitted); this change eliminates implicit defaults and makes the manifests self-documenting.
+
+**Added PodDisruptionBudgets for both deployments (§21, Infrastructure Definition):**
+
+- Added two new PodDisruptionBudget subsections after the HorizontalPodAutoscaler subsection: `text-to-image-api-pod-disruption-budget` and `llama-cpp-server-pod-disruption-budget`, both with `minAvailable: 1`.
+- Added rationale explaining the distinction between rolling update `maxUnavailable: 0` (which governs deployment-initiated rollouts) and PodDisruptionBudgets (which protect against voluntary disruptions from cluster operations).
+- Updated the repository structure tree to include the two new PDB manifest filenames under `k8s/base/`.
 
 ---
 

@@ -8,7 +8,7 @@ middleware modules that each independently built and sent the same
 two-phase ASGI response (``http.response.start`` + ``http.response.body``).
 
 The error response body conforms to the ``ErrorResponse`` schema defined
-in the v5.10.0 specification: a top-level ``error`` object with ``code``,
+in the v5.11.0 specification: a top-level ``error`` object with ``code``,
 ``message``, ``correlation_id``, and an optional ``details`` field.
 """
 

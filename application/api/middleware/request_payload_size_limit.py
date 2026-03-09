@@ -5,7 +5,7 @@ The ``RequestPayloadSizeLimitMiddleware`` rejects HTTP requests whose body
 exceeds the configured maximum size with HTTP 413 (``payload_too_large``).
 
 This middleware enforces NFR15 (request payload size enforcement) from
-the v5.10.0 specification.  It uses two complementary strategies:
+the v5.11.0 specification.  It uses two complementary strategies:
 
 1. **Fast-path rejection via Content-Length header**: when the client
    sends a ``Content-Length`` header that exceeds the limit, the
