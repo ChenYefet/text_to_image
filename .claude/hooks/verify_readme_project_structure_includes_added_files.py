@@ -1,29 +1,32 @@
 """Pre-commit hook that checks whether files added in the staged commit
 appear in the README Project Structure.
 
-This is a Claude Code PreToolUse hook for the Bash tool. It intercepts
-``git commit`` commands, parses the README.md Project Structure code
-block, and outputs an advisory systemMessage when added files are inside
-directories that the structure documents but are not themselves listed.
+This is a Claude Code PreToolUse hook for the Bash tool.  On the first
+``git commit`` attempt within a session, it parses the staged version
+of README.md's Project Structure code block and denies the commit when
+added files are inside directories that the structure documents but are
+not themselves listed.  On the second attempt within the same session,
+the hook allows the commit to proceed regardless — this ensures that
+files which genuinely do not belong in the structure tree never
+permanently block a commit.
 
-Exit code 0 — always (advisory only, never blocks).
+The hook reads README.md from the staging area (``git show :README.md``)
+rather than from the working directory, so it validates what will
+actually be committed.
+
+Exit code 0 — always (output JSON controls blocking via permissionDecision).
 """
 
-import json
-import os
 import re
 import subprocess
 import sys
 
+from helpers.deny_then_allow import read_hook_input_from_stdin
+from helpers.deny_then_allow import run_deny_then_allow
 
-def read_hook_input_from_stdin() -> dict:
-    """Read the JSON hook input provided by Claude Code on stdin."""
-    return json.loads(sys.stdin.read())
-
-
-def is_git_commit_command(command: str) -> bool:
-    """Return True if the command is a git commit invocation."""
-    return bool(re.search(r"\bgit\s+commit\b", command))
+MARKER_FILE_PREFIX = (
+    ".readme_project_structure_review_pending_before_commit_session_"
+)
 
 
 def get_added_files_from_staged_changes() -> list[str]:
@@ -41,8 +44,29 @@ def get_added_files_from_staged_changes() -> list[str]:
     return added_files
 
 
-def parse_readme_project_structure() -> tuple[set[str], set[str]]:
-    """Parse the README.md Project Structure code block.
+def get_staged_readme_content() -> str | None:
+    """Return the staged content of README.md, or None if README.md is
+    not tracked or not staged.
+
+    Reads from the staging area via ``git show :README.md`` to validate
+    what will actually be committed, rather than what is in the working
+    directory.
+    """
+    result = subprocess.run(
+        ["git", "show", ":README.md"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    if result.returncode != 0:
+        return None
+    return result.stdout
+
+
+def parse_project_structure_from_content(
+    content: str,
+) -> tuple[set[str], set[str]]:
+    """Parse the Project Structure code block from README content.
 
     Returns a tuple of (documented_file_paths,
     parent_directories_of_documented_files).
@@ -52,17 +76,10 @@ def parse_readme_project_structure() -> tuple[set[str], set[str]]:
 
     parent_directories_of_documented_files contains the parent directory
     of each documented file (e.g. ``application``, ``tests/unit``, and
-    ``""`` for root-level files). This is used to determine whether a
+    ``""`` for root-level files).  This is used to determine whether a
     newly added file is in a location where existing files are already
     documented.
     """
-    readme_path = os.path.join(os.getcwd(), "README.md")
-    if not os.path.isfile(readme_path):
-        return set(), set()
-
-    with open(readme_path, "r", encoding="utf-8") as readme_file:
-        content = readme_file.read()
-
     # Find the Project Structure code block.
     structure_match = re.search(
         r"## Project Structure\s*\n\s*```\s*\n(.*?)```",
@@ -168,8 +185,8 @@ def find_added_files_absent_from_structure(
     return absent_files
 
 
-def build_advisory_message(absent_files: list[str]) -> str:
-    """Build the advisory systemMessage for added files absent from the
+def build_blocking_message(absent_files: list[str]) -> str:
+    """Build the blocking message for added files absent from the
     README Project Structure.
     """
     file_list = "\n".join(f"  - {file_path}" for file_path in absent_files)
@@ -180,32 +197,34 @@ def build_advisory_message(absent_files: list[str]) -> str:
         "\n"
         f"{file_list}\n"
         "\n"
-        "Verify whether these files should be added to the README Project\n"
-        "Structure section. If so, update README.md and stage it before\n"
-        "committing."
+        "Add these files to the README Project Structure section and stage\n"
+        "README.md before re-attempting the commit.  If these files genuinely\n"
+        "do not belong in the structure tree, re-attempt the commit\n"
+        "unchanged — it will be allowed on the second attempt."
     )
 
 
-def main() -> int:
-    hook_input = read_hook_input_from_stdin()
+def check_and_build_blocking_message() -> str | None:
+    """Check whether added files are absent from the README Project
+    Structure.
 
-    tool_input = hook_input.get("tool_input", {})
-    command = tool_input.get("command", "")
-
-    # Fast path: not a git commit command.
-    if not is_git_commit_command(command):
-        return 0
-
+    Returns a blocking message string if absent files are found, or
+    None if no violations are detected.
+    """
     added_files = get_added_files_from_staged_changes()
     if not added_files:
-        return 0
+        return None
+
+    staged_readme_content = get_staged_readme_content()
+    if staged_readme_content is None:
+        return None
 
     documented_file_paths, parent_directories_of_documented_files = (
-        parse_readme_project_structure()
+        parse_project_structure_from_content(staged_readme_content)
     )
     if not parent_directories_of_documented_files:
         # No structure found or no documented files — nothing to check.
-        return 0
+        return None
 
     absent_files = find_added_files_absent_from_structure(
         added_files,
@@ -213,14 +232,18 @@ def main() -> int:
         parent_directories_of_documented_files,
     )
     if not absent_files:
-        return 0
+        return None
 
-    # Advisory: output a systemMessage but do not block.
-    output = {
-        "systemMessage": build_advisory_message(absent_files),
-    }
-    print(json.dumps(output))
-    return 0
+    return build_blocking_message(absent_files)
+
+
+def main() -> int:
+    hook_input = read_hook_input_from_stdin()
+    return run_deny_then_allow(
+        hook_input,
+        MARKER_FILE_PREFIX,
+        check_and_build_blocking_message,
+    )
 
 
 if __name__ == "__main__":
