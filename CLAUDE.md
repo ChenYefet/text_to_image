@@ -81,6 +81,12 @@ When a participial modifier (such as 'allowed', 'configured', 'accumulated', 'de
 
 When a variable, field, or property represents a boundary value that determines when a state transition or limit is reached, prefer the `threshold` concept (e.g. `failure_threshold_of_circuit_breaker`) over expanding it into a `number_of_` form (e.g. `number_of_consecutive_failures_to_open_circuit_breaker`). The word `threshold` is a well-understood technical term that concisely communicates "boundary count that triggers a transition", making the `number_of_` expansion unnecessarily verbose without adding clarity.
 
+MODULE NAMING REQUIREMENTS
+
+Individual modules (Python files containing code) shall be named after the specific activity or concept they encapsulate. Generic bucket names such as "utilities", "helpers", "common", or "misc" are not permitted for modules, because they describe nothing about the module's content and invite unbounded scope creep. Directories that group individually well-named subordinate modules may use role-based names such as "helpers" when the directory is an organisational container rather than a code unit — for example, `hooks/helpers/` is acceptable because each module within it (such as `deny_then_allow.py`) is individually named after its specific activity, and "helpers" describes the role of those modules relative to the parent `hooks/` directory.
+
+When a module houses functions that perform an action — constructing, validating, logging, extracting, resolving — the module name shall describe the activity rather than the artefact. For example, `content_type_validation` (not `content_type`), `request_logging` (not `request_log`), `asgi_error_response_construction` (not `asgi_error_response`). Naming a module after the artefact is ambiguous — it could refer to an object, a class, a definition, or a builder — whereas naming it after the activity makes the module's purpose self-evident.
+
 REFACTORING REQUIREMENTS
 
 After every rename of a class, function, variable, exception, fixture, or configuration field — or every change to a value that may be referenced elsewhere, such as a version number, a configuration default, or an enumerated count — perform the following verification procedure before considering that change complete. Do not batch multiple changes and then verify them together — each change must be individually verified before moving on to the next.
