@@ -1,0 +1,13 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: llama-cpp-server-pod-disruption-budget
+  namespace: text-to-image-service
+  labels:
+    app.kubernetes.io/name: llama-cpp-server
+    app.kubernetes.io/component: inference
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: llama-cpp-server

@@ -702,7 +702,9 @@ text_to_image/
 │   │   ├── llama-cpp-server-service.yaml
 │   │   ├── ingress.yaml                          # Reference Ingress resource (operator-customised)
 │   │   ├── text-to-image-api-configmap.yaml      # Skeleton ConfigMap with environment variables
-│   │   └── text-to-image-api-secrets.yaml        # Skeleton Secret placeholder for future sensitive values
+│   │   ├── text-to-image-api-secrets.yaml        # Skeleton Secret placeholder for future sensitive values
+│   │   ├── text-to-image-api-pod-disruption-budget.yaml
+│   │   └── llama-cpp-server-pod-disruption-budget.yaml
 │   ├── components/                                # Kustomize components for hardware tiers
 │   │   ├── gpu/
 │   │   │   └── kustomization.yaml                # GPU-tier resource patches (nvidia.com/gpu, node selector)
