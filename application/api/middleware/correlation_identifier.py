@@ -14,7 +14,6 @@ value is read during graceful shutdown to emit the
 ``graceful_shutdown_initiated`` log event (specification FR40, event B-1).
 """
 
-import json
 import threading
 import uuid
 
@@ -22,6 +21,7 @@ import starlette.types
 import structlog
 import structlog.contextvars
 
+import application.api.middleware.asgi_error_response_construction
 import application.prometheus_metrics
 
 
@@ -165,30 +165,15 @@ class CorrelationIdMiddleware:
             )
         except Exception:
             logger.exception("unexpected_exception")
-            error_response_body = json.dumps(
-                {
-                    "error": {
-                        "code": "internal_server_error",
-                        "message": "An unexpected internal error occurred.",
-                        "correlation_id": correlation_id,
-                    }
-                }
-            ).encode()
-            await send(
-                {
-                    "type": "http.response.start",
-                    "status": 500,
-                    "headers": [
-                        (b"content-type", b"application/json"),
-                        (b"x-correlation-id", correlation_id.encode()),
-                    ],
-                }
-            )
-            await send(
-                {
-                    "type": "http.response.body",
-                    "body": error_response_body,
-                }
+            await application.api.middleware.asgi_error_response_construction.send_asgi_json_error_response(
+                send=send,
+                scope=scope,
+                status_code=500,
+                error_code="internal_server_error",
+                message="An unexpected internal error occurred.",
+                additional_headers=[
+                    (b"x-correlation-id", correlation_id.encode()),
+                ],
             )
         finally:
             # Decrement the in-flight counter now that the request has

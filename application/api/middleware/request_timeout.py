@@ -29,11 +29,12 @@ composing the full response before sending any bytes to the client.
 """
 
 import asyncio
-import json
 import time
 
 import starlette.types
 import structlog
+
+import application.api.middleware.asgi_error_response_construction
 
 logger = structlog.get_logger()
 
@@ -110,47 +111,11 @@ class RequestTimeoutMiddleware:
                 )
                 return
 
-            await self._send_request_timeout_response(scope, send)
-
-    async def _send_request_timeout_response(
-        self,
-        scope: starlette.types.Scope,
-        send: starlette.types.Send,
-    ) -> None:
-        """
-        Send an HTTP 504 (Gateway Timeout) JSON response.
-
-        Reads the correlation ID from ``scope["state"]`` (set by the
-        outer ``CorrelationIdMiddleware``) so the error response
-        includes a traceable identifier.
-        """
-        state = scope.get("state", {})
-        correlation_id = state.get("correlation_id", "unknown")
-
-        response_body = json.dumps(
-            {
-                "error": {
-                    "code": "request_timeout",
-                    "message": ("The request exceeded the maximum allowed processing time and was aborted."),
-                    "details": (f"Timeout duration: {self._request_timeout_in_seconds} seconds."),
-                    "correlation_id": correlation_id,
-                }
-            }
-        ).encode()
-
-        await send(
-            {
-                "type": "http.response.start",
-                "status": 504,
-                "headers": [
-                    (b"content-type", b"application/json"),
-                    (b"content-length", str(len(response_body)).encode()),
-                ],
-            }
-        )
-        await send(
-            {
-                "type": "http.response.body",
-                "body": response_body,
-            }
-        )
+            await application.api.middleware.asgi_error_response_construction.send_asgi_json_error_response(
+                send=send,
+                scope=scope,
+                status_code=504,
+                error_code="request_timeout",
+                message="The request exceeded the maximum allowed processing time and was aborted.",
+                details=f"Timeout duration: {self._request_timeout_in_seconds} seconds.",
+            )

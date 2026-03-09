@@ -22,11 +22,10 @@ This middleware must be registered *inside* (after)
 for inclusion in the error response body.
 """
 
-import json
-
 import starlette.types
 import structlog
 
+import application.api.middleware.asgi_error_response_construction
 import application.api.middleware.correlation_identifier
 
 logger = structlog.get_logger()
@@ -145,43 +144,20 @@ class RequestPayloadSizeLimitMiddleware:
         """
         Send an HTTP 413 (Payload Too Large) JSON response.
 
-        Reads the correlation ID from ``scope["state"]`` (set by the
-        outer ``CorrelationIdMiddleware``) so the error response
-        includes a traceable identifier.
+        Delegates to the shared ASGI error response construction
+        function, which reads the correlation ID from ``scope["state"]``
+        (set by the outer ``CorrelationIdMiddleware``) so the error
+        response includes a traceable identifier.
         """
-        state = scope.get("state", {})
-        correlation_id = state.get("correlation_id", "unknown")
-
-        response_body = json.dumps(
-            {
-                "error": {
-                    "code": "payload_too_large",
-                    "message": (
-                        "The request payload exceeds the maximum"
-                        " allowed size of"
-                        f" {self._maximum_number_of_bytes_of_request_payload} bytes."
-                    ),
-                    "details": (
-                        f"Maximum allowed payload size: {self._maximum_number_of_bytes_of_request_payload} bytes."
-                    ),
-                    "correlation_id": correlation_id,
-                }
-            }
-        ).encode()
-
-        await send(
-            {
-                "type": "http.response.start",
-                "status": 413,
-                "headers": [
-                    (b"content-type", b"application/json"),
-                    (b"content-length", str(len(response_body)).encode()),
-                ],
-            }
-        )
-        await send(
-            {
-                "type": "http.response.body",
-                "body": response_body,
-            }
+        await application.api.middleware.asgi_error_response_construction.send_asgi_json_error_response(
+            send=send,
+            scope=scope,
+            status_code=413,
+            error_code="payload_too_large",
+            message=(
+                "The request payload exceeds the maximum"
+                " allowed size of"
+                f" {self._maximum_number_of_bytes_of_request_payload} bytes."
+            ),
+            details=(f"Maximum allowed payload size: {self._maximum_number_of_bytes_of_request_payload} bytes."),
         )

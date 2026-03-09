@@ -734,6 +734,7 @@ text_to_image/
 │   │   │   ├── image_generation.py                # POST /v1/images/generations
 │   │   │   └── health.py                          # GET /health, GET /health/ready, GET /metrics, GET /metrics/prometheus
 │   │   ├── middleware/
+│   │   │   ├── asgi_error_response_construction.py # Shared construction of JSON error responses at the ASGI layer
 │   │   │   ├── correlation_identifier.py          # Correlation ID assignment and in-flight request tracking
 │   │   │   ├── request_logging.py                 # HTTP request and response logging with metrics
 │   │   │   ├── request_timeout.py                 # End-to-end request timeout enforcement
