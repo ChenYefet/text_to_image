@@ -25,6 +25,10 @@ spec:
     spec:
       terminationGracePeriodSeconds: 60
       restartPolicy: Always
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
       containers:
         - name: llama-cpp-server
           image: "ghcr.io/ggml-org/llama.cpp:server"
@@ -57,11 +61,18 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 60
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
           volumeMounts:
             - name: llama-model-storage
               mountPath: /models
               readOnly: true
+            - name: temporary-filesystem
+              mountPath: /tmp
       volumes:
         - name: llama-model-storage
           persistentVolumeClaim:
             claimName: llama-model-pvc
+        - name: temporary-filesystem
+          emptyDir: {}

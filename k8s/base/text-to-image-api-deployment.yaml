@@ -25,6 +25,8 @@ spec:
     spec:
       terminationGracePeriodSeconds: 90
       restartPolicy: Always
+      securityContext:
+        runAsNonRoot: true
       containers:
         - name: text-to-image-api
           image: "{registry}/text-to-image-api:{tag}"
@@ -59,6 +61,9 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 60
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
           envFrom:
             - configMapRef:
                 name: text-to-image-api-configmap
@@ -67,7 +72,11 @@ spec:
           volumeMounts:
             - name: stable-diffusion-model-cache
               mountPath: /home/service_user/.cache/huggingface
+            - name: temporary-filesystem
+              mountPath: /tmp
       volumes:
         - name: stable-diffusion-model-cache
           persistentVolumeClaim:
             claimName: stable-diffusion-model-cache-pvc
+        - name: temporary-filesystem
+          emptyDir: {}
