@@ -231,9 +231,10 @@ def main() -> int:
             )
         output = {
             "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
                 "permissionDecision": "deny",
+                "permissionDecisionReason": message,
             },
-            "systemMessage": message,
         }
         print(json.dumps(output))
     elif deleted_files_without_references:

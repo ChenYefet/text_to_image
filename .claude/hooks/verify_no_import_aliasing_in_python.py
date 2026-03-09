@@ -163,9 +163,10 @@ def main() -> int:
         message = build_blocking_message(violations_indexed_by_file_path)
         output = {
             "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
                 "permissionDecision": "deny",
+                "permissionDecisionReason": message,
             },
-            "systemMessage": message,
         }
         print(json.dumps(output))
 

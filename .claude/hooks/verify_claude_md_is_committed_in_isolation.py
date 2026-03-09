@@ -81,9 +81,10 @@ def main() -> int:
 
     output = {
         "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
             "permissionDecision": "deny",
+            "permissionDecisionReason": message,
         },
-        "systemMessage": message,
     }
     print(json.dumps(output))
     return 0
