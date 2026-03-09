@@ -47,36 +47,28 @@ import application.exceptions
 logger = structlog.get_logger()
 
 # ──────────────────────────────────────────────────────────────────────────────
-#  HTTP status code → machine-readable error code mapping
+#  HTTP status code → error metadata mapping
 # ──────────────────────────────────────────────────────────────────────────────
 #
 # Maps Starlette/FastAPI framework-raised HTTP status codes to the
-# machine-readable error codes defined in the v5.9.0 specification
-# (Section 11 — Error Response Schema).  Any status code not listed
-# here falls back to "internal_server_error".
+# machine-readable error codes, human-readable messages, and structured
+# logging event names defined in the v5.9.0 specification (Section 11 —
+# Error Response Schema; Section 18 — logging taxonomy).
+#
+# Each entry is a tuple of (error_code, error_message, log_event_name).
+# Consolidating all three values under a single status code key ensures
+# that adding a new status code mapping cannot accidentally omit one of
+# the three associated values.
+#
+# The error_message may be ``None`` to signal that the handler should
+# fall back to the exception's own detail string.  The log_event_name
+# may be ``None`` to signal that the handler should fall back to the
+# generic ``"http_framework_error"`` event.
 
-_HTTP_STATUS_CODE_TO_ERROR_CODE: dict[int, str] = {
-    404: "not_found",
-    405: "method_not_allowed",
-    500: "internal_server_error",
-}
-
-_HTTP_STATUS_CODE_TO_ERROR_MESSAGE: dict[int, str] = {
-    404: "The requested endpoint does not exist.",
-    405: "The HTTP method is not allowed for this endpoint.",
-}
-
-# Maps Starlette/FastAPI framework-raised HTTP status codes to the
-# specification-defined structured logging event names.  The v5.9.0
-# specification's 46-event taxonomy (Section 18) requires distinct
-# event names for each HTTP error condition — ``http_not_found`` for
-# 404 responses and ``http_method_not_allowed`` for 405 responses —
-# rather than a generic "http_framework_error" event.  This enables
-# precise monitoring dashboard filters and alert rules that distinguish
-# between routing failures and method mismatches.
-_HTTP_STATUS_CODE_TO_LOG_EVENT_NAME: dict[int, str] = {
-    404: "http_not_found",
-    405: "http_method_not_allowed",
+_HTTP_STATUS_CODE_TO_ERROR_METADATA: dict[int, tuple[str, str | None, str | None]] = {
+    404: ("not_found", "The requested endpoint does not exist.", "http_not_found"),
+    405: ("method_not_allowed", "The HTTP method is not allowed for this endpoint.", "http_method_not_allowed"),
+    500: ("internal_server_error", None, None),
 }
 
 
@@ -434,8 +426,9 @@ def register_error_handlers(fastapi_application: fastapi.FastAPI) -> None:
         Without this handler, the framework returns plain-text or HTML
         responses that do not conform to the API error contract.
 
-        The handler looks up the machine-readable error code from the
-        ``_HTTP_STATUS_CODE_TO_ERROR_CODE`` mapping.  Unmapped status
+        The handler looks up the error metadata (error code, message,
+        and log event name) from the consolidated
+        ``_HTTP_STATUS_CODE_TO_ERROR_METADATA`` mapping.  Unmapped status
         codes fall back to ``"internal_server_error"`` to ensure every
         framework-originated error still produces valid JSON.
 
@@ -445,24 +438,24 @@ def register_error_handlers(fastapi_application: fastapi.FastAPI) -> None:
         the result in an ``Allow`` header as required by RFC 9110 §15.5.6
         and NFR22 of the v5.9.0 specification.
         """
-        error_code = _HTTP_STATUS_CODE_TO_ERROR_CODE.get(
+        error_metadata = _HTTP_STATUS_CODE_TO_ERROR_METADATA.get(
             http_exception.status_code,
-            "internal_server_error",
         )
-        error_message = _HTTP_STATUS_CODE_TO_ERROR_MESSAGE.get(
-            http_exception.status_code,
-            str(http_exception.detail),
-        )
+        if error_metadata is not None:
+            error_code, error_message_or_none, log_event_name_or_none = error_metadata
+        else:
+            error_code = "internal_server_error"
+            error_message_or_none = None
+            log_event_name_or_none = None
+
+        error_message = error_message_or_none if error_message_or_none is not None else str(http_exception.detail)
 
         # Emit specification-aligned log events for 404 and 405 responses.
         # The v5.9.0 specification's 46-event logging taxonomy defines
         # distinct event names for each HTTP error condition rather than
         # a generic "http_framework_error" event, enabling precise
         # monitoring dashboard filters and alert rules.
-        log_event_name = _HTTP_STATUS_CODE_TO_LOG_EVENT_NAME.get(
-            http_exception.status_code,
-            "http_framework_error",
-        )
+        log_event_name = log_event_name_or_none if log_event_name_or_none is not None else "http_framework_error"
         logger.warning(
             log_event_name,
             status_code=http_exception.status_code,

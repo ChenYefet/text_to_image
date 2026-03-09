@@ -817,7 +817,7 @@ class TestHandleStarletteHttpException:
     ):
         """
         When Starlette raises an ``HTTPException`` with a status code
-        not in the ``_HTTP_STATUS_CODE_TO_ERROR_CODE`` mapping (which
+        not in the ``_HTTP_STATUS_CODE_TO_ERROR_METADATA`` mapping (which
         covers only 404, 405, and 500), the handler must fall back to
         the ``internal_server_error`` error code while preserving the
         original HTTP status code.
@@ -840,7 +840,7 @@ class TestHandleStarletteHttpException:
         """
         For unmapped status codes, the handler must use the exception's
         ``detail`` string as the error message (since no predefined
-        message exists in the ``_HTTP_STATUS_CODE_TO_ERROR_MESSAGE``
+        message exists in the ``_HTTP_STATUS_CODE_TO_ERROR_METADATA``
         mapping).
         """
         response = await client_for_error_handling_tests.get(
