@@ -35,6 +35,10 @@
           {
             "type": "command",
             "command": "python3 .claude/hooks/verify_that_hooks_with_non_deterministic_checks_use_the_deny_then_allow_pattern.py"
+          },
+          {
+            "type": "command",
+            "command": "python3 .claude/hooks/verify_claude_md_is_committed_in_isolation.py"
           }
         ]
       }
