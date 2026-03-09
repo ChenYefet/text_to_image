@@ -40,7 +40,7 @@ health_router = fastapi.APIRouter(tags=["Health"])
 # ``Cache-Control: no-store, no-cache`` prevents caches from storing any
 # part of the response and requires revalidation before reuse.
 # ``Pragma: no-cache`` provides backward-compatible cache suppression for
-# HTTP/1.0 intermediaries (§12 of the v5.9.0 specification mandates both).
+# HTTP/1.0 intermediaries (§12 of the v5.10.0 specification mandates both).
 # Together they ensure that every request receives fresh operational data.
 _INFRASTRUCTURE_CACHE_SUPPRESSION_HEADERS: dict[str, str] = {
     "Cache-Control": "no-store, no-cache",
@@ -360,7 +360,7 @@ async def get_metrics(request: fastapi.Request) -> fastapi.responses.JSONRespons
     Return a point-in-time snapshot of request count and latency metrics.
 
     The response includes two temporal metadata fields required by the
-    v5.9.0 specification (FR38, NFR12):
+    v5.10.0 specification (FR38, NFR12):
 
     - ``collected_at``: ISO 8601 UTC timestamp of when the snapshot was
       generated.

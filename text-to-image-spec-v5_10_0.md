@@ -1,10 +1,10 @@
 # Technical Specification: Text-to-Image Generation Service with Prompt Enhancement
 
-**Document Version:** 5.9.0
+**Document Version:** 5.10.0
 **Status:** Final — Panel Review Ready
 **Target Audience:** Senior Engineering Panel, Implementation Teams
 **Specification Authority:** Principal Technical Specification Authority
-**Date:** 8 March 2026
+**Date:** 9 March 2026
 
 ---
 
@@ -2239,6 +2239,93 @@ In practice, the meta-commentary prefix check catches the most common failure mo
 
 The `not_ready` state (HTTP 503) is reserved for the case where image generation is unavailable, because this is the primary service capability. When image generation is down, no useful work can be performed regardless of llama.cpp status, so removing the pod from rotation is correct.
 
+**Service lifecycle state diagram:**
+
+The following diagram illustrates the complete set of service states, the events that trigger transitions between them, and the corresponding readiness probe responses. States above the dashed line are operational states reported by the readiness endpoint; states below it are lifecycle phases not directly observable via the readiness probe.
+
+```
+                        ┌─────────────────────────────────────────────────────┐
+                        │              OPERATIONAL STATES                     │
+                        │         (reported by GET /health/ready)             │
+                        │                                                     │
+                        │  ┌─────────┐   llama.cpp becomes   ┌──────────┐    │
+                        │  │  READY  │──── unavailable ──────▶│ DEGRADED │    │
+                        │  │         │                        │          │    │
+                        │  │ HTTP 200│◀── llama.cpp recovers ─│ HTTP 200 │    │
+                        │  │"ready"  │                        │"degraded"│    │
+                        │  └────┬────┘                        └─────┬────┘    │
+                        │       │                                   │         │
+                        │       │ Stable Diffusion    Stable Diffusion        │
+                        │       │ becomes unavailable becomes unavailable     │
+                        │       │                                   │         │
+                        │       ▼                                   ▼         │
+                        │  ┌──────────────────────────────────────────────┐   │
+                        │  │                NOT READY                     │   │
+                        │  │                                              │   │
+                        │  │  HTTP 503, "not_ready", Retry-After header   │   │
+                        │  │  Pod removed from load balancer rotation     │   │
+                        │  └──────────────────────┬───────────────────────┘   │
+                        │                         │                           │
+                        │               Stable Diffusion                      │
+                        │               pipeline restored                     │
+                        │                         │                           │
+                        │                         ▼                           │
+                        │              (returns to READY or                   │
+                        │               DEGRADED depending                    │
+                        │               on llama.cpp status)                  │
+                        └─────────────────────────────────────────────────────┘
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+                        ┌─────────────────────────────────────────────────────┐
+                        │             LIFECYCLE PHASES                        │
+                        │    (not reported by readiness probe)                │
+                        │                                                     │
+                        │  ┌──────────┐                    ┌──────────────┐   │
+                        │  │ STARTING │                    │ SHUTTING DOWN │   │
+                        │  │          │                    │              │   │
+                        │  │ Model    │                    │ Drain period │   │
+                        │  │ loading, │                    │ (≤60s),      │   │
+                        │  │ pipeline │                    │ in-flight    │   │
+                        │  │ init     │                    │ requests     │   │
+                        │  └────┬─────┘                    │ completing   │   │
+                        │       │                          └──────┬───────┘   │
+                        │       │ Pipeline instantiated,          │           │
+                        │       │ readiness probe succeeds        │ Drain     │
+                        │       │                                 │ expires   │
+                        │       ▼                                 │ or all    │
+                        │  (enters READY or DEGRADED              │ requests  │
+                        │   depending on llama.cpp status)        │ complete  │
+                        │                                         ▼           │
+                        │                                   ┌───────────┐     │
+                        │      SIGTERM/SIGINT ──────────────▶│TERMINATED │     │
+                        │      (from any operational state)  └───────────┘    │
+                        └─────────────────────────────────────────────────────┘
+
+Transition summary:
+
+  STARTING ──▶ READY           Stable Diffusion pipeline instantiated,
+                                llama.cpp health probe succeeds
+  STARTING ──▶ DEGRADED        Stable Diffusion pipeline instantiated,
+                                llama.cpp health probe fails
+  STARTING ──▶ NOT READY       Stable Diffusion pipeline fails to load
+                                (model file missing or corrupt)
+  READY ────▶ DEGRADED         llama.cpp becomes unreachable or circuit
+                                breaker transitions to OPEN
+  DEGRADED ─▶ READY            llama.cpp recovers (circuit breaker
+                                transitions to CLOSED)
+  READY ────▶ NOT READY        Stable Diffusion pipeline becomes
+                                unavailable (out-of-memory termination,
+                                runtime error)
+  DEGRADED ─▶ NOT READY        Stable Diffusion pipeline becomes
+                                unavailable
+  NOT READY ▶ READY            Stable Diffusion pipeline restored,
+                                llama.cpp available
+  NOT READY ▶ DEGRADED         Stable Diffusion pipeline restored,
+                                llama.cpp unavailable
+  Any state ▶ SHUTTING DOWN    SIGTERM or SIGINT received (FR40)
+  SHUTTING DOWN ──▶ TERMINATED Drain period expires or all in-flight
+                                requests complete
+```
+
 ##### Metrics endpoint
 
 38. The service shall expose a `GET /metrics` endpoint that returns request count and request latency statistics as a JSON document conforming to the Schema for the Metrics Response defined in the [Data Model and Schema Definition](#data-model-and-schema-definition) section.
@@ -3182,9 +3269,9 @@ The following table consolidates the type of the `details` field across all erro
 
 | `details` Type | Error Codes |
 |----------------|-------------|
-| String | `invalid_request_json`, `payload_too_large`, `unsupported_media_type`, `not_found`, `method_not_allowed`, `request_timeout` |
+| String | `invalid_request_json`, `payload_too_large`, `unsupported_media_type`, `not_found`, `method_not_allowed`, `request_timeout`, `service_busy` |
 | Array of validation objects | `request_validation_failed` |
-| Omitted (field not present in the response body) | `internal_server_error`, `upstream_service_unavailable`, `model_unavailable`, `service_busy`, `not_ready` |
+| Omitted (field not present in the response body) | `internal_server_error`, `upstream_service_unavailable`, `model_unavailable`, `not_ready` |
 
 ### Error Code to Endpoint Cross-Reference
 
@@ -3536,7 +3623,7 @@ number_of_generated_images_rejected_by_safety_filter_total 0.0
 
 The following technology stack is mandated for implementation. Each selection is explicitly justified for scalability, operational characteristics, and ecosystem maturity.
 
-### Backend Language: Python 3.11+
+### Backend Language: Python 3.12+
 
 **Justification:** Native ecosystem support for machine learning libraries (PyTorch, Diffusers, Transformers); excellent HTTP framework options with production-grade maturity (FastAPI); strong typing support via type hints; widespread industry adoption.
 
@@ -4241,8 +4328,13 @@ This subsection formalises the performance thresholds established by the Perform
 | Latency of Image Generation (Sequential) | Maximum latency of sequential single-image generation requests at 512×512 resolution, measured across a batch of 10 sequential requests | GPU tier: ≤ 5 seconds per request; no single request ≥ 10 seconds. CPU tier: ≤ 60 seconds per request; no single request ≥ 90 seconds | Per-release qualification | GPU tier: 0 of 10 requests may exceed 5 seconds; 0 may exceed 10 seconds. CPU tier: 0 of 10 may exceed 60 seconds; 0 may exceed 90 seconds | [NFR2](#latency-of-image-generation-single-image-512512) |
 | Latency of Validation Responses | Maximum latency of requests rejected at JSON or schema validation (HTTP 400, 413, 415 responses) | ≤ 1 second per request | Rolling 7-day | No validation rejection may exceed 1 second, regardless of concurrent inference load | [NFR3](#latency-of-validation-responses) |
 | End-to-End Timeout Compliance | Percentage of all HTTP requests that receive a structured response (including HTTP 504) before the configured end-to-end timeout expires, with no proxy-layer timeout pre-empting the service-level response | 100% | Rolling 7-day | 0% breach permitted | [NFR48](#timeout-for-end-to-end-requests) |
+| Latency of the Combined Workflow (Sequential) | Maximum latency of sequential single-image generation requests at 512×512 resolution with `use_enhancer: true`, measured across a batch of 5 sequential requests using the [RO3](#ro3--image-generation-with-enhancement) execution procedure | GPU tier: ≤ 15 seconds per request; no single request ≥ 25 seconds. CPU tier: ≤ 90 seconds per request; no single request ≥ 120 seconds | Per-release qualification | GPU tier: 0 of 5 requests may exceed 15 seconds; 0 may exceed 25 seconds. CPU tier: 0 of 5 may exceed 90 seconds; 0 may exceed 120 seconds | [NFR1](#latency-of-prompt-enhancement-under-concurrent-load), [NFR2](#latency-of-image-generation-single-image-512512) |
 
-**Combined-workflow latency advisory:** The service level objective table above defines latency targets for prompt enhancement ([NFR1](#latency-of-prompt-enhancement-under-concurrent-load), GPU tier: 95th percentile ≤ 10 seconds; CPU tier: 95th percentile ≤ 30 seconds) and image generation ([NFR2](#latency-of-image-generation-single-image-512512), GPU tier: ≤ 5 seconds per image; CPU tier: ≤ 60 seconds per image) as independent measurements under their respective test conditions. When a client uses the combined workflow (`POST /v1/images/generations` with `use_enhancer: true`), the total request latency is the sum of the enhancement step and the generation step, executed sequentially within a single HTTP request. On GPU, clients configuring timeouts for the combined workflow should expect a 95th percentile latency in the range of 5–15 seconds (enhancement latency is typically 2–5 seconds; generation latency is typically 2–5 seconds for a single 512×512 image). On CPU, clients should expect a 95th percentile latency in the range of 40–90 seconds (enhancement latency is typically 10–30 seconds; generation latency is typically 30–60 seconds for a single 512×512 image). The individual [NFR1](#latency-of-prompt-enhancement-under-concurrent-load) and [NFR2](#latency-of-image-generation-single-image-512512) service level objectives cannot be arithmetically summed to produce a precise combined-workflow service level objective because they are measured under different conditions: [NFR1](#latency-of-prompt-enhancement-under-concurrent-load) under concurrent load (5 virtual users), [NFR2](#latency-of-image-generation-single-image-512512) under sequential single-request conditions. The timeout for end-to-end requests ([NFR48](#timeout-for-end-to-end-requests), default 60 seconds; CPU-only operators should increase to 300 seconds) provides the hard ceiling for any single request, including combined-workflow requests. Clients who require a tighter combined-workflow timeout should configure `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS` accordingly. A future version of this specification may introduce a dedicated combined-workflow service level objective verified via RO3 under controlled conditions; this is deferred from the current version because the component-level service level objectives and the end-to-end timeout ceiling together provide sufficient bounds for client timeout configuration.
+**Combined-workflow latency advisory:** The service level objective table above defines latency targets for prompt enhancement ([NFR1](#latency-of-prompt-enhancement-under-concurrent-load), GPU tier: 95th percentile ≤ 10 seconds; CPU tier: 95th percentile ≤ 30 seconds) and image generation ([NFR2](#latency-of-image-generation-single-image-512512), GPU tier: ≤ 5 seconds per image; CPU tier: ≤ 60 seconds per image) as independent measurements under their respective test conditions. When a client uses the combined workflow (`POST /v1/images/generations` with `use_enhancer: true`), the total request latency is the sum of the enhancement step and the generation step, executed sequentially within a single HTTP request. On GPU, clients configuring timeouts for the combined workflow should expect a 95th percentile latency in the range of 5–15 seconds (enhancement latency is typically 2–5 seconds; generation latency is typically 2–5 seconds for a single 512×512 image). On CPU, clients should expect a 95th percentile latency in the range of 40–90 seconds (enhancement latency is typically 10–30 seconds; generation latency is typically 30–60 seconds for a single 512×512 image). The individual [NFR1](#latency-of-prompt-enhancement-under-concurrent-load) and [NFR2](#latency-of-image-generation-single-image-512512) service level objectives cannot be arithmetically summed to produce a precise combined-workflow service level objective because they are measured under different conditions: [NFR1](#latency-of-prompt-enhancement-under-concurrent-load) under concurrent load (5 virtual users), [NFR2](#latency-of-image-generation-single-image-512512) under sequential single-request conditions. The Latency of the Combined Workflow service level objective addresses this by defining an independent measurement under controlled sequential conditions using the [RO3](#ro3--image-generation-with-enhancement) execution procedure. The timeout for end-to-end requests ([NFR48](#timeout-for-end-to-end-requests), default 60 seconds; CPU-only operators should increase to 300 seconds) provides the hard ceiling for any single request, including combined-workflow requests. Clients who require a tighter combined-workflow timeout should configure `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS` accordingly.
+
+**Combined-workflow service level objective verification procedure:** To verify the Latency of the Combined Workflow service level objective, execute the [RO3](#ro3--image-generation-with-enhancement) request 5 times sequentially with `n: 1` and `size: "512x512"`, recording the total request time for each execution. On GPU tier: all 5 requests shall complete within 15 seconds; no single request shall exceed 25 seconds. On CPU tier: all 5 requests shall complete within 90 seconds; no single request shall exceed 120 seconds. The sample size of 5 (rather than 10 as used by the Latency of Image Generation service level objective) reflects the higher per-request cost of the combined workflow — 5 sequential requests provide sufficient confidence in latency bounds while keeping the verification procedure duration practical on CPU-tier hardware.
+
+**Advisory on Prometheus-based monitoring of the combined workflow:** The Prometheus `http_request_duration_in_seconds` histogram ([FR51](#prometheus-metrics-endpoint)) labels requests by `path` (`/v1/images/generations`) but does not distinguish between `use_enhancer: true` and `use_enhancer: false` requests, because the label is derived from the URL path rather than the request body. Prometheus-based latency alerting for this endpoint (such as the [sustained high latency alerting rule](#sustained-high-latency-for-image-generation)) therefore reflects blended latency across both workflows. Operators who require separate latency monitoring for the combined workflow should use structured log analysis (filtering `image_generation_completed` events where a preceding `prompt_enhancement_completed` event shares the same correlation identifier) rather than Prometheus histogram quantiles.
 
 **measurement of the service level indicator:** Service level indicators are measured using data collected from the `/metrics` endpoint ([FR38](#metrics-endpoint)). The `request_counts` field provides the numerator for availability calculations (counts by endpoint path and HTTP status code), and the `request_latencies` field provides percentile latency data (`ninety_fifth_percentile_latency_in_milliseconds` per endpoint path). For rolling 7-day measurement, a time-series metrics system (for example, Prometheus with a custom JSON exporter, or an equivalent monitoring platform) is required to compute rolling aggregates.
 
@@ -4251,6 +4343,186 @@ This subsection formalises the performance thresholds established by the Perform
 **Error budget consumption:** When error budget consumption exceeds 50% within the current measurement window, an operational alert should be raised to prompt investigation. When the error budget is exhausted, new feature deployments should be suspended in favour of stabilisation efforts until the budget is restored.
 
 **Advisory:** These service level objectives are defined as production deployment targets for operational guidance. The rolling 7-day measurement windows and error budget consumption thresholds defined above require a time-series metrics infrastructure (for example, Prometheus with a custom JSON exporter) that is not assumed to be present in the evaluation environment. In the evaluation context, the `/metrics` JSON endpoint ([FR38](#metrics-endpoint)) supports point-in-time verification of individual service level indicator values (current request counts, current 95th percentile latencies) but does not support rolling-window aggregation. Evaluators should use the NFR performance thresholds in the Requirements section as the primary verifiable criteria, treating each test execution as a point-in-time service level indicator sample rather than a rolling-window measurement.
+
+### Operational Runbook for Critical Failure Modes
+
+The observability infrastructure defined in this section — structured logging events, Prometheus metrics, health and readiness probes, circuit breaker state transitions — produces signals that indicate system degradation. This subsection prescribes the operator response procedures for the three most critical failure modes: unavailability of the large language model server, termination of the Stable Diffusion process by the out-of-memory killer, and sustained open state of the circuit breaker for communication with the large language model.
+
+#### Unavailability of the Large Language Model Server
+
+**Detection signals:**
+
+- Logging event `llama_cpp_connection_failed` (ERROR) appears repeatedly
+- Readiness probe (`GET /health/ready`) returns `"status": "degraded"` with `"checks": { "large_language_model": "unavailable" }`
+- Circuit breaker transitions to OPEN state (logging event `circuit_breaker_opened`, WARNING)
+- Prometheus gauge `circuit_breaker_state_of_large_language_model` reports value `1` (OPEN)
+
+**Operator response procedure:**
+
+1. Verify the large language model server pod status: `kubectl get pods -l app=llama-cpp-server -o wide`. If the pod is in `CrashLoopBackOff`, proceed to step 2. If the pod is `Running`, proceed to step 3.
+2. Inspect the pod's recent events and logs: `kubectl describe pod <pod-name>` and `kubectl logs <pod-name> --tail=100`. Common root causes include: model file corruption (re-pull the model), insufficient memory for model loading (verify node memory meets the minimum requirement), and GPU driver incompatibility (verify the CUDA driver version matches the llama.cpp container's requirements).
+3. If the pod is `Running` but the API service reports it as unavailable, verify network connectivity: `kubectl exec <api-pod> -- curl -s -o /dev/null -w "%{http_code}" http://llama-cpp-server:8080/health`. A connection timeout indicates a network policy or DNS resolution issue. An HTTP 503 response indicates the large language model server is still loading the model — wait for the startup probe to succeed.
+4. Once the large language model server is healthy, the circuit breaker shall automatically transition from OPEN to HALF_OPEN after the configured recovery timeout ([`TEXT_TO_IMAGE_RECOVERY_TIMEOUT_OF_CIRCUIT_BREAKER_FOR_LARGE_LANGUAGE_MODEL_IN_SECONDS`](#circuit-breaker-for-communication-with-the-large-language-model), default 30 seconds), and then to CLOSED after a successful probe request. No manual intervention is required to reset the circuit breaker.
+
+**Service impact during this failure mode:** Image generation requests with `use_enhancer: false` continue to succeed. Prompt enhancement requests (`POST /v1/prompts/enhance`) and image generation requests with `use_enhancer: true` fail with HTTP 502 (`upstream_service_unavailable`). The readiness probe continues to return HTTP 200 (`degraded`), so the pod remains in the Kubernetes load balancer rotation.
+
+#### Termination of the Stable Diffusion Process by the Out-of-Memory Killer
+
+**Detection signals:**
+
+- The API service becomes abruptly unreachable — TCP connections are reset without an HTTP response
+- No `graceful_shutdown_initiated` logging event precedes the termination (the kernel's `SIGKILL` cannot be caught)
+- Container restart count increments (visible via `kubectl get pods` in the `RESTARTS` column)
+- Readiness probe (`GET /health/ready`) returns HTTP 503 (`not_ready`) during model reloading after the restart
+- Node-level kernel logs (`dmesg` or `journalctl -k`) contain an out-of-memory killer invocation entry naming the Python or Uvicorn process
+
+**Operator response procedure:**
+
+1. Confirm that the termination was caused by the out-of-memory killer rather than another failure mode: inspect the node's kernel log with `kubectl debug node/<node-name> -it --image=busybox -- dmesg | grep -i "oom\|killed process"`. If the out-of-memory killer entry names the API service's process, this runbook entry applies.
+2. Check the container's current memory allocation against the Kubernetes resource limits: `kubectl describe pod <pod-name> | grep -A 2 "Limits"`. If the memory limit is at or near the 8 GB minimum specification, the out-of-memory termination is expected under sustained load (see the [memory exhaustion process advisory](#memory-exhaustion-process)).
+3. For immediate mitigation: the container restart policy (`Always`) automatically restarts the terminated process. The readiness probe prevents traffic routing until model reloading completes (60–120 seconds depending on hardware and cache state). No manual intervention is required for recovery.
+4. For sustained mitigation: increase the container's memory limit to the recommended 16 GB specification, which eliminates the risk of out-of-memory termination under normal single-instance operation. If the node does not have 16 GB available, schedule the pod on a node with sufficient memory.
+5. Monitor the container restart count as a health indicator. Frequent restarts (more than once per hour under normal load) indicate that the memory allocation is insufficient for the workload and that the memory limit must be increased.
+
+**Service impact during this failure mode:** All requests to the API service fail during the restart and model reloading period (60–120 seconds). The readiness probe returns HTTP 503, so Kubernetes removes the pod from the load balancer rotation. In a multi-replica deployment ([NFR4](#horizontal-scaling-under-concurrent-load)), other replicas continue serving requests; in a single-replica deployment, the service is fully unavailable until model reloading completes.
+
+#### Sustained Open State of the Circuit Breaker for Communication with the Large Language Model
+
+**Detection signals:**
+
+- Logging event `circuit_breaker_opened` (WARNING) followed by a repeating cycle of `circuit_breaker_half_open` (INFO) and `circuit_breaker_reopened` (WARNING), indicating that each probe request during the HALF_OPEN state fails and the circuit returns to OPEN
+- Logging event `llama_cpp_circuit_breaker_rejected` (WARNING) appears at a sustained rate, indicating that prompt enhancement requests are being rejected without contacting the large language model server
+- Prometheus gauge `circuit_breaker_state_of_large_language_model` remains at value `1` (OPEN) for longer than two recovery timeout cycles
+
+**Operator response procedure:**
+
+1. A sustained OPEN→HALF_OPEN→OPEN cycle indicates that the large language model server is reachable but consistently returning failures during the probe request. This is distinct from the unavailability scenario above, where the server is entirely unreachable.
+2. Inspect the large language model server's logs during the probe window: `kubectl logs <llama-cpp-pod> --tail=200 --since=5m`. Common root causes include: model corruption producing malformed completions, insufficient GPU memory causing inference failures, and configuration mismatches (for example, a context length exceeding the model's maximum).
+3. If the large language model server's logs show consistent HTTP 5xx responses or malformed output, the server requires remediation (model re-download, configuration correction, or resource increase) before the circuit breaker can close.
+4. If the large language model server appears healthy from its own perspective but the API service's circuit breaker rejects the probe response (for example, due to response body exceeding [`TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_BYTES_OF_RESPONSE_BODY_FROM_LARGE_LANGUAGE_MODEL`](#communication-with-the-large-language-model-server) or non-JSON response body), the issue is a contract mismatch between the API service's expectations and the large language model server's output. Verify that the large language model server's model and configuration match the [upstream communication contract](#communication-with-the-large-language-model-server) prescribed by this specification.
+5. Once the root cause is remediated, the circuit breaker shall automatically close on the next successful HALF_OPEN probe. No manual reset is required.
+
+**Service impact during this failure mode:** Identical to the unavailability scenario: prompt enhancement and combined-workflow image generation fail with HTTP 502; standalone image generation (`use_enhancer: false`) continues to succeed; the readiness probe reports `degraded`.
+
+### Prometheus Alerting Rule Examples
+
+The Prometheus metrics exposed by [FR51](#prometheus-metrics-endpoint) and the service level objectives defined in the [Service Level Objectives and Service Level Indicators](#service-level-objectives-and-service-level-indicators) subsection provide the raw signals for alerting. This subsection defines three reference alerting rules that close the loop between metric emission and operator notification. These rules are deployed as Kubernetes `PrometheusRule` custom resources (or equivalent Alertmanager configuration) outside the application — the application's only responsibility is to expose the metrics that the rules query.
+
+#### Error budget burn rate for prompt enhancement availability
+
+The [Availability of Prompt Enhancement](#service-level-objectives-and-service-level-indicators) service level objective permits ≤ 5% of requests to return 5xx over a rolling 7-day window. This alerting rule fires when the 5xx rate over a 1-hour sliding window exceeds 10× the permitted burn rate, indicating that the error budget will be exhausted before the measurement window elapses if the current failure rate continues.
+
+```yaml
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: text-to-image-error-budget-burn-rate
+spec:
+  groups:
+    - name: text-to-image-error-budget
+      rules:
+        - alert: PromptEnhancementErrorBudgetBurnRateExceeded
+          expr: |
+            (
+              sum(rate(http_requests_received_total{path="/v1/prompts/enhance", status_code=~"5.."}[1h]))
+              /
+              sum(rate(http_requests_received_total{path="/v1/prompts/enhance"}[1h]))
+            ) > 0.5
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Prompt enhancement 5xx rate exceeds 50% over the last hour"
+            description: >-
+              The current 5xx error rate for POST /v1/prompts/enhance is
+              {{ $value | humanizePercentage }}, which exceeds 10× the
+              permitted 5% error budget burn rate. At this rate, the
+              rolling 7-day error budget will be exhausted prematurely.
+              Investigate the large language model server health and
+              circuit breaker state.
+            runbook: >-
+              See the operational runbook for critical failure modes in
+              the specification's Logging and Observability section.
+```
+
+**Rationale for the 0.5 (50%) threshold:** The SLO permits 5% errors over 7 days. A 1-hour window is 1/168th of the 7-day budget. If a 1-hour window consumes more than 10× its proportional share of the budget (5% × 10 = 50%), the budget will be exhausted in fewer than 16.8 hours of sustained failure. The `for: 5m` clause prevents transient spikes from triggering the alert.
+
+#### Sustained open state of the circuit breaker for communication with the large language model
+
+This alerting rule fires when the circuit breaker remains in the OPEN state for longer than twice the configured recovery timeout, indicating that the HALF_OPEN probe requests are consistently failing and the circuit is not recovering automatically.
+
+```yaml
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: text-to-image-circuit-breaker-state
+spec:
+  groups:
+    - name: text-to-image-circuit-breaker
+      rules:
+        - alert: CircuitBreakerForLargeLanguageModelSustainedOpenState
+          expr: |
+            circuit_breaker_state{circuit_name="large_language_model", circuit_breaker_state="open"} == 1
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Circuit breaker for large language model has been open for more than 2 minutes"
+            description: >-
+              The circuit breaker for communication with the large
+              language model server has remained in the OPEN state for
+              more than 2 minutes (longer than twice the default 30-second
+              recovery timeout). This indicates that HALF_OPEN probe
+              requests are consistently failing. Prompt enhancement and
+              combined-workflow image generation are unavailable.
+            runbook: >-
+              See the sustained open state of the circuit breaker
+              procedure in the operational runbook for critical failure
+              modes.
+```
+
+**Rationale for the `for: 2m` duration:** The default recovery timeout ([`TEXT_TO_IMAGE_RECOVERY_TIMEOUT_OF_CIRCUIT_BREAKER_FOR_LARGE_LANGUAGE_MODEL_IN_SECONDS`](#circuit-breaker-for-communication-with-the-large-language-model), default 30 seconds) governs how long the circuit remains in OPEN before transitioning to HALF_OPEN. A `for: 2m` duration allows at least two full OPEN→HALF_OPEN→OPEN cycles to complete before alerting, distinguishing a sustained failure from a transient one that self-resolves on the first or second probe.
+
+#### Sustained high latency for image generation
+
+This alerting rule fires when the 95th percentile latency of image generation requests exceeds the SLO target for the configured hardware tier over a sustained period.
+
+```yaml
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: text-to-image-image-generation-latency
+spec:
+  groups:
+    - name: text-to-image-latency
+      rules:
+        - alert: ImageGenerationLatencyExceedsSloTarget
+          expr: |
+            histogram_quantile(0.95,
+              sum(rate(http_request_duration_in_seconds_bucket{path="/v1/images/generations"}[10m])) by (le)
+            ) > 5
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Image generation 95th percentile latency exceeds 5 seconds"
+            description: >-
+              The 95th percentile latency of POST /v1/images/generations
+              requests over the last 10 minutes is {{ $value | humanizeDuration }},
+              which exceeds the GPU-tier SLO target of 5 seconds per
+              request. For CPU-tier deployments, adjust the threshold in
+              this alerting rule to 60 seconds to match the CPU-tier SLO
+              target defined in the specification.
+            runbook: >-
+              Investigate Stable Diffusion inference performance. Common
+              causes include GPU memory pressure from concurrent
+              workloads, thermal throttling, and model reloading after
+              an out-of-memory process termination restart.
+```
+
+**Rationale for the GPU-tier default:** The alerting rule threshold defaults to the GPU-tier SLO target (≤ 5 seconds per request, [NFR2](#latency-of-image-generation-single-image-512512)) because GPU is the primary deployment tier. CPU-tier deployments shall adjust the threshold to 60 seconds. The `for: 5m` clause and 10-minute rate window together ensure that the alert reflects sustained degradation rather than a single slow request.
+
+**Advisory:** These alerting rules are reference examples intended to demonstrate integration between the Prometheus metrics exposed by [FR51](#prometheus-metrics-endpoint) and a Prometheus-based alerting pipeline. Production deployments should tune the thresholds, durations, and severity labels to match their operational context. The alerting rules assume that Prometheus is configured to scrape the `/metrics/prometheus` endpoint at the recommended 15-second interval.
 
 ---
 
@@ -4275,6 +4547,8 @@ An earlier revision of this specification included in-process, per-IP rate limit
 3. **Correctness under horizontal scaling.** An in-process rate limiter uses process-local memory. In horizontally scaled deployments (multiple Uvicorn workers or multiple Kubernetes pods), each instance maintains an independent counter. A client can multiply its effective rate limit by the number of instances. The reverse proxy, as a single ingress point, enforces a true global limit without requiring distributed state synchronisation.
 
 4. **Separation of concerns.** Admission control — the concurrency limiter that bounds concurrent image generation operations ([NFR44](#concurrency-control-for-image-generation)) — is correctly implemented in-process because it protects a resource (the GPU/CPU inference slot) that only the application process has visibility into. The reverse proxy cannot observe how many inference operations are in flight. Per-IP request frequency, by contrast, is a network-level concern that the reverse proxy is purpose-built to enforce. This separation keeps each layer responsible for the concerns it can observe directly.
+
+**Architectural rationale for the absence of application-level admission control on prompt enhancement:** The admission control concurrency limiter ([NFR44](#concurrency-control-for-image-generation)) bounds concurrent image generation because the application manages the constrained resource directly — the Stable Diffusion pipeline pool has a fixed number of slots, and permitting more concurrent operations than slots would either block requests indefinitely or exhaust GPU/CPU memory. Prompt enhancement, by contrast, delegates to an external process (llama.cpp) that manages its own request queue internally. When llama.cpp receives more concurrent requests than it can serve immediately, it queues them and processes them sequentially rather than rejecting them. Application-level admission control on prompt enhancement would therefore reject requests that llama.cpp would have successfully queued and eventually completed, reducing throughput without preventing overload. The circuit breaker ([NFR50](#circuit-breaker-for-communication-with-the-large-language-model)) provides the appropriate protection pattern for this resource: it detects when llama.cpp is failing (rather than merely busy) and transitions to fail-fast mode, preventing wasted timeout cycles. Request-rate throttling — protecting against a single client monopolising llama.cpp's queue — is a network-level concern correctly handled at the reverse proxy layer, as discussed in the rationale above.
 
 **Trade-off acknowledgement:** Delegating rate limiting to the reverse proxy couples the rate limiting policy to infrastructure configuration rather than to application code. This makes the policy harder to test in isolation via unit tests and means that the local development path (`python main.py` without nginx) has no rate limiting at all. This trade-off is acceptable for two reasons: (a) the rate limiting configuration is version-controlled as infrastructure-as-code in the Kubernetes manifests and Docker Compose files that the [Infrastructure Definition](#infrastructure-definition) section already mandates; (b) in the local evaluation context, the developer is sending manual requests and does not require rate limit protection against themselves. The Docker Compose deployment path (which includes the nginx reverse proxy) provides rate limiting for local environments where it is desired.
 
@@ -4398,7 +4672,7 @@ The service is designed for horizontal scaling via stateless instance replicatio
 5. **Persistent image storage:** Generated images could be stored in object storage (for example, S3 or MinIO) with URL references returned instead of base64 payloads, reducing response sizes for multi-image requests. The `response_format` request parameter has been reserved for this purpose: a future `"url"` value would instruct the service to store the image and return a URL reference instead of inline base64 data.
 6. **Request idempotency:** For long-running image generation requests (2–5 seconds on GPU, 30–90 seconds on CPU), client timeouts and retries can cause duplicate inference executions, wasting compute resources. A future version could introduce an optional `Idempotency-Key` request header with a configurable TTL and in-memory or Redis-backed storage, allowing the service to return cached responses for duplicate requests. The `seed` parameter provides output determinism but does not address request-level deduplication. This pathway is deferred from the current specification because it introduces state management complexity (cache storage, TTL enforcement, cache invalidation) that conflicts with the statelessness principle (Principle 1) and is disproportionate for the stated evaluation context.
 7. **Request queueing with bounded depth:** The current admission control mechanism ([NFR44](#concurrency-control-for-image-generation)) rejects excess requests immediately with HTTP 429 when the concurrency limit is reached. For deployments where short traffic bursts are expected, a future version could introduce a configurable bounded queue depth (for example, 2–5 pending requests) that holds excess requests until an inference slot becomes available, returning HTTP 429 only when both the active slot(s) and the queue are full. This would improve throughput under burst traffic at the cost of increased tail latency for queued requests. The trade-off between queue depth and tail latency should be documented and made configurable.
-8. **Upstream retry and circuit breaker policy:** The current architecture follows a fail-fast pattern for llama.cpp calls: if the upstream server returns an error or is unreachable, the service immediately returns HTTP 502 to the client. For production environments with transient network faults, a future version could introduce a configurable retry policy (for example, 1 retry with a 2-second delay for connection errors and 5xx responses) combined with a circuit breaker that opens after N consecutive failures and remains open for a configurable cooldown period. This would improve availability under transient faults without the complexity of a full retry framework. The fail-fast approach is retained in the current specification as the architecturally simpler and more predictable choice for the stated evaluation context.
+8. **Upstream retry policy:** The circuit breaker component of this pathway has been implemented as [NFR50](#circuit-breaker-for-communication-with-the-large-language-model) (introduced in v5.1.0), which transitions to fail-fast mode after a configurable number of consecutive upstream failures and automatically recovers via a HALF_OPEN probe mechanism. The remaining future work is a configurable retry policy for transient faults: for production environments with intermittent network instability, a future version could introduce a configurable retry policy (for example, 1 retry with a 2-second delay for connection errors and 5xx responses) that executes within the circuit breaker's CLOSED state — retrying before incrementing the consecutive failure counter. This would improve availability under transient faults without conflicting with the circuit breaker's sustained-failure detection. The no-retry approach is retained in the current specification as the architecturally simpler and more predictable choice for the stated evaluation context; see also the [advisory on the absence of server-side retry](#advisory-on-the-absence-of-server-side-retry) in §15.
 9. **Response compression:** Image generation responses can reach 8–32 MB for multi-image requests at maximum resolution. A future version could introduce optional `Content-Encoding: gzip` response compression when the client sends `Accept-Encoding: gzip`, with a configurable minimum response size threshold (for example, 1 KB). Base64-encoded PNG data typically achieves 60–70% compression ratios with gzip, significantly reducing bandwidth consumption for clients that support transparent decompression.
 10. **Distributed tracing with W3C Trace Context:** The current architecture uses `X-Correlation-ID` for per-request correlation within a single service boundary. In multi-instance deployments behind a load balancer with a separate llama.cpp server, a complete distributed trace — spanning the reverse proxy → API service → llama.cpp boundary — cannot be reconstructed from correlation identifiers alone, because the `X-Correlation-ID` is generated within the API service and is not propagated to the llama.cpp upstream or to the originating client's trace. A future version could introduce W3C Trace Context propagation (`traceparent` and `tracestate` headers, as defined in the W3C Trace Context specification) combined with OpenTelemetry instrumentation, creating child spans for the two distinct inference calls (prompt enhancement and image generation). The `X-Correlation-ID` mechanism would be retained for backwards compatibility and single-service log querying; `traceparent` would be propagated as an HTTP header on calls to the llama.cpp server and optionally echoed in API responses to enable end-to-end trace reconstruction across the proxy boundary. Integration with an OpenTelemetry Collector would provide a vendor-neutral export path to tracing backends such as Jaeger, Zipkin, or cloud-native APM solutions.
 11. **Memory utilisation monitoring:** The `/metrics` endpoint exposes request counts and latency statistics in JSON format, and the `/metrics/prometheus` endpoint ([FR51](#prometheus-metrics-endpoint)) exposes request counts and duration in Prometheus text exposition format. Neither endpoint currently exposes memory utilisation. In long-running deployments, PyTorch tensors not released after inference can accumulate in memory — a documented behaviour in Diffusers pipeline usage — leading to gradual memory growth that is invisible until an out-of-memory process termination occurs. A future version could add `current_number_of_bytes_of_resident_set_size` (resident set size), `peak_number_of_bytes_of_resident_set_size`, and `stable_diffusion_pipeline_memory_bytes` (estimated model footprint) fields to the Schema for the Metrics Response. These values can be obtained from Python's `resource.getrusage()` and `torch.cuda.memory_allocated()` (on GPU). Exposing memory metrics would also provide a more precise signal for Kubernetes HPA scaling decisions than the current CPU utilisation threshold approach — enabling scale-out before memory pressure causes out-of-memory conditions, rather than reacting to it.
@@ -4719,6 +4993,8 @@ Examples:
 | Startup probe | `GET /health`, period 10s, timeout 5s, failure threshold 60 | Allows up to 600 seconds (10 minutes) for GGUF model loading before the liveness probe activates; prevents liveness-probe crash loops during the expected multi-minute model loading phase, matching the text-to-image-api startup probe pattern |
 | Volume mount | `/models` (read-only, from `llama-model-pvc`) | Model files provided via persistent volume |
 
+**Readiness probe endpoint advisory:** The llama-cpp-server deployment tables above use `GET /health` for both the readiness probe and the liveness probe, unlike the text-to-image-api deployment which uses separate endpoints (`GET /health` for liveness, `GET /health/ready` for readiness). This is not an inconsistency — llama.cpp does not expose a separate readiness endpoint. Its `GET /health` endpoint returns HTTP 503 while the model is loading and HTTP 200 only after the model is fully loaded and ready to serve inference requests, providing equivalent readiness semantics. The startup probe prevents the liveness probe from terminating the pod during the model loading phase; once the startup probe succeeds, `GET /health` returning HTTP 200 reliably indicates that the server is both alive and ready to accept requests.
+
 **Service boundary clarity:** The llama.cpp server is deployed as a separate Kubernetes Deployment with its own scaling characteristics. This enforces the process isolation boundary defined in Architectural Principle 6 (External Process Isolation): a crash or memory leak in the large language model server does not affect the API service pods. The two-replica minimum ensures that prompt enhancement remains available during rolling updates of the llama.cpp server.
 
 #### Service: text-to-image-api-service
@@ -4909,6 +5185,8 @@ The following configurations ensure high availability within a Kubernetes cluste
 4. **PersistentVolumeClaims:** Model files stored on persistent volumes survive pod restarts and rescheduling without requiring re-download
 
 **Rationale:** These configurations ensure that the service remains available during: planned maintenance (rolling updates, node drains), unplanned pod failures (out-of-memory process terminations, process crashes), and node failures (pod rescheduling to healthy nodes).
+
+**Progressive delivery advisory:** The rolling update strategy prescribed above provides zero-downtime deployments but does not detect regressions introduced by a new image — if the new pods pass their readiness probes but produce incorrect inference results or degraded latency, the rollout completes successfully without alerting. Production deployments that require regression detection during rollout should consider a canary deployment strategy using a progressive delivery controller (for example, Argo Rollouts or Flagger). A canary strategy routes a small percentage of traffic to the new version, evaluates success metrics (error rate, latency percentiles) against the service level objectives defined in [Service Level Objectives and Service Level Indicators](#service-level-objectives-and-service-level-indicators), and automatically rolls back if the canary exceeds the error budget. This is not prescribed as a requirement because it introduces infrastructure dependencies (a progressive delivery controller, a metrics backend for canary analysis) that exceed the scope of this specification's deployment model.
 
 #### Disaster Recovery Configuration
 
@@ -5427,7 +5705,7 @@ Deprecated behaviours or endpoints shall be clearly marked within the relevant r
 ### Environment Prerequisites
 
 - **Operating system:** Linux, macOS, or Windows with WSL2
-- **Python:** Version 3.11 or later, available on the `PATH`
+- **Python:** Version 3.12 or later, available on the `PATH`
 - **Tools:** `git`, `curl`, `jq`, and `base64` installed
 - **RAM:** 16 GB recommended; 8 GB absolute minimum (Stable Diffusion only, without llama.cpp)
   - The Stable Diffusion v1.5 pipeline requires approximately 8 GB of RAM for model weights and inference working memory
@@ -5668,6 +5946,7 @@ This section documents failure modes commonly encountered during initial setup a
 | 5.8.0 | 8 Mar 2026 | Extended Prometheus metrics endpoint with circuit breaker state, pipeline pool instance counts; added skeleton ConfigMap and Secret manifests. See detailed v5.8.0 changelog below. |
 | 5.8.1 | 8 Mar 2026 | Removed the 30× CPU multiplier from the inference timeout scaling formula. See detailed v5.8.1 changelog below. |
 | 5.9.0 | 8 Mar 2026 | Extended Prometheus metrics endpoint with in-flight request gauge and safety filter rejection counter. See detailed v5.9.0 changelog below. |
+| 5.10.0 | 9 Mar 2026 | Added operational runbook for critical failure modes, Prometheus alerting rule examples, and combined-workflow service level objective to the Logging and Observability section; added progressive delivery advisory to the Infrastructure Definition section; added architectural rationale for the absence of application-level admission control on prompt enhancement to the Security Considerations section; tightened Python version requirement from 3.11+ to 3.12+; updated future extensibility pathway 8 to acknowledge circuit breaker implementation; corrected `service_busy` `details` field classification in summary table; added readiness probe endpoint advisory for llama-cpp-server; added service lifecycle state diagram to FR37. See detailed v5.10.0 changelog below. |
 
 #### v4.0.0 Detailed Changelog
 
@@ -6223,6 +6502,58 @@ This section documents failure modes commonly encountered during initial setup a
 - Updated FR51 verification test procedure step 3 to include `number_of_http_requests_in_flight` and `number_of_generated_images_rejected_by_safety_filter_total` in the list of metric families that the response body must contain.
 - Added two success criteria to FR51 for the new instruments: the response body must contain a `number_of_http_requests_in_flight` sample (non-negative) and a `number_of_generated_images_rejected_by_safety_filter_total` sample (non-negative).
 - Updated the API Contract Definition for `GET /metrics/prometheus` purpose text and example output to include all seven instruments.
+
+#### v5.10.0 Detailed Changelog
+
+**Added operational runbook for critical failure modes (§18, Logging and Observability):**
+
+- Added a new subsection "Operational Runbook for Critical Failure Modes" to the Logging and Observability section, defining operator response procedures for the three most critical failure modes of the system architecture.
+- **Unavailability of the large language model server:** Defines detection signals (logging events `llama_cpp_connection_failed` and `circuit_breaker_opened`, readiness probe `degraded` state, Prometheus circuit breaker gauge), operator response procedure (pod status verification, log inspection, network connectivity diagnosis, automatic circuit breaker recovery), and service impact characterisation (prompt enhancement and combined-workflow requests fail with HTTP 502; standalone image generation continues).
+- **Termination of the Stable Diffusion process by the out-of-memory killer:** Defines detection signals (abrupt TCP reset without HTTP response, absence of `graceful_shutdown_initiated` log, container restart count increment, readiness probe `not_ready` state, kernel out-of-memory killer log entry), operator response procedure (kernel log confirmation, memory limit verification, automatic recovery via restart policy, sustained mitigation via memory limit increase to 16 GB recommendation), and service impact characterisation (full unavailability during 60–120 second model reloading period in single-replica deployments).
+- **Sustained open state of the circuit breaker for communication with the large language model:** Defines detection signals (repeating `circuit_breaker_half_open`/`circuit_breaker_reopened` cycle, sustained `llama_cpp_circuit_breaker_rejected` events, Prometheus gauge remaining at OPEN), operator response procedure (distinction from unavailability scenario, large language model server log inspection during probe window, contract mismatch diagnosis, automatic closure after remediation), and service impact characterisation (identical to unavailability scenario).
+
+**Added Prometheus alerting rule examples (§18, Logging and Observability):**
+
+- Added a new subsection "Prometheus Alerting Rule Examples" to the Logging and Observability section, defining three reference `PrometheusRule` resources that close the loop between metric emission ([FR51](#prometheus-metrics-endpoint)) and operator notification.
+- **Error budget burn rate for prompt enhancement availability:** Fires when the 1-hour 5xx rate exceeds 50% (10× the permitted 5% SLO burn rate), indicating premature error budget exhaustion. References `http_requests_received_total` with `path="/v1/prompts/enhance"` and `status_code=~"5.."` labels.
+- **Sustained open state of the circuit breaker for communication with the large language model:** Fires when `circuit_breaker_state{circuit_breaker_state="open"}` remains active for more than 2 minutes (longer than twice the default 30-second recovery timeout), indicating failed HALF_OPEN probe cycles.
+- **Sustained high latency for image generation:** Fires when the 95th percentile of `http_request_duration_in_seconds` for `/v1/images/generations` exceeds 5 seconds (GPU-tier SLO target) over a sustained 5-minute period. Includes advisory for CPU-tier deployments to adjust the threshold to 60 seconds.
+- Each alerting rule includes rationale for its threshold, `for` duration, and rate window selection, plus `runbook` annotations linking to the operational runbook subsection.
+
+**Added combined-workflow service level objective (§18, Logging and Observability):**
+
+- Added a new row to the service level objective table: "Latency of the Combined Workflow (Sequential)", defining latency targets for `POST /v1/images/generations` with `use_enhancer: true` — GPU tier: ≤ 15 seconds per request, no single request ≥ 25 seconds; CPU tier: ≤ 90 seconds per request, no single request ≥ 120 seconds. Measured across a batch of 5 sequential requests using the RO3 execution procedure.
+- Replaced the deferred-to-future-version statement in the combined-workflow latency advisory with a reference to the new service level objective.
+- Added a dedicated verification procedure for the combined-workflow service level objective, specifying 5 sequential RO3 executions with `n: 1` and `size: "512x512"`, with rationale for the reduced sample size relative to the image generation SLO.
+- Added an advisory on Prometheus-based monitoring of the combined workflow, explaining that the `http_request_duration_in_seconds` histogram does not distinguish between `use_enhancer: true` and `use_enhancer: false` requests and recommending structured log analysis as an alternative for separate combined-workflow latency monitoring.
+
+**Added architectural rationale for the absence of application-level admission control on prompt enhancement (§19, Security Considerations):**
+
+- Added a new advisory paragraph to the gateway dependency advisory explaining why the admission control pattern applied to image generation (NFR44) is not extended to prompt enhancement. The rationale covers three points: llama.cpp manages its own internal request queue (so application-level admission control would reject requests that llama.cpp would successfully process), the circuit breaker (NFR50) provides the appropriate protection for detecting upstream failure (rather than upstream busyness), and request-rate throttling is a network-level concern correctly handled at the reverse proxy layer.
+
+**Added progressive delivery advisory (§21, Infrastructure Definition):**
+
+- Added a progressive delivery advisory to the high availability configuration subsection, acknowledging canary deployment strategies (Argo Rollouts, Flagger) as a production enhancement for regression detection during rollouts. The advisory explains why this is not prescribed as a requirement (infrastructure dependencies exceeding the specification's deployment model scope) and cross-references the service level objectives as canary success criteria.
+
+**Added service lifecycle state diagram (§7, Requirements, FR37):**
+
+- Added an ASCII state diagram to the readiness check endpoint requirement (FR37) illustrating all service states (Starting, Ready, Degraded, Not Ready, Shutting Down, Terminated), the events that trigger transitions between them, and the corresponding readiness probe responses. The diagram is divided into two zones: operational states reported by the readiness endpoint (Ready, Degraded, Not Ready) and lifecycle phases not directly observable via the readiness probe (Starting, Shutting Down, Terminated). A transition summary table lists all 11 state transitions with their trigger conditions.
+
+**Added readiness probe endpoint advisory for llama-cpp-server (§21, Infrastructure Definition):**
+
+- Added a readiness probe endpoint advisory after the llama-cpp-server deployment tables explaining why `GET /health` is used for both readiness and liveness probes, unlike the text-to-image-api deployment which uses separate endpoints. The advisory clarifies that llama.cpp does not expose a separate readiness endpoint and that its `GET /health` returns HTTP 503 during model loading and HTTP 200 only after the model is fully loaded, providing equivalent readiness semantics.
+
+**Updated future extensibility pathway 8 (§20, Scalability and Future Extension Considerations):**
+
+- Renamed pathway 8 from "Upstream retry and circuit breaker policy" to "Upstream retry policy" to reflect that the circuit breaker component has been implemented as NFR50 since v5.1.0. Updated the pathway description to acknowledge the existing circuit breaker, reframe the remaining future work as a retry policy that operates within the circuit breaker's CLOSED state, and cross-reference the advisory on the absence of server-side retry in §15.
+
+**Corrected `service_busy` `details` field classification (§12, API Contract Definition):**
+
+- Moved `service_busy` from the "Omitted (field not present in the response body)" row to the "String" row in the Summary of the `details` Field Type by Error Code table. The summary table incorrectly listed `service_busy` as omitting the `details` field, contradicting both Example 3 (which shows `"details": "Current concurrency limit: 2. All inference slots are occupied."`) and the rate limit errors table (which lists `service_busy` with `details` Format as "String indicating the current concurrency limit and a retry recommendation"). The implementation correctly includes `details` as a string, consistent with the example and the rate limit errors table.
+
+**Tightened Python version requirement from 3.11+ to 3.12+ (§13, Technology Stack and Justification; §25, README):**
+
+- Changed the backend language heading from "Python 3.11+" to "Python 3.12+" in §13 and the environment prerequisites from "Version 3.11 or later" to "Version 3.12 or later" in §25. The previous "3.11+" bound was technically correct but misleading: the CI pipeline, the Dockerfile, and the model revision pin all specify Python 3.12 exclusively, and no testing on 3.11 is performed. The tightened requirement matches the actual tested configuration and prevents false expectations.
 
 ---
 

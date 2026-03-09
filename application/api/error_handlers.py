@@ -3,7 +3,7 @@ Centralised error-handling registration for the FastAPI application.
 
 Every exception type that can be raised within the service is mapped to
 a specific HTTP status code and a consistent JSON error response body.
-The mapping follows the v5.9.0 specification requirements:
+The mapping follows the v5.10.0 specification requirements:
 
     - Invalid JSON                        →  400 Bad Request
     - Request validation failure          →  400 Bad Request
@@ -23,7 +23,7 @@ default plain-text or HTML responses.
 
 Allow header on 405 responses
 -----------------------------
-Per RFC 9110 §15.5.6 and NFR22 of the v5.9.0 specification, every
+Per RFC 9110 §15.5.6 and NFR22 of the v5.10.0 specification, every
 HTTP 405 response must include an ``Allow`` header listing the methods
 supported by the requested endpoint.  Rather than maintaining a static
 dictionary that must be kept in sync with route registrations (audit
@@ -52,7 +52,7 @@ logger = structlog.get_logger()
 #
 # Maps Starlette/FastAPI framework-raised HTTP status codes to the
 # machine-readable error codes, human-readable messages, and structured
-# logging event names defined in the v5.9.0 specification (Section 11 —
+# logging event names defined in the v5.10.0 specification (Section 11 —
 # Error Response Schema; Section 18 — logging taxonomy).
 #
 # Each entry is a tuple of (error_code, error_message, log_event_name).
@@ -436,7 +436,7 @@ def register_error_handlers(fastapi_application: fastapi.FastAPI) -> None:
         discovers the allowed methods for the requested path by
         introspecting the application's registered routes, and includes
         the result in an ``Allow`` header as required by RFC 9110 §15.5.6
-        and NFR22 of the v5.9.0 specification.
+        and NFR22 of the v5.10.0 specification.
         """
         error_metadata = _HTTP_STATUS_CODE_TO_ERROR_METADATA.get(
             http_exception.status_code,
@@ -451,7 +451,7 @@ def register_error_handlers(fastapi_application: fastapi.FastAPI) -> None:
         error_message = error_message_or_none if error_message_or_none is not None else str(http_exception.detail)
 
         # Emit specification-aligned log events for 404 and 405 responses.
-        # The v5.9.0 specification's 46-event logging taxonomy defines
+        # The v5.10.0 specification's 46-event logging taxonomy defines
         # distinct event names for each HTTP error condition rather than
         # a generic "http_framework_error" event, enabling precise
         # monitoring dashboard filters and alert rules.

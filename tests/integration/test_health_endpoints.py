@@ -36,7 +36,7 @@ class TestHealthEndpoints:
     async def test_health_has_pragma_no_cache_header(self, client):
         """Infrastructure endpoints must include Pragma: no-cache for
         backward-compatible cache suppression with HTTP/1.0 intermediaries
-        (§12 of the v5.9.0 specification)."""
+        (§12 of the v5.10.0 specification)."""
         response = await client.get("/health")
 
         assert response.headers.get("pragma") == "no-cache"
@@ -181,7 +181,7 @@ class TestReadinessEndpoints:
     async def test_readiness_has_pragma_no_cache_header(self, client):
         """The readiness endpoint must include Pragma: no-cache for
         backward-compatible cache suppression with HTTP/1.0 intermediaries
-        (§12 of the v5.9.0 specification)."""
+        (§12 of the v5.10.0 specification)."""
         response = await client.get("/health/ready")
 
         assert response.headers.get("pragma") == "no-cache"
@@ -237,7 +237,7 @@ class TestMetricsEndpoints:
     async def test_metrics_has_pragma_no_cache_header(self, client):
         """The metrics endpoint must include Pragma: no-cache for
         backward-compatible cache suppression with HTTP/1.0 intermediaries
-        (§12 of the v5.9.0 specification)."""
+        (§12 of the v5.10.0 specification)."""
         response = await client.get("/metrics")
 
         assert response.headers.get("pragma") == "no-cache"

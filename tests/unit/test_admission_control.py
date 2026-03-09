@@ -29,7 +29,7 @@ class TestAdmissionControllerForImageGenerationInitialisation:
     """Verify that the controller initialises with correct defaults and custom values."""
 
     def test_default_maximum_number_of_concurrent_operations_is_two(self) -> None:
-        """The v5.9.0 specification default for maximum number of concurrent operations is 2."""
+        """The v5.10.0 specification default for maximum number of concurrent operations is 2."""
         controller = application.admission_control.AdmissionControllerForImageGeneration()
 
         assert controller.maximum_number_of_concurrent_operations == 2
