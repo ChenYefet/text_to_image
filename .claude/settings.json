@@ -38,6 +38,10 @@
           },
           {
             "type": "command",
+            "command": "python3 .claude/hooks/verify_commit_message_uses_header_and_bullet_point_format.py"
+          },
+          {
+            "type": "command",
             "command": "python3 .claude/hooks/verify_claude_md_is_committed_in_isolation.py"
           }
         ]
