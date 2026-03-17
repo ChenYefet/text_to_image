@@ -21,9 +21,11 @@ import os
 import subprocess
 import sys
 
-from helpers.deny_then_allow import is_git_commit_command
-from helpers.deny_then_allow import read_hook_input_from_stdin
 from helpers.deny_then_allow import run_deny_then_allow
+from helpers.parsing_of_hook_input_for_bash_commands import (
+    is_git_commit_command,
+    read_hook_input_from_standard_input,
+)
 
 MARKER_FILE_PREFIX = (
     ".commit_message_format_review_pending_before_commit_session_"
@@ -235,7 +237,7 @@ def check_and_build_blocking_message() -> str | None:
 
 def main() -> int:
     global _captured_command
-    hook_input = read_hook_input_from_stdin()
+    hook_input = read_hook_input_from_standard_input()
 
     tool_input = hook_input.get("tool_input", {})
     command = tool_input.get("command", "")

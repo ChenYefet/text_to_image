@@ -27,8 +27,8 @@ import os
 import subprocess
 import sys
 
-from helpers.deny_then_allow import read_hook_input_from_stdin
 from helpers.deny_then_allow import run_deny_then_allow
+from helpers.parsing_of_hook_input_for_bash_commands import read_hook_input_from_standard_input
 
 MARKER_FILE_PREFIX = (
     ".non_deterministic_hook_deny_then_allow_review_pending_before_commit_session_"
@@ -279,7 +279,7 @@ def check_and_build_blocking_message() -> str | None:
 
 
 def main() -> int:
-    hook_input = read_hook_input_from_stdin()
+    hook_input = read_hook_input_from_standard_input()
     return run_deny_then_allow(
         hook_input,
         MARKER_FILE_PREFIX,

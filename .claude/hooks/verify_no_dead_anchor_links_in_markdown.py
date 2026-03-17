@@ -12,19 +12,13 @@ Exit code 0 — always (output JSON controls blocking via permissionDecision).
 import importlib.util
 import json
 import os
-import re
 import subprocess
 import sys
 
-
-def read_hook_input_from_stdin() -> dict:
-    """Read the JSON hook input provided by Claude Code on stdin."""
-    return json.loads(sys.stdin.read())
-
-
-def is_git_commit_command(command: str) -> bool:
-    """Return True if the command is a git commit invocation."""
-    return bool(re.search(r"\bgit\s+commit\b", command))
+from helpers.parsing_of_hook_input_for_bash_commands import (
+    is_git_commit_command,
+    read_hook_input_from_standard_input,
+)
 
 
 def load_anchor_validation_functions() -> tuple:
@@ -106,7 +100,7 @@ def build_blocking_message(
 
 
 def main() -> int:
-    hook_input = read_hook_input_from_stdin()
+    hook_input = read_hook_input_from_standard_input()
 
     tool_input = hook_input.get("tool_input", {})
     command = tool_input.get("command", "")

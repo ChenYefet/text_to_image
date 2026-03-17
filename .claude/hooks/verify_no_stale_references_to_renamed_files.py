@@ -11,19 +11,17 @@ Exit code 0 — always (output JSON controls blocking via permissionDecision).
 
 import json
 import os
-import re
 import subprocess
 import sys
 
-
-def read_hook_input_from_stdin() -> dict:
-    """Read the JSON hook input provided by Claude Code on stdin."""
-    return json.loads(sys.stdin.read())
-
-
-def is_git_commit_command(command: str) -> bool:
-    """Return True if the command is a git commit invocation."""
-    return bool(re.search(r"\bgit\s+commit\b", command))
+from helpers.parsing_of_hook_input_for_bash_commands import (
+    is_git_commit_command,
+    read_hook_input_from_standard_input,
+)
+from helpers.searching_for_references_to_file_paths_in_repository import (
+    convert_file_path_to_path_of_python_module,
+    search_repository_for_references,
+)
 
 
 def get_renamed_files_from_staged_changes() -> list[tuple[str, str]]:
@@ -42,50 +40,6 @@ def get_renamed_files_from_staged_changes() -> list[tuple[str, str]]:
             new_path = parts[2]
             renamed_files.append((old_path, new_path))
     return renamed_files
-
-
-def convert_file_path_to_python_module_path(file_path: str) -> str | None:
-    """Convert a .py file path to its dotted Python module path.
-
-    Returns None if the file is not a Python file.
-    For example, ``application/main.py`` becomes ``application.main``.
-    """
-    if not file_path.endswith(".py"):
-        return None
-    module_path = file_path[:-3].replace("/", ".").replace("\\", ".")
-    # Strip trailing .__init__ since that module is typically imported
-    # via the package name alone.
-    if module_path.endswith(".__init__"):
-        module_path = module_path[: -len(".__init__")]
-    return module_path
-
-
-def search_repository_for_references(
-    search_term: str,
-    excluded_file_paths: list[str] | None = None,
-) -> list[tuple[str, int, str]]:
-    """Search the repository for occurrences of search_term using git grep.
-
-    Returns a list of (file_path, line_number, line_content) tuples.
-    Excludes any files listed in excluded_file_paths.
-    """
-    result = subprocess.run(
-        ["git", "grep", "-n", "--fixed-strings", search_term],
-        capture_output=True,
-        text=True,
-    )
-    references = []
-    excluded = set(excluded_file_paths or [])
-    for line in result.stdout.strip().splitlines():
-        # Format: file_path:line_number:line_content
-        match = re.match(r"^(.+?):(\d+):(.*)$", line)
-        if match:
-            file_path = match.group(1)
-            line_number = int(match.group(2))
-            line_content = match.group(3).strip()
-            if file_path not in excluded:
-                references.append((file_path, line_number, line_content))
-    return references
 
 
 def collect_stale_references_for_renamed_file(
@@ -120,7 +74,7 @@ def collect_stale_references_for_renamed_file(
     )
 
     # Search for the Python dotted module path.
-    old_module_path = convert_file_path_to_python_module_path(old_path)
+    old_module_path = convert_file_path_to_path_of_python_module(old_path)
     if old_module_path:
         add_unique_references(
             search_repository_for_references(old_module_path, excluded_files)
@@ -200,7 +154,7 @@ def build_advisory_message(
 
 
 def main() -> int:
-    hook_input = read_hook_input_from_stdin()
+    hook_input = read_hook_input_from_standard_input()
 
     tool_input = hook_input.get("tool_input", {})
     command = tool_input.get("command", "")

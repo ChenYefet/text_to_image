@@ -12,27 +12,13 @@ Session isolation is achieved via a marker file whose name includes the
 ``session_id`` from the hook input.  A marker created by a different
 session is ignored and cleaned up, preventing stale markers from
 allowing commits without review.
-
-Also provides common utility functions shared across all pre-commit
-hooks: ``read_hook_input_from_stdin`` and ``is_git_commit_command``.
 """
 
 import glob
-import json
 import pathlib
-import re
-import sys
 from collections.abc import Callable
 
-
-def read_hook_input_from_stdin() -> dict:
-    """Read the JSON hook input provided by Claude Code on stdin."""
-    return json.loads(sys.stdin.read())
-
-
-def is_git_commit_command(command: str) -> bool:
-    """Return True if the command is a git commit invocation."""
-    return bool(re.search(r"\bgit\s+commit\b", command))
+from helpers.parsing_of_hook_input_for_bash_commands import is_git_commit_command
 
 
 def _get_marker_file_path_for_session(
