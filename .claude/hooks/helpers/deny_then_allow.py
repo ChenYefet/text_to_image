@@ -44,6 +44,9 @@ def run_deny_then_allow(
     hook_input: dict,
     marker_file_prefix: str,
     check_and_build_blocking_message: Callable[[], str | None],
+    predicate_for_other_git_commands_that_affect_commits: (
+        Callable[[str], bool] | None
+    ) = None,
 ) -> int:
     """Execute the deny-then-allow pattern for a pre-commit hook.
 
@@ -66,6 +69,17 @@ def run_deny_then_allow(
             hook-specific check and returns a blocking message string
             if the commit should be blocked, or None if it should be
             allowed.
+        predicate_for_other_git_commands_that_affect_commits: An
+            optional callable that returns True for git commands — other
+            than ``git commit`` — that also produce or modify commits
+            and should therefore trigger the deny-then-allow check.
+            When provided, commands for which either
+            ``is_git_commit_command`` or this callable returns True will
+            proceed to the check.  When not provided, only
+            ``git commit`` commands are checked.  This parameter exists
+            because some hooks need to verify properties of commits
+            produced by commands such as ``git rebase --continue``, not
+            only those produced by ``git commit``.
 
     Returns 0 always (output JSON on stdout controls blocking via
     ``permissionDecision``).
@@ -73,8 +87,13 @@ def run_deny_then_allow(
     tool_input = hook_input.get("tool_input", {})
     command = tool_input.get("command", "")
 
-    # Fast path: not a git commit command.
-    if not is_git_commit_command(command):
+    # Fast path: command is neither a git commit nor another
+    # commit-affecting git command detected by the caller's predicate.
+    other_predicate = predicate_for_other_git_commands_that_affect_commits
+    if not is_git_commit_command(command) and (
+        other_predicate is None
+        or not other_predicate(command)
+    ):
         return 0
 
     session_id = hook_input.get("session_id", "")
