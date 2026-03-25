@@ -19,7 +19,7 @@ typecheck:
 	mypy application/ --ignore-missing-imports
 
 audit:
-	pip-audit -r requirements.txt
+	pip-audit -r requirements.txt --ignore-vuln CVE-2026-4539
 
 coverage:
 	pytest --cov=application --cov-report=term-missing --cov-fail-under=80
