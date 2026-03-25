@@ -199,3 +199,15 @@ When a number participates in a system of related numbers (e.g. a trigger thresh
 When a number is derived from a document source, verify that the source says what the derivation claims it says. Timeout maximums are not expected durations. Default values are not recommendations. Peak capacity is not sustained throughput. Warning thresholds are not operational baselines. If the derivation conflates two distinct concepts, the number is wrong regardless of whether it happens to produce a reasonable result.
 
 This requirement applies to all numerical values in all output contexts: architecture documents, capacity planning, configuration prescriptions, threshold specifications, scaling parameters, monitoring configurations, operational runbooks, and any other context where a number influences a decision. It applies equally to numbers in prose, in tables, in formulae, and in code comments. A number in a table cell requires the same justification as a number in a paragraph — the format does not reduce the obligation.
+
+BASH TOOL REQUIREMENTS
+
+The Bash tool runs all commands in a single persistent shell whose working directory carries over between tool calls. A bare `cd dir && command` permanently shifts that working directory for every subsequent call in the session, which can silently corrupt the execution context for all subsequent commands.
+
+Whenever a command must run from a directory other than the current working directory, wrap the directory change in a subshell:
+
+```
+(cd /path/to/subdir && command)
+```
+
+The parentheses confine the `cd` to the subshell; the persistent shell's working directory is not affected. This form must be used for all directory changes without exception.
