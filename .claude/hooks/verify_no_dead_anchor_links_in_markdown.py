@@ -16,7 +16,7 @@ import subprocess
 import sys
 
 from helpers.parsing_of_hook_input_for_bash_commands import (
-    is_git_commit_command,
+    is_git_subcommand,
     read_hook_input_from_standard_input,
 )
 
@@ -106,7 +106,7 @@ def main() -> int:
     command = tool_input.get("command", "")
 
     # Fast path: not a git commit command.
-    if not is_git_commit_command(command):
+    if not is_git_subcommand(command, "commit"):
         return 0
 
     staged_markdown_files = get_staged_markdown_files()

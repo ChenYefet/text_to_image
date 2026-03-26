@@ -16,7 +16,7 @@ import subprocess
 import sys
 
 from helpers.parsing_of_hook_input_for_bash_commands import (
-    is_git_commit_command,
+    is_git_subcommand,
     read_hook_input_from_standard_input,
 )
 from helpers.searching_for_references_to_file_paths_in_repository import (
@@ -157,7 +157,7 @@ def main() -> int:
     command = tool_input.get("command", "")
 
     # Fast path: not a git commit command.
-    if not is_git_commit_command(command):
+    if not is_git_subcommand(command, "commit"):
         return 0
 
     deleted_files = get_deleted_files_from_staged_changes()

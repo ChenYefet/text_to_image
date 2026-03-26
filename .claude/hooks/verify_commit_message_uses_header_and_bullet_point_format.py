@@ -23,7 +23,7 @@ import sys
 
 from helpers.deny_then_allow import run_deny_then_allow
 from helpers.parsing_of_hook_input_for_bash_commands import (
-    is_git_commit_command,
+    is_git_subcommand,
     read_hook_input_from_standard_input,
 )
 
@@ -242,7 +242,7 @@ def main() -> int:
     tool_input = hook_input.get("tool_input", {})
     command = tool_input.get("command", "")
 
-    if not is_git_commit_command(command):
+    if not is_git_subcommand(command, "commit"):
         return 0
 
     _captured_command = command

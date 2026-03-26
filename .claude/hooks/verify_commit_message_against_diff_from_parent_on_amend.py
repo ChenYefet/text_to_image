@@ -46,6 +46,7 @@ import sys
 
 from helpers.deny_then_allow import run_deny_then_allow
 from helpers.parsing_of_hook_input_for_bash_commands import (
+    is_git_subcommand,
     read_hook_input_from_standard_input,
 )
 
@@ -60,11 +61,14 @@ _captured_command = ""
 def is_git_commit_amend_command(command: str) -> bool:
     """Return True if the command is a ``git commit --amend`` invocation.
 
-    Strips heredoc content (between ``<<'EOF'`` and ``EOF``) before
-    checking, to avoid false positives when the commit message itself
-    mentions ``--amend`` as descriptive text.
+    Uses the shared ``is_git_subcommand`` to determine whether the
+    command is a ``git commit`` invocation (correctly handling git-level
+    flags such as ``-C <path>``), then strips heredoc content (between
+    ``<<'EOF'`` and ``EOF``) before checking for ``--amend``, to avoid
+    false positives when the commit message itself mentions ``--amend``
+    as descriptive text.
     """
-    if not re.search(r"\bgit\s+commit\b", command):
+    if not is_git_subcommand(command, "commit"):
         return False
     command_without_heredoc_content = re.sub(
         r"<<'EOF'\s*\n.*?\n\s*EOF", "", command, flags=re.DOTALL
@@ -73,8 +77,15 @@ def is_git_commit_amend_command(command: str) -> bool:
 
 
 def is_git_rebase_continue_command(command: str) -> bool:
-    """Return True if the command is a ``git rebase --continue`` invocation."""
-    return bool(re.search(r"\bgit\s+rebase\b.*--continue\b", command))
+    """Return True if the command is a ``git rebase --continue`` invocation.
+
+    Uses the shared ``is_git_subcommand`` to correctly handle
+    git-level flags such as ``-C <path>`` before identifying the
+    subcommand, then checks for the ``--continue`` flag.
+    """
+    if not is_git_subcommand(command, "rebase"):
+        return False
+    return bool(re.search(r"--continue\b", command))
 
 
 def get_diff_of_staged_changes_from_parent_for_amend() -> str | None:
