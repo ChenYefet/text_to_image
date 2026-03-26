@@ -149,4 +149,4 @@ jobs:
           # re-downloading and re-installing Python dependencies on
           # every build when only application source code has changed.
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-to: type=gha,mode=min
