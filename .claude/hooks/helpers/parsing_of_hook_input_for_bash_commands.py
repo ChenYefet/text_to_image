@@ -99,16 +99,18 @@ def is_git_subcommand(command: str, subcommand: str) -> bool:
             command,
         ))
 
-    # Locate the 'git' token.  It may not be the first token if the
-    # command starts with environment variable assignments or a
-    # preceding subshell wrapper.
+    # Scan all tokens for a 'git' invocation matching the requested
+    # subcommand.  Scanning all tokens (rather than stopping at the
+    # first 'git') ensures that compound commands such as
+    # 'git add . && git commit' are handled correctly: the first 'git'
+    # has subcommand 'add', so stopping there would cause 'commit' to
+    # go undetected.
     for position, token in enumerate(tokens):
         if token == "git" or token.endswith("/git"):
-            return (
-                _extract_git_subcommand_from_tokens(
-                    tokens[position + 1 :]
-                )
+            if (
+                _extract_git_subcommand_from_tokens(tokens[position + 1 :])
                 == subcommand
-            )
+            ):
+                return True
 
     return False
