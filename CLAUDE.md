@@ -12,10 +12,10 @@ CODE AND NAMING REQUIREMENTS
 
 All code must be self-documenting.
 
-No abbreviations or acronyms are permitted in variable names, function names, class names, inline comments, or import aliases. E.g. no 'img' instead of 'image', no 'llm' instead of 'large_language_model', etc. The only exceptions to this are 'ID', 'KB', 'MB', 'GB', 'CPU', 'GPU', 'I/O', 'DevOps', 'HTTP', 'URL', 'JSON', 'API', 'UUID', 'NSFW', 'NFR', 'FR', 'RO', 'PNG', 'JPG', 'JPEG', 'IP', 'CORS', 'CUDA', 'TCP', 'CLIP', 'GGUF', all file extension abbreviations, 'VRAM', 'RAM', 'GDPR', 'WSL2', 'WSL', 'JIT', 'HPA', 'ASGI', 'WSGI'. No other exceptions, apart from the following which must never be touched:
+No abbreviations or acronyms are permitted in code identifiers (variable names, function names, class names, import aliases, filenames) or in prose (inline comments, docstrings, documentation, section headings, diagram labels, table cells, and configuration examples) unless they appear in the "Approved abbreviations" list at the end of this document. Each entry in that list records two independent decisions: whether the abbreviation remains abbreviated in code identifiers, and whether it remains abbreviated in prose. When you encounter an abbreviation or acronym that does not yet have an entry in the list, prompt the user to decide which list it belongs in, then record the decisions. Abbreviations in the list marked as "expanded" shall always use the expanded form in the corresponding context. The following categories of symbols must never be modified regardless of whether they contain abbreviations:
 
-- Python built-ins (max, min, len, id, etc.)
-- Magic methods (__init__, __str__, etc.)
+- Python built-ins (max, min, len, id, and others)
+- Magic methods (__init__, __str__, and others)
 - Dunder attributes
 - Decorators required by frameworks
 - Protocol method names
@@ -25,7 +25,7 @@ No abbreviations or acronyms are permitted in variable names, function names, cl
 
 You may introduce additional libraries if justified architecturally.
 
-Variable and function names must be fully descriptive, even if excessively verbose. These rules apply to all text without exception: variable names, function names, class names, import aliases, inline comments, prose descriptions, section headings, diagram labels, table cells, and configuration examples. No abbreviations or acronyms are permitted in any of these contexts. Sometimes, excessive verbosity may be necessary since the lack of abbreviations or acronyms can introduce vagueness, such as 'client software development kit generation' or 'out-of-memory process termination restarts' or 'Service Level Objective Name' or 'Service Level Indicator Definition'. Whenever there is even the slightest vagueness, I want to prioritise clarity above all else by inserting relational words to group the noun phrase explicitly. So 'client software development kit generation' should be restructured as 'generation of client software development kits'. Similarly: 'out-of-memory process termination restarts' should be restructured as 'restarts triggered by out-of-memory process terminations'; 'Service Level Objective Name' should be restructured as 'Name of the Service Level Objective' (notice how the lack of abbreviations gives rise to this). Unconventional phrasing is not only permitted but required when it eliminates ambiguity — do not avoid a construction merely because it looks unusual. In cases where eliminating ambiguity would violate a naming convention such as the Prometheus {scope}{measurement}{unit} pattern, violate the convention. For example, current_resident_set_size_bytes should be restructured as current_number_of_bytes_of_resident_set_size: the double 'of' is deliberate — number_of_bytes names precisely what is being counted, and of_resident_set_size binds that count to the intact noun phrase, leaving no room for any alternative parse.
+Variable and function names must be fully descriptive, even if excessively verbose. These rules apply to all text without exception: variable names, function names, class names, import aliases, inline comments, prose descriptions, section headings, diagram labels, table cells, and configuration examples. Abbreviations and acronyms must be used in accordance with the approved abbreviations list at the end of this document. Sometimes, excessive verbosity may be necessary since the lack of abbreviations or acronyms can introduce vagueness, such as 'client software development kit generation' or 'out-of-memory process termination restarts' or 'Service Level Objective Name' or 'Service Level Indicator Definition'. Whenever there is even the slightest vagueness, I want to prioritise clarity above all else by inserting relational words to group the noun phrase explicitly. So 'client software development kit generation' should be restructured as 'generation of client software development kits'. Similarly: 'out-of-memory process termination restarts' should be restructured as 'restarts triggered by out-of-memory process terminations'; 'Service Level Objective Name' should be restructured as 'Name of the Service Level Objective' (notice how the lack of abbreviations gives rise to this). Unconventional phrasing is not only permitted but required when it eliminates ambiguity — do not avoid a construction merely because it looks unusual. In cases where eliminating ambiguity would violate a naming convention such as the Prometheus {scope}{measurement}{unit} pattern, violate the convention. For example, current_resident_set_size_bytes should be restructured as current_number_of_bytes_of_resident_set_size: the double 'of' is deliberate — number_of_bytes names precisely what is being counted, and of_resident_set_size binds that count to the intact noun phrase, leaving no room for any alternative parse.
 
 This does not mean that every element requires its own relational connector. A leading modifier — whether an adjective or a classifying noun — may appear without a connector of its own, but only when the word it immediately precedes is itself immediately followed by a relational connector. A classifying noun is any word that functions as a noun in other contexts and is used here attributively to name the type or category of the head noun — for example, 'request' in 'request pipeline', 'image' in 'image format', 'service' in 'service error'. An adjective describes a quality or property of the head noun and cannot stand alone as a noun without a change of meaning — for example, 'minimum', 'viable', 'rapid'. When a word could plausibly be read as either (for example, 'structured', 'automated', 'upstream'), treat it as a classifying noun and apply the connector requirement. Hyphenated compound modifiers — multi-word phrases joined by hyphens to form a single attributive unit (for example, 'change-to-directory' from 'change to directory', 'load-testing' from 'load testing') — are adjectives, not classifying nouns. The hyphens explicitly signal that the phrase functions as a single adjectival modifier; the unhyphenated components cannot be used as a standalone noun in that form. The ambiguity test does not apply to hyphenated compounds because the hyphenation itself resolves the ambiguity. Determiners — the articles 'a', 'an', 'the'; the demonstratives 'this', 'that', 'these', 'those'; and the quantifiers 'every', 'each', 'all', 'any', 'no', 'some', 'many', 'few', 'several', 'most', 'both', 'either', 'neither', 'enough', 'another', 'other' — are not governed by this rule. They are neither adjectives (which describe a quality or property) nor classifying nouns (which name a type or category). Because a determiner always scopes over the entire noun phrase it introduces, no structural ambiguity of modifier attachment can arise, and no connector is required after a determiner regardless of what follows it. Relational connectors are prepositions that make a semantic relationship explicit: of, for, by, from, via, under, through, at, in, on, to, with, during, without, per, after, before, between, against, across, into, since, and until all qualify; a comma, a parenthetical, or simple juxtaposition does not. A connector is structurally valid when it is present, but it is semantically valid only when it accurately represents the actual relationship between the two elements it joins. Choosing a generic connector (such as 'for' or 'of') when a more precise one is available is a violation. When selecting a relational connector, test every candidate connector against the relationship before committing. Do not stop at the first plausible option. Each connector carries a distinct meaning and must be selected accordingly:
 
@@ -216,3 +216,45 @@ When a number participates in a system of related numbers (e.g. a trigger thresh
 When a number is derived from a document source, verify that the source says what the derivation claims it says. Timeout maximums are not expected durations. Default values are not recommendations. Peak capacity is not sustained throughput. Warning thresholds are not operational baselines. If the derivation conflates two distinct concepts, the number is wrong regardless of whether it happens to produce a reasonable result.
 
 This requirement applies to all numerical values in all output contexts: architecture documents, capacity planning, configuration prescriptions, threshold specifications, scaling parameters, monitoring configurations, operational runbooks, and any other context where a number influences a decision. It applies equally to numbers in prose, in tables, in formulae, and in code comments. A number in a table cell requires the same justification as a number in a paragraph — the format does not reduce the obligation.
+
+APPROVED ABBREVIATIONS
+
+| Abbreviation | Expansion | In code | In prose |
+|---|---|---|---|
+| All file extensions | (varies by extension) | abbreviated | abbreviated |
+| All ISO 4217 currency codes | (varies by currency) | abbreviated | abbreviated |
+| ID | identifier | abbreviated | abbreviated |
+| KB | kilobyte | abbreviated | abbreviated |
+| MB | megabyte | abbreviated | abbreviated |
+| GB | gigabyte | abbreviated | abbreviated |
+| CPU | central processing unit | abbreviated | abbreviated |
+| GPU | graphics processing unit | abbreviated | abbreviated |
+| I/O | input/output | abbreviated | abbreviated |
+| DevOps | development operations | abbreviated | abbreviated |
+| HTTP | Hypertext Transfer Protocol | abbreviated | abbreviated |
+| URL | Uniform Resource Locator | abbreviated | abbreviated |
+| JSON | JavaScript Object Notation | abbreviated | abbreviated |
+| API | Application Programming Interface | abbreviated | abbreviated |
+| UUID | Universally Unique Identifier | abbreviated | abbreviated |
+| NSFW | not safe for work | abbreviated | abbreviated |
+| NFR | non-functional requirement | abbreviated | abbreviated |
+| FR | functional requirement | abbreviated | abbreviated |
+| RO | Reference Operation | abbreviated | abbreviated |
+| PNG | Portable Network Graphics | abbreviated | abbreviated |
+| JPG | Joint Photographic Experts Group (variant) | abbreviated | abbreviated |
+| JPEG | Joint Photographic Experts Group | abbreviated | abbreviated |
+| IP | Internet Protocol | abbreviated | abbreviated |
+| CORS | Cross-Origin Resource Sharing | abbreviated | abbreviated |
+| CUDA | Compute Unified Device Architecture | abbreviated | abbreviated |
+| TCP | Transmission Control Protocol | abbreviated | abbreviated |
+| CLIP | Contrastive Language-Image Pre-training | abbreviated | abbreviated |
+| GGUF | GGML Unified Format | abbreviated | abbreviated |
+| VRAM | video random-access memory | abbreviated | abbreviated |
+| RAM | random-access memory | abbreviated | abbreviated |
+| GDPR | General Data Protection Regulation | abbreviated | abbreviated |
+| WSL2 | Windows Subsystem for Linux 2 | abbreviated | abbreviated |
+| WSL | Windows Subsystem for Linux | abbreviated | abbreviated |
+| JIT | just-in-time | abbreviated | abbreviated |
+| HPA | Horizontal Pod Autoscaler | abbreviated | abbreviated |
+| ASGI | Asynchronous Server Gateway Interface | abbreviated | abbreviated |
+| WSGI | Web Server Gateway Interface | abbreviated | abbreviated |
