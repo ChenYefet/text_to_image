@@ -1,16 +1,24 @@
 """Pre-commit hook that verifies the commit message accurately describes the
-diff from the parent commit when amending or continuing a rebase.
+diff from the parent commit when creating, amending, or continuing a rebase.
 
-This catches a common error where the commit message was written for an
+This catches a common error where the commit message does not accurately
+describe the staged changes — whether because the message was written for an
 intermediate editing state and no longer accurately describes the total
-changes from the parent commit after amendment.
+changes from the parent commit after amendment, or because the message was
+simply inaccurate when the commit was first created.
 
 Covered scenarios:
 
+- ``git commit`` (without ``--amend``): Covers new commits.  The diff is
+  computed between the staging area and HEAD (the parent of the new commit).
 - ``git commit --amend``: Covers direct amends and ``edit`` stops during
   interactive rebase (which use ``git commit --amend`` under the hood).
+  The diff is computed between the staging area and HEAD~1 (the parent of
+  the commit being amended).
 - ``git rebase --continue``: Covers conflict resolution and rebase steps
-  where ``--continue`` creates or finalises a commit.
+  where ``--continue`` creates or finalises a commit.  The diff is computed
+  between the staging area and HEAD (the parent of the commit about to be
+  created).
 
 Known limitation — ``reword`` during interactive rebase: When
 ``git rebase -i`` includes ``reword`` actions, git handles the message
@@ -21,9 +29,9 @@ This hook therefore cannot verify commit message accuracy for pure
 ``reword`` actions.
 
 This is a Claude Code PreToolUse hook for the Bash tool.  On the first
-``git commit --amend`` or ``git rebase --continue`` attempt within a
-session, it computes the diff between the staging area and the parent
-commit, then delegates accuracy analysis to Claude Sonnet via the
+``git commit``, ``git commit --amend``, or ``git rebase --continue`` attempt
+within a session, it computes the diff between the staging area and the
+parent commit, then delegates accuracy analysis to Claude Sonnet via the
 ``claude`` CLI.  If the message contains inaccuracies — false claims,
 references to intermediate states, significant omissions, or
 mischaracterisations — the commit is denied.  On the second attempt
@@ -76,6 +84,25 @@ def is_git_commit_amend_command(command: str) -> bool:
     return bool(re.search(r"--amend\b", command_without_heredoc_content))
 
 
+def is_git_commit_without_amend_command(command: str) -> bool:
+    """Return True if the command is a ``git commit`` invocation without
+    ``--amend``.
+
+    Uses the shared ``is_git_subcommand`` to determine whether the
+    command is a ``git commit`` invocation (correctly handling git-level
+    flags such as ``-C <path>``), then strips heredoc content (between
+    ``<<'EOF'`` and ``EOF``) before checking for the absence of
+    ``--amend``, to avoid false positives when the commit message itself
+    mentions ``--amend`` as descriptive text.
+    """
+    if not is_git_subcommand(command, "commit"):
+        return False
+    command_without_heredoc_content = re.sub(
+        r"<<'EOF'\s*\n.*?\n\s*EOF", "", command, flags=re.DOTALL
+    )
+    return not bool(re.search(r"--amend\b", command_without_heredoc_content))
+
+
 def is_git_rebase_continue_command(command: str) -> bool:
     """Return True if the command is a ``git rebase --continue`` invocation.
 
@@ -116,17 +143,17 @@ def get_diff_of_staged_changes_from_parent_for_amend() -> str | None:
     return output if output else None
 
 
-def get_diff_of_staged_changes_from_head_for_rebase_continue() -> str | None:
+def get_diff_of_staged_changes_from_head() -> str | None:
     """Return the diff between the staging area and HEAD.
 
-    During ``git rebase --continue``, HEAD is the parent of the commit
-    about to be created.  The staging area contains the changes that
-    will form the new commit.  This diff therefore represents the full
-    content of the new commit relative to its parent.
+    For ``git commit`` (without ``--amend``), HEAD is the parent of the
+    new commit.  For ``git rebase --continue``, HEAD is the parent of the
+    commit about to be created.  In both cases this diff represents the
+    full content of the new commit relative to its parent.
 
     Returns None if there are no staged changes (which means
     ``--continue`` is merely advancing the rebase without creating a
-    new commit).
+    new commit, or the new commit has nothing staged).
     """
     try:
         result = subprocess.run(
@@ -376,6 +403,10 @@ def resolve_commit_message_and_diff_from_parent() -> tuple[str, str] | None:
     """Determine the commit message and diff from parent for the current
     command.
 
+    For ``git commit`` (without ``--amend``): The message comes from the
+    -m flag.  The diff is computed between the staging area and HEAD (the
+    parent of the new commit).
+
     For ``git commit --amend``: The message comes from the -m flag (or
     from HEAD if no -m flag is present).  The diff is computed between
     the staging area and HEAD~1 (the parent of the commit being amended).
@@ -388,7 +419,11 @@ def resolve_commit_message_and_diff_from_parent() -> tuple[str, str] | None:
     Returns a (commit_message, diff_from_parent) tuple, or None if
     the message or diff cannot be determined.
     """
-    if is_git_commit_amend_command(_captured_command):
+    if is_git_commit_without_amend_command(_captured_command):
+        commit_message = extract_commit_message_from_command(_captured_command)
+        diff_from_parent = get_diff_of_staged_changes_from_head()
+
+    elif is_git_commit_amend_command(_captured_command):
         commit_message = extract_commit_message_from_command(
             _captured_command
         )
@@ -398,9 +433,7 @@ def resolve_commit_message_and_diff_from_parent() -> tuple[str, str] | None:
 
     elif is_git_rebase_continue_command(_captured_command):
         commit_message = get_pending_commit_message_from_rebase()
-        diff_from_parent = (
-            get_diff_of_staged_changes_from_head_for_rebase_continue()
-        )
+        diff_from_parent = get_diff_of_staged_changes_from_head()
 
     else:
         return None
@@ -465,7 +498,11 @@ def main() -> int:
     tool_input = hook_input.get("tool_input", {})
     command = tool_input.get("command", "")
 
-    if not is_git_commit_amend_command(command) and not is_git_rebase_continue_command(command):
+    if (
+        not is_git_commit_without_amend_command(command)
+        and not is_git_commit_amend_command(command)
+        and not is_git_rebase_continue_command(command)
+    ):
         return 0
 
     _captured_command = command

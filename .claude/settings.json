@@ -42,7 +42,7 @@
           },
           {
             "type": "command",
-            "command": "python3 .claude/hooks/verify_commit_message_against_diff_from_parent_on_amend.py"
+            "command": "python3 .claude/hooks/verify_commit_message_against_diff_from_parent.py"
           },
           {
             "type": "command",
