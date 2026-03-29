@@ -18,6 +18,13 @@ Two public entry points are provided:
   Use this for hooks that must check arbitrary shell commands rather
   than only git commits.
 
+Both entry points also detect ``git rebase --abort`` commands and clean
+up all marker files for the current session before allowing the command.
+A ``git rebase --abort`` discards the in-progress rebase, invalidating
+any marker files that were created by denied commits during that rebase;
+without cleanup, those stale markers would cause the next commit to be
+allowed unconditionally without review.
+
 Session isolation is achieved via a marker file whose name includes the
 ``session_id`` from the hook input.  A marker created by a different
 session is ignored and cleaned up, preventing stale markers from
@@ -29,7 +36,36 @@ import json
 import pathlib
 from collections.abc import Callable
 
+import re
+
 from helpers.parsing_of_hook_input_for_bash_commands import is_git_subcommand
+
+
+def _is_git_rebase_abort(command: str) -> bool:
+    """Return True if *command* contains a ``git rebase --abort``."""
+    if not is_git_subcommand(command, "rebase"):
+        return False
+    return bool(re.search(r"--abort\b", command))
+
+
+def _clean_up_all_marker_files_for_current_session(
+    session_id: str,
+) -> None:
+    """Remove all deny-then-allow marker files for the current session.
+
+    This is called when a ``git rebase --abort`` is detected.  Aborting
+    a rebase discards the in-progress rebase, invalidating any marker
+    files that were created by denied commits during that rebase.
+    Without this cleanup, those stale markers would cause the next
+    commit to be allowed unconditionally without review.
+
+    All marker files follow the naming convention
+    ``.<hook_specific_prefix>session_<session_id>``.  This function
+    globs for all files matching ``.*_session_{session_id}`` and
+    deletes them.
+    """
+    for marker_path in glob.glob(f".*_session_{session_id}"):
+        pathlib.Path(marker_path).unlink(missing_ok=True)
 
 
 def _get_marker_file_path_for_session(
@@ -157,6 +193,13 @@ def run_deny_then_allow(
     tool_input = hook_input.get("tool_input", {})
     command = tool_input.get("command", "")
 
+    # Clean up all marker files when a rebase is aborted, because any
+    # markers created by denied commits during the rebase are now stale.
+    session_id = hook_input.get("session_id", "")
+    if session_id and _is_git_rebase_abort(command):
+        _clean_up_all_marker_files_for_current_session(session_id)
+        return 0
+
     # Fast path: command is neither a git commit nor another
     # commit-affecting git command detected by the caller's predicate.
     other_predicate = predicate_for_other_git_commands_that_affect_commits
@@ -202,6 +245,15 @@ def run_deny_then_allow_on_bash_command(
     Returns 0 always (output JSON on stdout controls blocking via
     ``permissionDecision``).
     """
+    # Clean up all marker files when a rebase is aborted, because any
+    # markers created by denied commits during the rebase are now stale.
+    tool_input = hook_input.get("tool_input", {})
+    command = tool_input.get("command", "")
+    session_id = hook_input.get("session_id", "")
+    if session_id and _is_git_rebase_abort(command):
+        _clean_up_all_marker_files_for_current_session(session_id)
+        return 0
+
     return _run_core_logic_of_deny_then_allow(
         hook_input, marker_file_prefix, check_and_build_blocking_message
     )
