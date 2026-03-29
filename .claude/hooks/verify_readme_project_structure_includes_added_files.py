@@ -24,8 +24,8 @@ import sys
 from helpers.deny_then_allow import run_deny_then_allow
 from helpers.parsing_of_hook_input_for_bash_commands import read_hook_input_from_standard_input
 
-MARKER_FILE_PREFIX = (
-    ".readme_project_structure_review_pending_before_commit_session_"
+PREFIX_OF_MARKER_FILE = (
+    ".marker_file_for_pending_review_of_project_structure_in_readme_for_session_"
 )
 
 
@@ -241,7 +241,7 @@ def main() -> int:
     hook_input = read_hook_input_from_standard_input()
     return run_deny_then_allow(
         hook_input,
-        MARKER_FILE_PREFIX,
+        PREFIX_OF_MARKER_FILE,
         check_and_build_blocking_message,
     )
 

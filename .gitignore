@@ -25,10 +25,8 @@ htmlcov/
 .coverage
 coverage.xml
 
-# Pre-commit review marker files (session-scoped)
-.claude_md_review_pending_before_commit_session_*
-.heading_reference_hyperlink_review_pending_before_commit_session_*
-.non_deterministic_hook_deny_then_allow_review_pending_before_commit_session_*
+# Hook marker files (session-scoped)
+.marker_file_for_*
 
 # OS files
 .DS_Store

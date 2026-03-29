@@ -58,8 +58,8 @@ from helpers.parsing_of_hook_input_for_bash_commands import (
     read_hook_input_from_standard_input,
 )
 
-MARKER_FILE_PREFIX = (
-    ".commit_message_accuracy_against_diff_from_parent_review_pending_session_"
+PREFIX_OF_MARKER_FILE = (
+    ".marker_file_for_pending_review_of_accuracy_of_commit_message_against_diff_from_parent_for_session_"
 )
 
 # Store the command from hook input so the closure can access it.
@@ -509,7 +509,7 @@ def main() -> int:
 
     return run_deny_then_allow(
         hook_input,
-        MARKER_FILE_PREFIX,
+        PREFIX_OF_MARKER_FILE,
         check_and_build_blocking_message,
         predicate_for_other_git_commands_that_affect_commits=(
             is_command_for_git_rebase_with_continue

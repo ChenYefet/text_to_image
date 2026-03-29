@@ -29,7 +29,7 @@ from helpers.parsing_of_hook_input_for_bash_commands import (
     read_hook_input_from_standard_input,
 )
 
-MARKER_FILE_PREFIX = ".top_level_cd_deny_then_allow_session_"
+PREFIX_OF_MARKER_FILE = ".marker_file_for_pending_review_of_use_of_cd_at_top_level_for_session_"
 
 
 def command_contains_top_level_cd(command: str) -> bool:
@@ -118,7 +118,7 @@ def main() -> int:
 
     return run_deny_then_allow_on_bash_command(
         hook_input,
-        MARKER_FILE_PREFIX,
+        PREFIX_OF_MARKER_FILE,
         check_and_build_blocking_message,
     )
 

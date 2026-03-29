@@ -27,8 +27,8 @@ from helpers.parsing_of_hook_input_for_bash_commands import (
     read_hook_input_from_standard_input,
 )
 
-MARKER_FILE_PREFIX = (
-    ".commit_message_format_review_pending_before_commit_session_"
+PREFIX_OF_MARKER_FILE = (
+    ".marker_file_for_pending_review_of_format_of_commit_message_for_session_"
 )
 
 
@@ -249,7 +249,7 @@ def main() -> int:
 
     return run_deny_then_allow(
         hook_input,
-        MARKER_FILE_PREFIX,
+        PREFIX_OF_MARKER_FILE,
         check_and_build_blocking_message,
     )
 

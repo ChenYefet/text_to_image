@@ -69,26 +69,26 @@ def _clean_up_all_marker_files_for_current_session(
 
 
 def _get_marker_file_path_for_session(
-    marker_file_prefix: str,
+    prefix_of_marker_file: str,
     session_id: str,
 ) -> pathlib.Path:
     """Return the path to the session-scoped marker file."""
-    return pathlib.Path(f"{marker_file_prefix}{session_id}")
+    return pathlib.Path(f"{prefix_of_marker_file}{session_id}")
 
 
 def _clean_up_stale_marker_files(
-    marker_file_prefix: str,
+    prefix_of_marker_file: str,
     current_session_id: str,
 ) -> None:
     """Remove marker files left behind by previous sessions."""
-    for stale_marker_path in glob.glob(f"{marker_file_prefix}*"):
+    for stale_marker_path in glob.glob(f"{prefix_of_marker_file}*"):
         if current_session_id not in stale_marker_path:
             pathlib.Path(stale_marker_path).unlink(missing_ok=True)
 
 
 def _run_core_logic_of_deny_then_allow(
     hook_input: dict,
-    marker_file_prefix: str,
+    prefix_of_marker_file: str,
     check_and_build_blocking_message: Callable[[], str | None],
 ) -> int:
     """Execute the session-scoped marker-file deny-then-allow logic.
@@ -118,10 +118,10 @@ def _run_core_logic_of_deny_then_allow(
             print(json.dumps(output))
         return 0
 
-    _clean_up_stale_marker_files(marker_file_prefix, session_id)
+    _clean_up_stale_marker_files(prefix_of_marker_file, session_id)
 
     marker_file_path = _get_marker_file_path_for_session(
-        marker_file_prefix, session_id
+        prefix_of_marker_file, session_id
     )
 
     if marker_file_path.exists():
@@ -148,7 +148,7 @@ def _run_core_logic_of_deny_then_allow(
 
 def run_deny_then_allow(
     hook_input: dict,
-    marker_file_prefix: str,
+    prefix_of_marker_file: str,
     check_and_build_blocking_message: Callable[[], str | None],
     predicate_for_other_git_commands_that_affect_commits: (
         Callable[[str], bool] | None
@@ -169,7 +169,7 @@ def run_deny_then_allow(
 
     Parameters:
         hook_input: The JSON hook input from Claude Code stdin.
-        marker_file_prefix: A unique prefix for this hook's marker
+        prefix_of_marker_file: A unique prefix for this hook's marker
             files.  Must be different for each hook to avoid collisions.
         check_and_build_blocking_message: A callable that performs the
             hook-specific check and returns a blocking message string
@@ -210,13 +210,13 @@ def run_deny_then_allow(
         return 0
 
     return _run_core_logic_of_deny_then_allow(
-        hook_input, marker_file_prefix, check_and_build_blocking_message
+        hook_input, prefix_of_marker_file, check_and_build_blocking_message
     )
 
 
 def run_deny_then_allow_on_bash_command(
     hook_input: dict,
-    marker_file_prefix: str,
+    prefix_of_marker_file: str,
     check_and_build_blocking_message: Callable[[], str | None],
 ) -> int:
     """Execute the deny-then-allow pattern on every Bash tool invocation.
@@ -235,7 +235,7 @@ def run_deny_then_allow_on_bash_command(
 
     Parameters:
         hook_input: The JSON hook input from Claude Code stdin.
-        marker_file_prefix: A unique prefix for this hook's marker
+        prefix_of_marker_file: A unique prefix for this hook's marker
             files.  Must be different for each hook to avoid collisions.
         check_and_build_blocking_message: A callable that performs the
             hook-specific check and returns a blocking message string
@@ -255,5 +255,5 @@ def run_deny_then_allow_on_bash_command(
         return 0
 
     return _run_core_logic_of_deny_then_allow(
-        hook_input, marker_file_prefix, check_and_build_blocking_message
+        hook_input, prefix_of_marker_file, check_and_build_blocking_message
     )

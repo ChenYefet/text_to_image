@@ -41,8 +41,8 @@ from helpers.parsing_of_hook_input_for_bash_commands import (
     read_hook_input_from_standard_input,
 )
 
-MARKER_FILE_PREFIX = (
-    ".git_commit_in_compound_command_deny_then_allow_session_"
+PREFIX_OF_MARKER_FILE = (
+    ".marker_file_for_pending_review_of_git_commit_in_compound_command_for_session_"
 )
 
 
@@ -129,7 +129,7 @@ def main() -> int:
 
     return run_deny_then_allow_on_bash_command(
         hook_input,
-        MARKER_FILE_PREFIX,
+        PREFIX_OF_MARKER_FILE,
         check_and_build_blocking_message,
     )
 

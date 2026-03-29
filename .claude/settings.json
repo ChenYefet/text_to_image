@@ -58,6 +58,17 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 .claude/hooks/track_reading_of_claude_md.py"
+          }
+        ]
+      }
     ]
   }
 }
