@@ -41,7 +41,7 @@ import re
 from helpers.parsing_of_hook_input_for_bash_commands import is_git_subcommand
 
 
-def _is_git_rebase_abort(command: str) -> bool:
+def _is_command_for_git_rebase_with_abort(command: str) -> bool:
     """Return True if *command* contains a ``git rebase --abort``."""
     if not is_git_subcommand(command, "rebase"):
         return False
@@ -196,7 +196,7 @@ def run_deny_then_allow(
     # Clean up all marker files when a rebase is aborted, because any
     # markers created by denied commits during the rebase are now stale.
     session_id = hook_input.get("session_id", "")
-    if session_id and _is_git_rebase_abort(command):
+    if session_id and _is_command_for_git_rebase_with_abort(command):
         _clean_up_all_marker_files_for_current_session(session_id)
         return 0
 
@@ -250,7 +250,7 @@ def run_deny_then_allow_on_bash_command(
     tool_input = hook_input.get("tool_input", {})
     command = tool_input.get("command", "")
     session_id = hook_input.get("session_id", "")
-    if session_id and _is_git_rebase_abort(command):
+    if session_id and _is_command_for_git_rebase_with_abort(command):
         _clean_up_all_marker_files_for_current_session(session_id)
         return 0
 

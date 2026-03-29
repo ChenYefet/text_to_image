@@ -66,7 +66,7 @@ MARKER_FILE_PREFIX = (
 _captured_command = ""
 
 
-def is_git_commit_amend_command(command: str) -> bool:
+def is_command_for_git_commit_with_amend(command: str) -> bool:
     """Return True if the command is a ``git commit --amend`` invocation.
 
     Uses the shared ``is_git_subcommand`` to determine whether the
@@ -84,7 +84,7 @@ def is_git_commit_amend_command(command: str) -> bool:
     return bool(re.search(r"--amend\b", command_without_heredoc_content))
 
 
-def is_git_commit_without_amend_command(command: str) -> bool:
+def is_command_for_git_commit_without_amend(command: str) -> bool:
     """Return True if the command is a ``git commit`` invocation without
     ``--amend``.
 
@@ -103,7 +103,7 @@ def is_git_commit_without_amend_command(command: str) -> bool:
     return not bool(re.search(r"--amend\b", command_without_heredoc_content))
 
 
-def is_git_rebase_continue_command(command: str) -> bool:
+def is_command_for_git_rebase_with_continue(command: str) -> bool:
     """Return True if the command is a ``git rebase --continue`` invocation.
 
     Uses the shared ``is_git_subcommand`` to correctly handle
@@ -419,11 +419,11 @@ def resolve_commit_message_and_diff_from_parent() -> tuple[str, str] | None:
     Returns a (commit_message, diff_from_parent) tuple, or None if
     the message or diff cannot be determined.
     """
-    if is_git_commit_without_amend_command(_captured_command):
+    if is_command_for_git_commit_without_amend(_captured_command):
         commit_message = extract_commit_message_from_command(_captured_command)
         diff_from_parent = get_diff_of_staged_changes_from_head()
 
-    elif is_git_commit_amend_command(_captured_command):
+    elif is_command_for_git_commit_with_amend(_captured_command):
         commit_message = extract_commit_message_from_command(
             _captured_command
         )
@@ -431,7 +431,7 @@ def resolve_commit_message_and_diff_from_parent() -> tuple[str, str] | None:
             commit_message = get_commit_message_of_head()
         diff_from_parent = get_diff_of_staged_changes_from_parent_for_amend()
 
-    elif is_git_rebase_continue_command(_captured_command):
+    elif is_command_for_git_rebase_with_continue(_captured_command):
         commit_message = get_pending_commit_message_from_rebase()
         diff_from_parent = get_diff_of_staged_changes_from_head()
 
@@ -499,9 +499,9 @@ def main() -> int:
     command = tool_input.get("command", "")
 
     if (
-        not is_git_commit_without_amend_command(command)
-        and not is_git_commit_amend_command(command)
-        and not is_git_rebase_continue_command(command)
+        not is_command_for_git_commit_without_amend(command)
+        and not is_command_for_git_commit_with_amend(command)
+        and not is_command_for_git_rebase_with_continue(command)
     ):
         return 0
 
@@ -512,7 +512,7 @@ def main() -> int:
         MARKER_FILE_PREFIX,
         check_and_build_blocking_message,
         predicate_for_other_git_commands_that_affect_commits=(
-            is_git_rebase_continue_command
+            is_command_for_git_rebase_with_continue
         ),
     )
 
