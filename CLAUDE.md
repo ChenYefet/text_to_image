@@ -6,6 +6,8 @@ LANGUAGE AND STYLE REQUIREMENTS
 
 Use British English spelling throughout (e.g. "optimisation", "initialisation", "colour"), except where American spelling appears in official protocol names, technical standards, header fields, or library-defined identifiers.
 
+Never place a comma after 'e.g.', 'i.e.', or 'etc.' — write 'e.g. "optimisation"', not 'e.g., "optimisation"'.
+
 When a colon introduces a complete independent clause — one that could stand as a sentence in its own right — capitalise the first word of that clause. When the colon introduces a phrase, subordinate clause, or list that is grammatically dependent on what precedes it, do not capitalise. Avoid the construction '[noun phrase] is: [full clause]'; instead restructure to make the clause the direct complement of its governing verb, or lead directly with the normative subject (e.g. not 'The normative behaviour for X is: the service shall return…' but 'For X, the service shall return…').
 
 CODE AND NAMING REQUIREMENTS
