@@ -47,6 +47,14 @@
           {
             "type": "command",
             "command": "python3 .claude/hooks/verify_claude_md_is_committed_in_isolation.py"
+          },
+          {
+            "type": "command",
+            "command": "python3 .claude/hooks/deny_top_level_cd_in_bash_commands.py"
+          },
+          {
+            "type": "command",
+            "command": "python3 .claude/hooks/deny_git_commit_in_compound_bash_commands.py"
           }
         ]
       }

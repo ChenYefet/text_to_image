@@ -2,8 +2,10 @@
 
 Provides functions used at the entry point of every pre-commit hook:
 one that reads and parses the JSON input provided by Claude Code on
-standard input, and a function that determines whether a Bash command
-invokes a specific ``git`` subcommand.
+standard input, a function that determines whether a Bash command
+invokes a specific ``git`` subcommand, and a character-by-character
+shell scanner that yields characters at the top level of the shell
+(outside quoted strings, comments, and subshells).
 """
 
 import json
@@ -29,6 +31,113 @@ _GIT_FLAGS_THAT_CONSUME_AN_ARGUMENT = frozenset({
 def read_hook_input_from_standard_input() -> dict:
     """Read the JSON hook input provided by Claude Code on standard input."""
     return json.loads(sys.stdin.read())
+
+
+def iterate_over_top_level_characters_in_shell_command(
+    command: str,
+) -> list[tuple[int, str]]:
+    """Return a list of ``(index, character)`` pairs for every character
+    in *command* that appears at the top level of the shell — that is,
+    outside single-quoted strings, double-quoted strings, comments, and
+    subshells (parenthesised groups).
+
+    This function encapsulates the character-by-character scanning logic
+    that tracks quote state, parenthesis depth, escape sequences, and
+    comment boundaries.  Callers can iterate over the returned list to
+    inspect only the characters that are structurally significant in the
+    outermost shell context, without duplicating the scanning logic.
+    """
+    top_level_characters = []
+    depth = 0
+    inside_single_quote = False
+    inside_double_quote = False
+    index = 0
+    length = len(command)
+
+    while index < length:
+        character = command[index]
+
+        if inside_single_quote:
+            if character == "'":
+                inside_single_quote = False
+            index += 1
+            continue
+
+        if inside_double_quote:
+            if character == "\\" and index + 1 < length:
+                index += 2
+                continue
+            if character == '"':
+                inside_double_quote = False
+            index += 1
+            continue
+
+        if character == "#":
+            while index < length and command[index] != "\n":
+                index += 1
+            continue
+
+        if character == "'":
+            inside_single_quote = True
+            index += 1
+            continue
+
+        if character == '"':
+            inside_double_quote = True
+            index += 1
+            continue
+
+        if character == "(":
+            depth += 1
+            index += 1
+            continue
+
+        if character == ")":
+            if depth > 0:
+                depth -= 1
+            index += 1
+            continue
+
+        if depth == 0:
+            top_level_characters.append((index, character))
+
+        index += 1
+
+    return top_level_characters
+
+
+def command_contains_shell_operator_at_top_level(command: str) -> bool:
+    """Return True if *command* contains a shell operator (``&&``,
+    ``||``, ``;``, or ``|``) at the top level of the shell — that is,
+    outside quoted strings, comments, and subshells.
+
+    A command that contains a top-level shell operator is a compound
+    command: it chains multiple commands together in a single shell
+    invocation.
+    """
+    top_level_characters = (
+        iterate_over_top_level_characters_in_shell_command(command)
+    )
+    for position, (index, character) in enumerate(top_level_characters):
+        if character == ";":
+            return True
+        if character == "&":
+            next_character = (
+                top_level_characters[position + 1][1]
+                if position + 1 < len(top_level_characters)
+                else None
+            )
+            if next_character == "&":
+                return True
+        if character == "|":
+            next_character = (
+                top_level_characters[position + 1][1]
+                if position + 1 < len(top_level_characters)
+                else None
+            )
+            # Both '|' (pipe) and '||' (or) are compound operators.
+            return True
+    return False
 
 
 def _extract_git_subcommand_from_tokens(tokens: list[str]) -> str | None:
