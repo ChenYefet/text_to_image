@@ -4,7 +4,7 @@ the deny-then-allow pattern.
 This is a Claude Code PreToolUse hook for the Bash tool.  On the first
 ``git commit`` attempt within a session, it inspects staged
 ``.claude/hooks/*.py`` files and delegates analysis to Claude Sonnet
-via the ``claude`` CLI to determine whether each hook uses a
+via the ``claude`` command-line interface to determine whether each hook uses a
 non-deterministic check (such as an LLM call).  If a hook uses a
 non-deterministic check but does not import and use
 ``helpers.deny_then_allow``, the commit is denied.  On the second attempt
@@ -15,7 +15,7 @@ This hook is self-referentially consistent: It enforces the rule that
 LLM-based hooks must use the deny-then-allow pattern, and it is itself
 an LLM-based hook that uses the deny-then-allow pattern.
 
-Graceful degradation: If the ``claude`` CLI is not found, times out,
+Graceful degradation: If the ``claude`` command-line interface is not found, times out,
 returns an error, or produces unparseable output, the hook allows the
 commit and logs a warning to stderr.
 
@@ -77,7 +77,7 @@ def build_prompt_for_non_deterministic_check_analysis(
         "the following Python hook file uses a non-deterministic check — "
         "that is, a check whose result may vary across invocations given "
         "identical input. The most common example is delegating analysis "
-        "to a large language model (such as calling the `claude` CLI, "
+        "to a large language model (such as calling the `claude` command-line interface, "
         "calling an LLM API, or invoking any generative AI service).\n"
         "\n"
         "If the hook uses a non-deterministic check, determine whether "
@@ -109,7 +109,7 @@ def build_prompt_for_non_deterministic_check_analysis(
 def parse_analysis_from_claude_response(
     standard_output: str,
 ) -> dict | None:
-    """Parse the analysis result from the claude CLI JSON output.
+    """Parse the analysis result from the Claude command-line interface JSON output.
 
     Returns the analysis dictionary on success, or None if the response
     cannot be parsed.
@@ -150,9 +150,9 @@ def parse_analysis_from_claude_response(
 
 
 def call_claude_for_analysis(prompt: str) -> dict | None:
-    """Call the claude CLI to analyse a hook file.
+    """Call the Claude command-line interface to analyse a hook file.
 
-    Returns the analysis dictionary on success, or None if the CLI is
+    Returns the analysis dictionary on success, or None if the command-line interface is
     unavailable, the call fails, or the response is unparseable.
     """
     environment_without_nesting_guard = os.environ.copy()
@@ -173,14 +173,14 @@ def call_claude_for_analysis(prompt: str) -> dict | None:
         )
     except FileNotFoundError:
         print(
-            "WARNING: claude CLI not found in PATH; skipping"
+            "WARNING: Claude command-line interface not found in PATH; skipping"
             " non-deterministic hook analysis.",
             file=sys.stderr,
         )
         return None
     except subprocess.TimeoutExpired:
         print(
-            "WARNING: claude CLI timed out; skipping non-deterministic"
+            "WARNING: Claude command-line interface timed out; skipping non-deterministic"
             " hook analysis.",
             file=sys.stderr,
         )
@@ -188,7 +188,7 @@ def call_claude_for_analysis(prompt: str) -> dict | None:
 
     if result.returncode != 0:
         print(
-            f"WARNING: claude CLI exited with code {result.returncode};"
+            f"WARNING: Claude command-line interface exited with code {result.returncode};"
             " skipping non-deterministic hook analysis.",
             file=sys.stderr,
         )
@@ -197,7 +197,7 @@ def call_claude_for_analysis(prompt: str) -> dict | None:
     analysis = parse_analysis_from_claude_response(result.stdout)
     if analysis is None:
         print(
-            "WARNING: Could not parse claude CLI response as JSON;"
+            "WARNING: Could not parse Claude command-line interface response as JSON;"
             " skipping non-deterministic hook analysis.",
             file=sys.stderr,
         )
@@ -258,7 +258,7 @@ def check_and_build_blocking_message() -> str | None:
         analysis = call_claude_for_analysis(prompt)
 
         if analysis is None:
-            # Graceful degradation: CLI unavailable or call failed.
+            # Graceful degradation: command-line interface unavailable or call failed.
             continue
 
         uses_non_deterministic_check = analysis.get(

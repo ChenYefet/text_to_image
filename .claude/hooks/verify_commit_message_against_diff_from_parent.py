@@ -32,13 +32,13 @@ This is a Claude Code PreToolUse hook for the Bash tool.  On the first
 ``git commit``, ``git commit --amend``, or ``git rebase --continue`` attempt
 within a session, it computes the diff between the staging area and the
 parent commit, then delegates accuracy analysis to Claude Sonnet via the
-``claude`` CLI.  If the message contains inaccuracies — false claims,
+``claude`` command-line interface.  If the message contains inaccuracies — false claims,
 references to intermediate states, significant omissions, or
 mischaracterisations — the commit is denied.  On the second attempt
 within the same session, the hook allows the commit to proceed
 regardless, because the analysis is itself non-deterministic.
 
-Graceful degradation: If the ``claude`` CLI is not found, times out,
+Graceful degradation: If the ``claude`` command-line interface is not found, times out,
 returns an error, or produces unparseable output, the hook allows the
 commit and logs a warning to stderr.
 
@@ -300,7 +300,7 @@ def build_prompt_for_analysis_of_commit_message_accuracy(
 def parse_analysis_from_claude_response(
     standard_output: str,
 ) -> dict | None:
-    """Parse the analysis result from the claude CLI JSON output.
+    """Parse the analysis result from the Claude command-line interface JSON output.
 
     Returns the analysis dictionary on success, or None if the response
     cannot be parsed.
@@ -341,9 +341,9 @@ def parse_analysis_from_claude_response(
 
 
 def call_claude_for_analysis(prompt: str) -> dict | None:
-    """Call the claude CLI to analyse commit message accuracy.
+    """Call the Claude command-line interface to analyse commit message accuracy.
 
-    Returns the analysis dictionary on success, or None if the CLI is
+    Returns the analysis dictionary on success, or None if the command-line interface is
     unavailable, the call fails, or the response is unparseable.
     """
     environment_without_nesting_guard = os.environ.copy()
@@ -364,7 +364,7 @@ def call_claude_for_analysis(prompt: str) -> dict | None:
         )
     except FileNotFoundError:
         print(
-            "WARNING: claude CLI not found in PATH; skipping"
+            "WARNING: Claude command-line interface not found in PATH; skipping"
             " analysis of commit message accuracy against diff"
             " from parent.",
             file=sys.stderr,
@@ -372,7 +372,7 @@ def call_claude_for_analysis(prompt: str) -> dict | None:
         return None
     except subprocess.TimeoutExpired:
         print(
-            "WARNING: claude CLI timed out; skipping"
+            "WARNING: Claude command-line interface timed out; skipping"
             " analysis of commit message accuracy against diff"
             " from parent.",
             file=sys.stderr,
@@ -381,7 +381,7 @@ def call_claude_for_analysis(prompt: str) -> dict | None:
 
     if result.returncode != 0:
         print(
-            f"WARNING: claude CLI exited with code {result.returncode};"
+            f"WARNING: Claude command-line interface exited with code {result.returncode};"
             " skipping analysis of commit message accuracy against diff"
             " from parent.",
             file=sys.stderr,
@@ -391,7 +391,7 @@ def call_claude_for_analysis(prompt: str) -> dict | None:
     analysis = parse_analysis_from_claude_response(result.stdout)
     if analysis is None:
         print(
-            "WARNING: Could not parse claude CLI response as JSON;"
+            "WARNING: Could not parse Claude command-line interface response as JSON;"
             " skipping analysis of commit message accuracy against diff"
             " from parent.",
             file=sys.stderr,

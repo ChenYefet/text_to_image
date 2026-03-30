@@ -4,20 +4,24 @@ format.
 This is a Claude Code PreToolUse hook for the Bash tool.  On the first
 ``git commit`` attempt within a session, it extracts the commit message
 from the command and delegates format analysis to Claude Sonnet via the
-``claude`` CLI.  If the message body uses prose paragraphs instead of
+``claude`` command-line interface.  If the message body uses prose paragraphs instead of
 bullet points, the commit is denied.  On the second attempt within the
 same session, the hook allows the commit to proceed regardless — because
 the analysis is itself non-deterministic.
 
-Graceful degradation: If the ``claude`` CLI is not found, times out,
-returns an error, or produces unparseable output, the hook allows the
-commit and logs a warning to stderr.
+If the ``claude`` command-line interface is not found, times out, returns an
+error, or produces unparseable output, the commit is blocked unconditionally.
+Unlike format violations, a failure of the command-line interface does not
+create a marker file and does not benefit from the deny-then-allow escape
+hatch — every attempt is blocked until the command-line interface issue is
+resolved.
 
 Exit code 0 — always (output JSON controls blocking via permissionDecision).
 """
 
 import json
 import os
+import pathlib
 import subprocess
 import sys
 
@@ -30,19 +34,6 @@ from helpers.parsing_of_hook_input_for_bash_commands import (
 PREFIX_OF_MARKER_FILE = (
     ".marker_file_for_pending_review_of_format_of_commit_message_for_session_"
 )
-
-
-def extract_commit_message_from_command(command: str) -> str | None:
-    """Extract the commit message from a git commit command string.
-
-    Supports both ``-m "message"`` and heredoc forms.  Returns the
-    message text, or None if it cannot be extracted.
-    """
-    # Pass the entire command to a simple heuristic: everything between
-    # the commit message delimiters.  Since the command may use heredoc
-    # or quoted strings, we return the full command and let the LLM
-    # extract the message — this is more robust than fragile parsing.
-    return command
 
 
 def build_prompt_for_analysis_of_commit_message_format(
@@ -99,7 +90,7 @@ def build_prompt_for_analysis_of_commit_message_format(
 def parse_analysis_from_claude_response(
     standard_output: str,
 ) -> dict | None:
-    """Parse the analysis result from the claude CLI JSON output.
+    """Parse the analysis result from the Claude command-line interface JSON output.
 
     Returns the analysis dictionary on success, or None if the response
     cannot be parsed.
@@ -140,9 +131,9 @@ def parse_analysis_from_claude_response(
 
 
 def call_claude_for_analysis(prompt: str) -> dict | None:
-    """Call the claude CLI to analyse the commit message format.
+    """Call the Claude command-line interface to analyse the commit message format.
 
-    Returns the analysis dictionary on success, or None if the CLI is
+    Returns the analysis dictionary on success, or None if the command-line interface is
     unavailable, the call fails, or the response is unparseable.
     """
     environment_without_nesting_guard = os.environ.copy()
@@ -163,23 +154,20 @@ def call_claude_for_analysis(prompt: str) -> dict | None:
         )
     except FileNotFoundError:
         print(
-            "WARNING: claude CLI not found in PATH; skipping"
-            " analysis of commit message format.",
+            "ERROR: Claude command-line interface not found in PATH.",
             file=sys.stderr,
         )
         return None
     except subprocess.TimeoutExpired:
         print(
-            "WARNING: claude CLI timed out; skipping"
-            " analysis of commit message format.",
+            "ERROR: Claude command-line interface timed out.",
             file=sys.stderr,
         )
         return None
 
     if result.returncode != 0:
         print(
-            f"WARNING: claude CLI exited with code {result.returncode};"
-            " skipping analysis of commit message format.",
+            f"ERROR: Claude command-line interface exited with code {result.returncode}.",
             file=sys.stderr,
         )
         return None
@@ -187,8 +175,7 @@ def call_claude_for_analysis(prompt: str) -> dict | None:
     analysis = parse_analysis_from_claude_response(result.stdout)
     if analysis is None:
         print(
-            "WARNING: Could not parse claude CLI response as JSON;"
-            " skipping analysis of commit message format.",
+            "ERROR: Could not parse Claude command-line interface response as JSON.",
             file=sys.stderr,
         )
         return None
@@ -196,28 +183,8 @@ def call_claude_for_analysis(prompt: str) -> dict | None:
     return analysis
 
 
-def check_and_build_blocking_message_from_command(
-    command: str,
-) -> str | None:
-    """Analyse the commit message format and return a blocking message
-    if it violates the header-and-bullet-point format.
-
-    Returns a blocking message string if violations are found, or None
-    if the format is correct.
-    """
-    prompt = build_prompt_for_analysis_of_commit_message_format(command)
-    analysis = call_claude_for_analysis(prompt)
-
-    if analysis is None:
-        # Graceful degradation: CLI unavailable or call failed.
-        return None
-
-    is_valid = analysis.get("is_valid", True)
-    explanation = analysis.get("explanation", "")
-
-    if is_valid:
-        return None
-
+def build_blocking_message_for_format_violation(explanation: str) -> str:
+    """Build the blocking message for a commit message format violation."""
     return (
         "COMMIT MESSAGE FORMAT VIOLATION — COMMIT BLOCKED.\n"
         "\n"
@@ -239,17 +206,47 @@ def check_and_build_blocking_message_from_command(
     )
 
 
-# Store the command from hook input so the closure can access it.
-_captured_command = ""
+def build_blocking_message_for_failure_of_claude_cli() -> str:
+    """Build the blocking message when the Claude command-line interface is unavailable."""
+    return (
+        "COMMIT MESSAGE FORMAT CHECK FAILED — COMMIT BLOCKED.\n"
+        "\n"
+        "The commit message format could not be verified because the\n"
+        "Claude command-line interface was unavailable or returned an unexpected error.\n"
+        "\n"
+        "Resolve the issue with the Claude command-line interface before re-attempting\n"
+        "the commit.  Unlike format violations, this block does not\n"
+        "benefit from the deny-then-allow escape hatch — every attempt\n"
+        "is blocked until the command-line interface issue is resolved."
+    )
+
+
+# Store the analysis result from main() so check_and_build_blocking_message
+# can access it without re-calling the Claude command-line interface.
+_analysis_result_cached: dict | None = None
 
 
 def check_and_build_blocking_message() -> str | None:
-    """Wrapper that satisfies the deny-then-allow callable signature."""
-    return check_and_build_blocking_message_from_command(_captured_command)
+    """Build a blocking message from the cached analysis result.
+
+    This wrapper satisfies the deny-then-allow callable signature.  It
+    uses the analysis result cached by main() rather than re-calling the
+    Claude command-line interface.
+    """
+    if _analysis_result_cached is None:
+        return None
+
+    is_valid = _analysis_result_cached.get("is_valid", True)
+    explanation = _analysis_result_cached.get("explanation", "")
+
+    if is_valid:
+        return None
+
+    return build_blocking_message_for_format_violation(explanation)
 
 
 def main() -> int:
-    global _captured_command
+    global _analysis_result_cached
     hook_input = read_hook_input_from_standard_input()
 
     tool_input = hook_input.get("tool_input", {})
@@ -258,7 +255,43 @@ def main() -> int:
     if not is_git_subcommand(command, "commit"):
         return 0
 
-    _captured_command = command
+    # If a marker file for this session already exists, the
+    # deny-then-allow mechanism is in the allow-on-second-attempt state
+    # (a format violation was blocked on the first attempt).  Delegate
+    # directly to run_deny_then_allow without calling the Claude command-line interface —
+    # it will clean up the marker file and allow the commit through.
+    # Note: the marker file path formula must stay in sync with the
+    # formula in helpers/deny_then_allow.py.
+    session_id = hook_input.get("session_id", "")
+    if session_id and pathlib.Path(
+        f"{PREFIX_OF_MARKER_FILE}{session_id}"
+    ).exists():
+        return run_deny_then_allow(
+            hook_input,
+            PREFIX_OF_MARKER_FILE,
+            check_and_build_blocking_message,
+        )
+
+    prompt = build_prompt_for_analysis_of_commit_message_format(command)
+    analysis = call_claude_for_analysis(prompt)
+
+    if analysis is None:
+        # The Claude command-line interface was unavailable or returned an error.  Output a
+        # hard block directly — no marker file is created, so every
+        # subsequent attempt is also blocked until the command-line interface issue is resolved.
+        output = {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": (
+                    build_blocking_message_for_failure_of_claude_cli()
+                ),
+            },
+        }
+        print(json.dumps(output))
+        return 0
+
+    _analysis_result_cached = analysis
 
     return run_deny_then_allow(
         hook_input,

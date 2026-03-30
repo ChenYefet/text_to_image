@@ -4,7 +4,7 @@ are wrapped in hyperlinks.
 This is a Claude Code PreToolUse hook for the Bash tool.  On the first
 ``git commit`` attempt within a session, it extracts added lines from
 staged ``.md`` files and delegates semantic analysis to Claude Sonnet
-via the ``claude`` CLI to detect prose text that references a heading
+via the ``claude`` command-line interface to detect prose text that references a heading
 without a ``[...](#...)`` hyperlink.  If un-hyperlinked references are
 found, the commit is denied and the violations are injected as a
 ``systemMessage``.  On the second attempt within the same session, the
@@ -17,7 +17,7 @@ Session isolation is achieved via a marker file whose name includes the
 session is ignored and cleaned up, preventing stale markers from
 allowing commits without review.
 
-Graceful degradation: If the ``claude`` CLI is not found, times out,
+Graceful degradation: If the ``claude`` command-line interface is not found, times out,
 returns an error, or produces unparseable output, the hook allows the
 commit and logs a warning to stderr.
 
@@ -173,7 +173,7 @@ def build_prompt_for_heading_reference_analysis(
 def parse_violations_from_claude_response(
     standard_output: str,
 ) -> list[dict] | None:
-    """Parse the violations array from the claude CLI JSON output.
+    """Parse the violations array from the Claude command-line interface JSON output.
 
     The ``--output-format json`` flag wraps the response in a JSON object
     with a ``result`` field containing the text Claude generated.
@@ -220,12 +220,12 @@ def parse_violations_from_claude_response(
 def call_claude_for_heading_reference_analysis(
     prompt: str,
 ) -> list[dict] | None:
-    """Call the claude CLI to analyse heading references.
+    """Call the Claude command-line interface to analyse heading references.
 
     Returns a list of violation dictionaries on success, or None if the
-    CLI is unavailable, the call fails, or the response is unparseable.
+    command-line interface is unavailable, the call fails, or the response is unparseable.
     """
-    # Unset CLAUDECODE to allow the CLI to run from within a Claude
+    # Unset CLAUDECODE to allow the command-line interface to run from within a Claude
     # Code session (hooks execute inside the parent session's
     # environment).
     environment_without_nesting_guard = os.environ.copy()
@@ -246,14 +246,14 @@ def call_claude_for_heading_reference_analysis(
         )
     except FileNotFoundError:
         print(
-            "WARNING: claude CLI not found in PATH; skipping heading"
+            "WARNING: Claude command-line interface not found in PATH; skipping heading"
             " reference validation.",
             file=sys.stderr,
         )
         return None
     except subprocess.TimeoutExpired:
         print(
-            "WARNING: claude CLI timed out; skipping heading reference"
+            "WARNING: Claude command-line interface timed out; skipping heading reference"
             " validation.",
             file=sys.stderr,
         )
@@ -261,7 +261,7 @@ def call_claude_for_heading_reference_analysis(
 
     if result.returncode != 0:
         print(
-            f"WARNING: claude CLI exited with code {result.returncode};"
+            f"WARNING: Claude command-line interface exited with code {result.returncode};"
             " skipping heading reference validation.",
             file=sys.stderr,
         )
@@ -270,7 +270,7 @@ def call_claude_for_heading_reference_analysis(
     violations = parse_violations_from_claude_response(result.stdout)
     if violations is None:
         print(
-            "WARNING: Could not parse claude CLI response as JSON;"
+            "WARNING: Could not parse Claude command-line interface response as JSON;"
             " skipping heading reference validation.",
             file=sys.stderr,
         )
@@ -352,7 +352,7 @@ def check_and_build_blocking_message() -> str | None:
         violations = call_claude_for_heading_reference_analysis(prompt)
 
         if violations is None:
-            # Graceful degradation: CLI unavailable or call failed.
+            # Graceful degradation: command-line interface unavailable or call failed.
             continue
 
         if violations:

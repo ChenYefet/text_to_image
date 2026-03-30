@@ -12,6 +12,8 @@ Never place a comma after 'e.g.', 'i.e.', or 'etc.' — write 'e.g. "optimisatio
 
 When a colon introduces a complete independent clause — one that could stand as a sentence in its own right — capitalise the first word of that clause. When the colon introduces a phrase, subordinate clause, or list that is grammatically dependent on what precedes it, do not capitalise. Avoid the construction '[noun phrase] is: [full clause]'; instead restructure to make the clause the direct complement of its governing verb, or lead directly with the normative subject (e.g. not 'The normative behaviour for X is: the service shall return…' but 'For X, the service shall return…').
 
+When writing a compound that can function as both a noun and an attributive modifier, do not hyphenate the noun form. Hyphens in compound terms apply only in the attributive modifier position — that is, when the compound directly precedes a head noun. For example, write 'a short circuit' (standalone noun) and 'short-circuit evaluation' (attributive modifier preceding 'evaluation'). Before hyphenating any compound, verify that it directly precedes and modifies a head noun; if it does not, write it without a hyphen.
+
 CODE AND NAMING REQUIREMENTS
 
 All code must be self-documenting.
@@ -280,3 +282,4 @@ APPROVED ABBREVIATIONS
 | diff | difference | abbreviated | abbreviated |
 | README | read me | abbreviated | abbreviated |
 | v | version | expanded | expanded |
+| CLI | command-line interface | abbreviated | expanded |
