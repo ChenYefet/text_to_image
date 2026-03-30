@@ -1,4 +1,4 @@
-"""Pre-commit hook that requires CLAUDE.md to be read before allowing
+"""Pre-commit hook that requires CLAUDE.md to be read right before allowing
 a commit.
 
 This is a Claude Code PreToolUse hook for the Bash tool.  On every
@@ -83,6 +83,14 @@ def main() -> int:
     )
     if read_marker_path.exists():
         read_marker_path.unlink(missing_ok=True)
+        output = {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "allow",
+                "permissionDecisionReason": "CLAUDE.md was read right before this commit — commit permitted.",
+            },
+        }
+        print(json.dumps(output))
         return 0
 
     # CLAUDE.md has not been read right before this commit — deny.

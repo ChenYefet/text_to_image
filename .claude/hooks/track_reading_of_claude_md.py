@@ -3,7 +3,7 @@
 This is a Claude Code PostToolUse hook for the Read tool.  When the
 Read tool is used on a file named ``CLAUDE.md``, this hook creates a
 session-scoped marker file.  The pre-commit hook
-``inject_claude_md_before_commit.py`` checks for this marker before
+``inject_claude_md_before_commit.py`` checks for this marker right before
 allowing a ``git commit`` command, ensuring that the CLAUDE.md
 directives have been freshly read into the model's context before the
 commit review.
