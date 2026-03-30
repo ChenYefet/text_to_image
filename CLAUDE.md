@@ -132,14 +132,12 @@ This verification procedure also applies when introducing a new value — such a
 
 When a commit adds, removes, or renames a file or directory, every manually maintained inventory of files in the repository — such as a directory tree of the project in README.md, a component listing in documentation, or a table of modules in the specification — must be updated in the same commit. A file addition, removal, or rename is not complete until all such inventories reflect the current state of the filesystem.
 
-SPECIFICATION COUNT AND CHANGELOG INTEGRITY
+SPECIFICATION COUNT INTEGRITY
 
 When correcting a count in the specification (such as the number of logging events, the number of requirements, or any other enumerated total):
 
 1. Never infer which version introduced an item based on semantic reasoning about its description or its relationship to other items. Always verify against the git history (e.g. `git log -S "<item_name>" -- "*.py"` to find when it was implemented, and `git log -S "<item_name>" -- "*.md"` to find when it was added to the specification).
 2. After determining the correct count, perform a repository-wide search across all file types (.py, .yaml, .yml, .env, .env.example, .md, .toml, .cfg, .ini, .json) for every instance of the old count that appears in the context of the thing being counted (e.g. search for `\b44\b` when correcting a logging event count from 44 to 45). Verify each match to determine whether it refers to the count being corrected or to something else (such as a requirement number), and update all stale instances. A specification-wide search is not sufficient — counts such as requirement totals may appear in README files, code comments, comments in continuous integration workflows, or other non-specification documents.
-
-Every commit that modifies the specification must include an explicit evaluation of whether the changelog should be updated. If the change warrants a changelog entry — for example, a new requirement, a changed configuration value, a corrected normative statement, or a restructured section — the changelog entry must be included in the same commit that makes the specification change.
 
 SCOPE OF NORMATIVE KEYWORDS IN SPECIFICATIONS
 

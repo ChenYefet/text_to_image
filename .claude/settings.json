@@ -55,6 +55,10 @@
           {
             "type": "command",
             "command": "python3 .claude/hooks/deny_git_commit_in_compound_bash_commands.py"
+          },
+          {
+            "type": "command",
+            "command": "python3 .claude/hooks/evaluate_specification_changelog.py"
           }
         ]
       }
