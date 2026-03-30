@@ -46,7 +46,7 @@
           },
           {
             "type": "command",
-            "command": "python3 .claude/hooks/verify_claude_md_is_committed_in_isolation.py"
+            "command": "python3 .claude/hooks/verify_claude_files_are_not_committed_alongside_non_claude_files.py"
           },
           {
             "type": "command",

@@ -1,9 +1,12 @@
-"""Pre-commit hook that ensures CLAUDE.md is always committed by itself.
+"""Pre-commit hook that prevents Claude files from being committed
+alongside non-Claude files.
 
-This is a Claude Code PreToolUse hook for the Bash tool. It intercepts
-``git commit`` and ``git commit --amend`` commands and denies the commit
-if CLAUDE.md would appear alongside any other files in the resulting
-commit.
+A Claude file is any file whose path is ``CLAUDE.md`` or starts with
+``.claude/``.  This hook intercepts ``git commit`` and
+``git commit --amend`` commands and denies the commit if any Claude file
+would appear alongside any non-Claude file in the resulting commit.
+Claude files may be committed by themselves or together with other Claude
+files, but not with any other files.
 
 For plain commits, the check inspects the staging area
 (``git diff --cached``).  For amends, the check inspects the full diff
@@ -24,6 +27,11 @@ from helpers.parsing_of_hook_input_for_bash_commands import (
     is_git_subcommand,
     read_hook_input_from_standard_input,
 )
+
+
+def _is_claude_file(file_path: str) -> bool:
+    """Return True if the file is a Claude file."""
+    return file_path == "CLAUDE.md" or file_path.startswith(".claude/")
 
 
 def _is_amend_command(command: str) -> bool:
@@ -88,32 +96,40 @@ def main() -> int:
     if not staged_files:
         return 0
 
-    claude_md_is_staged = any(
-        file_path == "CLAUDE.md" for file_path in staged_files
+    staged_claude_files = [
+        file_path for file_path in staged_files if _is_claude_file(file_path)
+    ]
+
+    if not staged_claude_files:
+        return 0
+
+    staged_non_claude_files = [
+        file_path for file_path in staged_files if not _is_claude_file(file_path)
+    ]
+
+    if not staged_non_claude_files:
+        return 0
+
+    claude_file_list = "\n".join(
+        f"  - {file_path}" for file_path in staged_claude_files
+    )
+    non_claude_file_list = "\n".join(
+        f"  - {file_path}" for file_path in staged_non_claude_files
     )
 
-    if not claude_md_is_staged:
-        return 0
-
-    number_of_other_staged_files = len(staged_files) - 1
-
-    if number_of_other_staged_files == 0:
-        return 0
-
-    other_staged_files = [
-        file_path for file_path in staged_files if file_path != "CLAUDE.md"
-    ]
-    file_list = "\n".join(f"  - {file_path}" for file_path in other_staged_files)
-
     message = (
-        "CLAUDE.md must be committed in isolation — it cannot be staged\n"
-        "alongside other files. The following files are also staged:\n"
+        "Claude files (CLAUDE.md and .claude/*) cannot be committed\n"
+        "alongside non-Claude files.\n"
         "\n"
-        f"{file_list}\n"
+        "Staged Claude files:\n"
+        f"{claude_file_list}\n"
         "\n"
-        "Either commit CLAUDE.md by itself first and then commit the other\n"
-        "files separately, or unstage CLAUDE.md and commit the other files\n"
-        "first."
+        "Staged non-Claude files:\n"
+        f"{non_claude_file_list}\n"
+        "\n"
+        "Either commit the Claude files by themselves first and then\n"
+        "commit the other files separately, or unstage the Claude files\n"
+        "and commit the other files first."
     )
 
     output = {
