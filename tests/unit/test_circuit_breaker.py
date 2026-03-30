@@ -4,7 +4,7 @@ Tests for application/circuit_breaker.py.
 Covers all state transitions and edge cases of the circuit breaker pattern:
 
 - CLOSED state: requests pass through, successes reset counter, failures
-  accumulate, threshold reached opens the circuit.
+  accumulate, configured number of consecutive failures reached opens the circuit.
 - OPEN state: requests are rejected immediately with CircuitOpenError,
   recovery timeout transitions to HALF_OPEN.
 - HALF_OPEN state: a successful probe closes the circuit, a failed probe
@@ -31,7 +31,7 @@ class TestCircuitBreakerClosedState:
     async def test_initial_state_is_closed(self) -> None:
         """A newly created circuit breaker starts in the CLOSED state."""
         breaker = application.circuit_breaker.CircuitBreaker(
-            failure_threshold=5,
+            number_of_consecutive_failures_to_open_circuit_breaker=5,
             timeout_for_recovery_in_seconds=30.0,
             name="test",
         )
@@ -48,7 +48,7 @@ class TestCircuitBreakerClosedState:
     @pytest.mark.asyncio
     async def test_closed_circuit_allows_requests(self) -> None:
         """When the circuit is CLOSED, ensure_circuit_is_not_open returns without raising."""
-        breaker = application.circuit_breaker.CircuitBreaker(failure_threshold=5)
+        breaker = application.circuit_breaker.CircuitBreaker(number_of_consecutive_failures_to_open_circuit_breaker=5)
 
         # Should not raise.
         await breaker.ensure_circuit_is_not_open()
@@ -56,7 +56,7 @@ class TestCircuitBreakerClosedState:
     @pytest.mark.asyncio
     async def test_success_resets_failure_count(self) -> None:
         """A successful call resets the counter of consecutive failures to zero."""
-        breaker = application.circuit_breaker.CircuitBreaker(failure_threshold=5)
+        breaker = application.circuit_breaker.CircuitBreaker(number_of_consecutive_failures_to_open_circuit_breaker=5)
 
         await breaker.record_failure()
         await breaker.record_failure()
@@ -70,7 +70,7 @@ class TestCircuitBreakerClosedState:
     @pytest.mark.asyncio
     async def test_failures_below_threshold_keep_circuit_closed(self) -> None:
         """Failures below the threshold do not open the circuit."""
-        breaker = application.circuit_breaker.CircuitBreaker(failure_threshold=3)
+        breaker = application.circuit_breaker.CircuitBreaker(number_of_consecutive_failures_to_open_circuit_breaker=3)
 
         await breaker.record_failure()
         await breaker.record_failure()
@@ -80,12 +80,12 @@ class TestCircuitBreakerClosedState:
 
 
 class TestCircuitBreakerOpening:
-    """Verify the transition from CLOSED to OPEN when the failure threshold is reached."""
+    """Verify the transition from CLOSED to OPEN when the configured number of consecutive failures is reached."""
 
     @pytest.mark.asyncio
     async def test_reaching_threshold_opens_circuit(self) -> None:
         """When consecutive failures reach the threshold, the circuit opens."""
-        breaker = application.circuit_breaker.CircuitBreaker(failure_threshold=3)
+        breaker = application.circuit_breaker.CircuitBreaker(number_of_consecutive_failures_to_open_circuit_breaker=3)
 
         await breaker.record_failure()
         await breaker.record_failure()
@@ -96,7 +96,7 @@ class TestCircuitBreakerOpening:
     @pytest.mark.asyncio
     async def test_threshold_of_one_opens_on_first_failure(self) -> None:
         """A threshold of 1 opens the circuit on the very first failure."""
-        breaker = application.circuit_breaker.CircuitBreaker(failure_threshold=1)
+        breaker = application.circuit_breaker.CircuitBreaker(number_of_consecutive_failures_to_open_circuit_breaker=1)
 
         await breaker.record_failure()
 
@@ -106,7 +106,7 @@ class TestCircuitBreakerOpening:
     async def test_open_circuit_rejects_requests(self) -> None:
         """When the circuit is OPEN, ensure_circuit_is_not_open raises CircuitOpenError."""
         breaker = application.circuit_breaker.CircuitBreaker(
-            failure_threshold=1,
+            number_of_consecutive_failures_to_open_circuit_breaker=1,
             timeout_for_recovery_in_seconds=60.0,
             name="test_circuit",
         )
@@ -123,7 +123,7 @@ class TestCircuitBreakerOpening:
     async def test_circuit_open_error_includes_remaining_number_of_seconds_until_recovery(self) -> None:
         """The CircuitOpenError includes the approximate remaining recovery time."""
         breaker = application.circuit_breaker.CircuitBreaker(
-            failure_threshold=1,
+            number_of_consecutive_failures_to_open_circuit_breaker=1,
             timeout_for_recovery_in_seconds=60.0,
             name="test_circuit",
         )
@@ -144,7 +144,7 @@ class TestCircuitBreakerRecovery:
     async def test_recovery_timeout_transitions_to_half_open(self) -> None:
         """After the recovery timeout elapses, the circuit transitions to HALF_OPEN."""
         breaker = application.circuit_breaker.CircuitBreaker(
-            failure_threshold=1,
+            number_of_consecutive_failures_to_open_circuit_breaker=1,
             timeout_for_recovery_in_seconds=0.1,
         )
 
@@ -165,7 +165,7 @@ class TestCircuitBreakerRecovery:
     async def test_successful_probe_closes_circuit(self) -> None:
         """A successful probe in HALF_OPEN state transitions the circuit to CLOSED."""
         breaker = application.circuit_breaker.CircuitBreaker(
-            failure_threshold=1,
+            number_of_consecutive_failures_to_open_circuit_breaker=1,
             timeout_for_recovery_in_seconds=0.1,
         )
 
@@ -184,7 +184,7 @@ class TestCircuitBreakerRecovery:
     async def test_failed_probe_reopens_circuit(self) -> None:
         """A failed probe in HALF_OPEN state transitions the circuit back to OPEN."""
         breaker = application.circuit_breaker.CircuitBreaker(
-            failure_threshold=1,
+            number_of_consecutive_failures_to_open_circuit_breaker=1,
             timeout_for_recovery_in_seconds=0.1,
         )
 
@@ -204,7 +204,7 @@ class TestCircuitBreakerRecovery:
         Subsequent calls to ensure_circuit_is_not_open are rejected with
         CircuitOpenError while the first probe is in progress."""
         breaker = application.circuit_breaker.CircuitBreaker(
-            failure_threshold=1,
+            number_of_consecutive_failures_to_open_circuit_breaker=1,
             timeout_for_recovery_in_seconds=0.1,
         )
 
@@ -230,7 +230,7 @@ class TestCircuitBreakerRecovery:
         can track new failures independently of the previous cycle.
         """
         breaker = application.circuit_breaker.CircuitBreaker(
-            failure_threshold=2,
+            number_of_consecutive_failures_to_open_circuit_breaker=2,
             timeout_for_recovery_in_seconds=0.1,
         )
 
@@ -267,7 +267,7 @@ class TestCircuitBreakerLogging:
     async def test_opening_logs_warning(self) -> None:
         """When the circuit opens, a 'circuit_breaker_opened' warning is logged."""
         breaker = application.circuit_breaker.CircuitBreaker(
-            failure_threshold=1,
+            number_of_consecutive_failures_to_open_circuit_breaker=1,
             name="test_logging",
         )
 
@@ -282,7 +282,7 @@ class TestCircuitBreakerLogging:
     async def test_half_open_logs_info(self) -> None:
         """When the circuit transitions to HALF_OPEN, an info event is logged."""
         breaker = application.circuit_breaker.CircuitBreaker(
-            failure_threshold=1,
+            number_of_consecutive_failures_to_open_circuit_breaker=1,
             timeout_for_recovery_in_seconds=0.1,
             name="test_logging",
         )
@@ -300,7 +300,7 @@ class TestCircuitBreakerLogging:
     async def test_closing_after_probe_logs_info(self) -> None:
         """When a successful probe closes the circuit, an info event is logged."""
         breaker = application.circuit_breaker.CircuitBreaker(
-            failure_threshold=1,
+            number_of_consecutive_failures_to_open_circuit_breaker=1,
             timeout_for_recovery_in_seconds=0.1,
             name="test_logging",
         )
@@ -320,7 +320,7 @@ class TestCircuitBreakerLogging:
     async def test_reopening_after_failed_probe_logs_warning(self) -> None:
         """When a failed probe reopens the circuit, a warning event is logged."""
         breaker = application.circuit_breaker.CircuitBreaker(
-            failure_threshold=1,
+            number_of_consecutive_failures_to_open_circuit_breaker=1,
             timeout_for_recovery_in_seconds=0.1,
             name="test_logging",
         )
@@ -344,7 +344,7 @@ class TestCircuitBreakerTimingEdgeCases:
     async def test_request_just_before_recovery_timeout_is_rejected(self) -> None:
         """A request sent just before the recovery timeout expires is still rejected."""
         breaker = application.circuit_breaker.CircuitBreaker(
-            failure_threshold=1,
+            number_of_consecutive_failures_to_open_circuit_breaker=1,
             timeout_for_recovery_in_seconds=10.0,
         )
 
@@ -357,7 +357,7 @@ class TestCircuitBreakerTimingEdgeCases:
     @pytest.mark.asyncio
     async def test_success_in_closed_state_does_not_change_state(self) -> None:
         """Recording success in CLOSED state keeps the circuit CLOSED."""
-        breaker = application.circuit_breaker.CircuitBreaker(failure_threshold=5)
+        breaker = application.circuit_breaker.CircuitBreaker(number_of_consecutive_failures_to_open_circuit_breaker=5)
 
         await breaker.record_success()
 
@@ -368,7 +368,7 @@ class TestCircuitBreakerTimingEdgeCases:
     async def test_additional_failures_in_open_state_do_not_change_state(self) -> None:
         """Recording additional failures while the circuit is OPEN keeps it OPEN."""
         breaker = application.circuit_breaker.CircuitBreaker(
-            failure_threshold=1,
+            number_of_consecutive_failures_to_open_circuit_breaker=1,
             timeout_for_recovery_in_seconds=60.0,
         )
 
@@ -394,7 +394,7 @@ class TestCircuitBreakerConcurrentAccess:
         The asyncio.Lock inside the circuit breaker prevents lost updates.
         """
         breaker = application.circuit_breaker.CircuitBreaker(
-            failure_threshold=100,
+            number_of_consecutive_failures_to_open_circuit_breaker=100,
             timeout_for_recovery_in_seconds=60.0,
         )
 
@@ -414,7 +414,7 @@ class TestCircuitBreakerConcurrentAccess:
         must not deadlock the circuit breaker's internal lock.
         """
         breaker = application.circuit_breaker.CircuitBreaker(
-            failure_threshold=100,
+            number_of_consecutive_failures_to_open_circuit_breaker=100,
             timeout_for_recovery_in_seconds=60.0,
         )
 
@@ -500,7 +500,7 @@ class TestCircuitBreakerPrometheusStateGauge:
     async def test_initial_state_sets_prometheus_gauge_to_closed(self) -> None:
         """When the circuit breaker is constructed, the Prometheus gauge is set to 'closed'."""
         application.circuit_breaker.CircuitBreaker(
-            failure_threshold=5,
+            number_of_consecutive_failures_to_open_circuit_breaker=5,
             name="test_prometheus",
         )
 
@@ -510,7 +510,7 @@ class TestCircuitBreakerPrometheusStateGauge:
     async def test_opening_sets_prometheus_gauge_to_open(self) -> None:
         """When the circuit opens, the Prometheus gauge transitions to 'open'."""
         breaker = application.circuit_breaker.CircuitBreaker(
-            failure_threshold=1,
+            number_of_consecutive_failures_to_open_circuit_breaker=1,
             name="test_prometheus",
         )
 
@@ -522,7 +522,7 @@ class TestCircuitBreakerPrometheusStateGauge:
     async def test_half_open_sets_prometheus_gauge_to_half_open(self) -> None:
         """When the circuit transitions to HALF_OPEN, the Prometheus gauge updates."""
         breaker = application.circuit_breaker.CircuitBreaker(
-            failure_threshold=1,
+            number_of_consecutive_failures_to_open_circuit_breaker=1,
             timeout_for_recovery_in_seconds=0.1,
             name="test_prometheus",
         )
@@ -537,7 +537,7 @@ class TestCircuitBreakerPrometheusStateGauge:
     async def test_closing_after_probe_sets_prometheus_gauge_to_closed(self) -> None:
         """When a successful probe closes the circuit, the Prometheus gauge returns to 'closed'."""
         breaker = application.circuit_breaker.CircuitBreaker(
-            failure_threshold=1,
+            number_of_consecutive_failures_to_open_circuit_breaker=1,
             timeout_for_recovery_in_seconds=0.1,
             name="test_prometheus",
         )
@@ -553,7 +553,7 @@ class TestCircuitBreakerPrometheusStateGauge:
     async def test_reopening_after_failed_probe_sets_prometheus_gauge_to_open(self) -> None:
         """When a failed probe reopens the circuit, the Prometheus gauge returns to 'open'."""
         breaker = application.circuit_breaker.CircuitBreaker(
-            failure_threshold=1,
+            number_of_consecutive_failures_to_open_circuit_breaker=1,
             timeout_for_recovery_in_seconds=0.1,
             name="test_prometheus",
         )

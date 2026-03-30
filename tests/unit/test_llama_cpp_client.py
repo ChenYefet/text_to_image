@@ -680,7 +680,7 @@ class TestCircuitBreakerIntegration:
         request to the upstream server.
         """
         breaker = application.circuit_breaker.CircuitBreaker(
-            failure_threshold=1,
+            number_of_consecutive_failures_to_open_circuit_breaker=1,
             timeout_for_recovery_in_seconds=60.0,
             name="test",
         )
@@ -702,7 +702,7 @@ class TestCircuitBreakerIntegration:
     async def test_success_records_with_circuit_breaker(self) -> None:
         """A successful prompt enhancement resets the circuit breaker failure counter."""
         breaker = application.circuit_breaker.CircuitBreaker(
-            failure_threshold=5,
+            number_of_consecutive_failures_to_open_circuit_breaker=5,
             name="test",
         )
         # Simulate some prior failures.
@@ -723,7 +723,7 @@ class TestCircuitBreakerIntegration:
     async def test_connection_failure_records_with_circuit_breaker(self) -> None:
         """A connection error increments the circuit breaker failure counter."""
         breaker = application.circuit_breaker.CircuitBreaker(
-            failure_threshold=5,
+            number_of_consecutive_failures_to_open_circuit_breaker=5,
             name="test",
         )
 
@@ -739,7 +739,7 @@ class TestCircuitBreakerIntegration:
     async def test_timeout_failure_records_with_circuit_breaker(self) -> None:
         """A timeout error increments the circuit breaker failure counter."""
         breaker = application.circuit_breaker.CircuitBreaker(
-            failure_threshold=5,
+            number_of_consecutive_failures_to_open_circuit_breaker=5,
             name="test",
         )
 
@@ -755,7 +755,7 @@ class TestCircuitBreakerIntegration:
     async def test_http_5xx_error_records_with_circuit_breaker(self) -> None:
         """An HTTP 5xx status error increments the circuit breaker failure counter."""
         breaker = application.circuit_breaker.CircuitBreaker(
-            failure_threshold=5,
+            number_of_consecutive_failures_to_open_circuit_breaker=5,
             name="test",
         )
 
@@ -782,7 +782,7 @@ class TestCircuitBreakerIntegration:
     async def test_http_4xx_error_does_not_record_with_circuit_breaker(self) -> None:
         """An HTTP 4xx status error must not increment the circuit breaker failure counter."""
         breaker = application.circuit_breaker.CircuitBreaker(
-            failure_threshold=5,
+            number_of_consecutive_failures_to_open_circuit_breaker=5,
             name="test",
         )
 
@@ -829,7 +829,7 @@ class TestCircuitBreakerIntegration:
     async def test_request_error_records_with_circuit_breaker(self) -> None:
         """An uncommon httpx RequestError increments the circuit breaker failure counter."""
         breaker = application.circuit_breaker.CircuitBreaker(
-            failure_threshold=5,
+            number_of_consecutive_failures_to_open_circuit_breaker=5,
             name="test",
         )
 
@@ -865,7 +865,7 @@ class TestCircuitBreakerIntegration:
         circuit, then the next request is rejected immediately.
         """
         breaker = application.circuit_breaker.CircuitBreaker(
-            failure_threshold=2,
+            number_of_consecutive_failures_to_open_circuit_breaker=2,
             timeout_for_recovery_in_seconds=60.0,
             name="test",
         )

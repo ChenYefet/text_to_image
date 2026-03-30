@@ -685,7 +685,7 @@ text_to_image/
 ├── nginx.conf                                     # Nginx reverse proxy configuration
 ├── .dockerignore                                  # Files excluded from the Docker build context
 ├── README.md                                      # This file
-├── text-to-image-spec-v5_11_0.md                  # Project specification
+├── text-to-image-spec-v5_12_0.md                  # Project specification
 ├── .github/
 │   └── workflows/
 │       └── continuous-integration.yml              # Continuous integration pipeline (lint, format, type check, audit, test, contract validation)
@@ -843,7 +843,7 @@ All configuration is loaded from environment variables prefixed with `TEXT_TO_IM
 
 | Variable | Description | Default |
 |---|---|---|
-| `TEXT_TO_IMAGE_FAILURE_THRESHOLD_OF_CIRCUIT_BREAKER_FOR_LARGE_LANGUAGE_MODEL` | Number of consecutive failures to the llama.cpp server required to open the circuit breaker and begin rejecting requests immediately. A value of 1 opens the circuit on the very first failure. Higher values tolerate transient errors. | `5` |
+| `TEXT_TO_IMAGE_NUMBER_OF_CONSECUTIVE_FAILURES_TO_OPEN_CIRCUIT_BREAKER_FOR_LARGE_LANGUAGE_MODEL` | Number of consecutive failures to the llama.cpp server required to open the circuit breaker and begin rejecting requests immediately. A value of 1 opens the circuit on the very first failure. Higher values tolerate transient errors. | `5` |
 | `TEXT_TO_IMAGE_RECOVERY_TIMEOUT_OF_CIRCUIT_BREAKER_FOR_LARGE_LANGUAGE_MODEL_IN_SECONDS` | Duration in seconds that the circuit breaker remains open (rejecting all requests immediately) before transitioning to half-open state and allowing a single probe request through. | `30.0` |
 
 **Admission control and resilience settings**

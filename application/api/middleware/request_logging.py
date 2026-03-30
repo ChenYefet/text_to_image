@@ -65,7 +65,7 @@ class RequestLoggingMiddleware:
 
         # Extract the declared request payload size from the Content-Length
         # header (if present) for inclusion in the http_request_received
-        # log event, as recommended by the v5.11.0 specification's 46-event
+        # log event, as recommended by the v5.12.0 specification's 46-event
         # logging taxonomy.
         number_of_bytes_of_request_payload = (
             application.api.middleware.correlation_identifier.extract_content_length_from_headers(

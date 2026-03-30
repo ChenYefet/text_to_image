@@ -90,7 +90,9 @@ def create_application() -> fastapi.FastAPI:
         assert application_configuration.timeout_for_requests_in_seconds is not None
 
         circuit_breaker_for_large_language_model = application.circuit_breaker.CircuitBreaker(
-            failure_threshold=(application_configuration.failure_threshold_of_circuit_breaker_for_large_language_model),
+            number_of_consecutive_failures_to_open_circuit_breaker=(
+                application_configuration.number_of_consecutive_failures_to_open_circuit_breaker_for_large_language_model
+            ),
             timeout_for_recovery_in_seconds=(
                 application_configuration.recovery_timeout_of_circuit_breaker_for_large_language_model_in_seconds
             ),
@@ -278,7 +280,7 @@ def create_application() -> fastapi.FastAPI:
 
         # ── Graceful shutdown sequence (FR40) ─────────────────────────────
         #
-        # The v5.11.0 specification requires a ``graceful_shutdown_initiated``
+        # The v5.12.0 specification requires a ``graceful_shutdown_initiated``
         # log event at INFO level when the service begins its shutdown
         # sequence.  This event must include the number of HTTP requests
         # still in progress at the moment of shutdown initiation, allowing

@@ -1,10 +1,10 @@
 # Technical Specification: Text-to-Image Generation Service with Prompt Enhancement
 
-**Document Version:** 5.11.0
+**Document Version:** 5.12.0
 **Status:** Final — Panel Review Ready
 **Target Audience:** Senior Engineering Panel, Implementation Teams
 **Specification Authority:** Principal Technical Specification Authority
-**Date:** 9 March 2026
+**Date:** 30 March 2026
 
 ---
 
@@ -1155,7 +1155,7 @@ The non-functional requirements are specified before functional requirements bec
 
 50. The service shall implement a circuit breaker for communication with the llama.cpp large language model server that transitions through three states — CLOSED, OPEN, and HALF_OPEN — to prevent the service from repeatedly waiting for the full upstream timeout duration when the llama.cpp server is consistently failing. The circuit breaker shall operate as follows:
 
-    - **CLOSED** (normal operation): Requests pass through to the llama.cpp server. Each upstream failure increments a counter of consecutive failures. When the counter reaches the configured failure threshold (`TEXT_TO_IMAGE_FAILURE_THRESHOLD_OF_CIRCUIT_BREAKER_FOR_LARGE_LANGUAGE_MODEL`), the circuit transitions to OPEN. Any upstream success resets the counter to zero. The following conditions constitute a circuit breaker failure:
+    - **CLOSED** (normal operation): Requests pass through to the llama.cpp server. Each upstream failure increments a counter of consecutive failures. When the counter reaches the configured number of consecutive failures to open the circuit breaker (`TEXT_TO_IMAGE_NUMBER_OF_CONSECUTIVE_FAILURES_TO_OPEN_CIRCUIT_BREAKER_FOR_LARGE_LANGUAGE_MODEL`), the circuit transitions to OPEN. Any upstream success resets the counter to zero. The following conditions constitute a circuit breaker failure:
         - Connection refused or connection error
         - Request timeout (no response within the configured timeout)
         - HTTP 5xx status code from the llama.cpp server
@@ -1173,13 +1173,13 @@ The non-functional requirements are specified before functional requirements bec
 
 - The Text-to-Image API Service is running and accessible
 - The llama.cpp server is initially running and accessible
-- The circuit breaker failure threshold and recovery timeout are configured (defaults: 5 consecutive failures, 30 seconds recovery timeout)
+- The number of consecutive failures to open the circuit breaker and the recovery timeout are configured (defaults: 5 consecutive failures, 30 seconds recovery timeout)
 
 **Verification:**
 
 - Test procedure:
 
-    1. Configure the circuit breaker with a failure threshold of 3 and a recovery timeout of 5 seconds (reduced from defaults for test observability)
+    1. Configure the circuit breaker to open after 3 consecutive failures, with a recovery timeout of 5 seconds (reduced from defaults for test observability)
     2. Stop the llama.cpp server
     3. Send 3 consecutive prompt enhancement requests (`POST /v1/prompts/enhance`) and record the response time and HTTP status code for each
     4. Verify that each of the 3 requests waits for the upstream timeout before returning HTTP 502 (these are the failures that increment the counter of consecutive failures and open the circuit)
@@ -3379,7 +3379,7 @@ The following limits are configurable via environment variables and affect API v
 | Permitted image sizes | `512x512`, `768x768`, `1024x1024` | *(same)* | *(validated in Pydantic schema)* | [FR30](#request-validation-schema-compliance) (Request validation: schema compliance) |
 | Image generation concurrency limit | `None` (auto-detected: 2 on GPU, 1 on CPU) | *(auto-resolved)* | `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION` | [NFR44](#concurrency-control-for-image-generation) (Concurrency control for image generation) |
 | Upstream request timeout (seconds) | 30 | Increase to 120 | `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_TO_LARGE_LANGUAGE_MODEL_IN_SECONDS` | [NFR6](#enforcement-of-upstream-timeouts) (Enforcement of upstream timeouts) |
-| Failure threshold of the circuit breaker for the large language model (consecutive failures) | 5 | *(same)* | `TEXT_TO_IMAGE_FAILURE_THRESHOLD_OF_CIRCUIT_BREAKER_FOR_LARGE_LANGUAGE_MODEL` | [NFR50](#circuit-breaker-for-communication-with-the-large-language-model-service) (Circuit breaker for communication with the large language model service) |
+| Number of consecutive failures to open the circuit breaker for the large language model | 5 | *(same)* | `TEXT_TO_IMAGE_NUMBER_OF_CONSECUTIVE_FAILURES_TO_OPEN_CIRCUIT_BREAKER_FOR_LARGE_LANGUAGE_MODEL` | [NFR50](#circuit-breaker-for-communication-with-the-large-language-model-service) (Circuit breaker for communication with the large language model service) |
 | Recovery timeout of the circuit breaker for the large language model (seconds) | 30 | *(same)* | `TEXT_TO_IMAGE_RECOVERY_TIMEOUT_OF_CIRCUIT_BREAKER_FOR_LARGE_LANGUAGE_MODEL_IN_SECONDS` | [NFR50](#circuit-breaker-for-communication-with-the-large-language-model-service) (Circuit breaker for communication with the large language model service) |
 | Timeout for end-to-end requests (seconds) | `None` (auto-detected: 60 on GPU, 300 on CPU) | *(auto-resolved)* | `TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS` | [NFR48](#timeout-for-end-to-end-requests) (Timeout for end-to-end requests) |
 | CORS allowed origins | `[]` (none) | *(same)* | `TEXT_TO_IMAGE_CORS_ALLOWED_ORIGINS` | [NFR16](#cors-enforcement) (CORS enforcement) |
@@ -4230,7 +4230,7 @@ All configuration shall be expressed exclusively as environment variables with f
 | `TEXT_TO_IMAGE_MAXIMUM_TOKENS_GENERATED_BY_LARGE_LANGUAGE_MODEL` | Maximum number of tokens the large language model may generate for an enhanced prompt | `512` | No |
 | `TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_BYTES_OF_RESPONSE_BODY_FROM_LARGE_LANGUAGE_MODEL` | Maximum response body size in bytes the service will read from the llama.cpp server. Responses exceeding this limit are treated as upstream failures (HTTP 502). Protects against memory exhaustion from unexpectedly large upstream responses. | `1048576` (1 MB) | No |
 | `TEXT_TO_IMAGE_SIZE_OF_CONNECTION_POOL_FOR_LARGE_LANGUAGE_MODEL` | Maximum number of connections maintained in the httpx connection pool for the llama.cpp HTTP client. With default concurrency (`TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_CONCURRENT_OPERATIONS_OF_IMAGE_GENERATION` = 2) and sequential prompt enhancement, a pool size of 10 is sufficient. Increase if deploying multiple service instances against a single llama.cpp server or if concurrency is increased. | `10` | No |
-| `TEXT_TO_IMAGE_FAILURE_THRESHOLD_OF_CIRCUIT_BREAKER_FOR_LARGE_LANGUAGE_MODEL` | Number of consecutive failures to the llama.cpp large language model server required to open the circuit breaker and begin rejecting requests immediately without waiting for the full timeout duration. A value of 1 opens the circuit on the very first failure. Higher values tolerate transient errors before triggering fail-fast behaviour. See [NFR50](#circuit-breaker-for-communication-with-the-large-language-model-service) (Circuit breaker for communication with the large language model service). | `5` | No |
+| `TEXT_TO_IMAGE_NUMBER_OF_CONSECUTIVE_FAILURES_TO_OPEN_CIRCUIT_BREAKER_FOR_LARGE_LANGUAGE_MODEL` | Number of consecutive failures to the llama.cpp large language model server required to open the circuit breaker and begin rejecting requests immediately without waiting for the full timeout duration. A value of 1 opens the circuit on the very first failure. Higher values tolerate transient errors before triggering fail-fast behaviour. See [NFR50](#circuit-breaker-for-communication-with-the-large-language-model-service) (Circuit breaker for communication with the large language model service). | `5` | No |
 | `TEXT_TO_IMAGE_RECOVERY_TIMEOUT_OF_CIRCUIT_BREAKER_FOR_LARGE_LANGUAGE_MODEL_IN_SECONDS` | Duration in seconds that the circuit breaker remains in the OPEN state (rejecting all requests immediately) before transitioning to the HALF_OPEN state and allowing a single probe request through to test whether the llama.cpp server has recovered. See [NFR50](#circuit-breaker-for-communication-with-the-large-language-model-service) (Circuit breaker for communication with the large language model service). | `30.0` | No |
 | `TEXT_TO_IMAGE_ID_OF_STABLE_DIFFUSION_MODEL` | Hugging Face model identifier or local filesystem path for the Stable Diffusion pipeline | `stable-diffusion-v1-5/stable-diffusion-v1-5` | No |
 | `TEXT_TO_IMAGE_REVISION_OF_STABLE_DIFFUSION_MODEL` | Hugging Face model revision identifier (a specific commit hash or branch name) for the Stable Diffusion model. Pinning to a specific commit hash ensures that model weights are identical across all deployments, regardless of future repository updates or migrations. Use `"main"` to track the latest revision (not recommended for production, as the repository may be updated or migrated). To obtain the current commit hash for a given model, inspect the repository's commit history on Hugging Face Hub and copy the full SHA-1 hash. **Pinned revision for evaluation:** For evaluation environments using `stable-diffusion-v1-5/stable-diffusion-v1-5`, the `.env.example` file shall set this variable to `"39593d5650112b4cc580433f6b0435385882d819"` (the most recent commit as of February 2026). Pinning prevents silent behavioural changes between evaluations if the upstream repository is updated or migrated. | `"main"` | No |
@@ -4303,7 +4303,7 @@ This section consolidates logging, metrics, and tracing expectations.
 | `upstream_service_error` | ERROR | An upstream service error was mapped to an HTTP error response |
 | `request_timeout_exceeded` | ERROR | Request processing was aborted because the total elapsed time exceeded the configured end-to-end timeout ceiling (`TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS`); includes the configured timeout value and elapsed time |
 | `unexpected_exception` | ERROR | An unhandled exception was caught by global handler |
-| `circuit_breaker_opened` | WARNING | Circuit transitioned from CLOSED to OPEN after reaching the consecutive failure threshold |
+| `circuit_breaker_opened` | WARNING | Circuit transitioned from CLOSED to OPEN after reaching the configured number of consecutive failures to open the circuit breaker |
 | `circuit_breaker_half_open` | INFO | Circuit transitioned from OPEN to HALF_OPEN after the recovery timeout elapsed |
 | `circuit_breaker_closed` | INFO | Circuit transitioned from HALF_OPEN to CLOSED after a successful probe request |
 | `circuit_breaker_reopened` | WARNING | Circuit transitioned from HALF_OPEN back to OPEN after a failed probe request |
@@ -5989,6 +5989,7 @@ This section documents failure modes commonly encountered during initial setup a
 | 5.9.0 | 8 Mar 2026 | Extended Prometheus metrics endpoint with in-flight request gauge and safety filter rejection counter. See detailed v5.9.0 changelog below. |
 | 5.10.0 | 9 Mar 2026 | Added operational runbook for critical failure modes, Prometheus alerting rule examples, and combined-workflow service level objective to the Logging and Observability section; added progressive delivery advisory to the Infrastructure Definition section; added architectural rationale for the absence of application-level admission control on prompt enhancement to the Security Considerations section; tightened Python version requirement from 3.11+ to 3.12+; updated future extensibility pathway 8 to acknowledge circuit breaker implementation; corrected `service_busy` `details` field classification in summary table; added readiness probe endpoint advisory for llama-cpp-server; added service lifecycle state diagram to FR37. See detailed v5.10.0 changelog below. |
 | 5.11.0 | 9 Mar 2026 | Kubernetes infrastructure hardening: expanded pod security normative text with explicit security context constraints; added PodDisruptionBudgets for both deployments; added explicit failure threshold to llama-cpp-server readiness and liveness probes. See detailed v5.11.0 changelog below. |
+| 5.12.0 | 30 Mar 2026 | Renamed the circuit breaker failure threshold configuration parameter from `TEXT_TO_IMAGE_FAILURE_THRESHOLD_OF_CIRCUIT_BREAKER_FOR_LARGE_LANGUAGE_MODEL` to `TEXT_TO_IMAGE_NUMBER_OF_CONSECUTIVE_FAILURES_TO_OPEN_CIRCUIT_BREAKER_FOR_LARGE_LANGUAGE_MODEL` to conform with the `number_of_` naming convention for boundary values. See detailed v5.12.0 changelog below. |
 
 #### v4.0.0 Detailed Changelog
 
@@ -6618,6 +6619,12 @@ This section documents failure modes commonly encountered during initial setup a
 - Added two new PodDisruptionBudget subsections after the HorizontalPodAutoscaler subsection: `text-to-image-api-pod-disruption-budget` and `llama-cpp-server-pod-disruption-budget`, both with `minAvailable: 1`.
 - Added rationale explaining the distinction between rolling update `maxUnavailable: 0` (which governs deployment-initiated rollouts) and PodDisruptionBudgets (which protect against voluntary disruptions from cluster operations).
 - Updated the repository structure tree to include the two new PDB manifest filenames under `k8s/base/`.
+
+#### v5.12.0 Detailed Changelog
+
+**Renamed circuit breaker failure threshold configuration parameter (§15, Upstream Communication; §17, Configuration Requirements; Appendix A):**
+
+- Renamed the environment variable `TEXT_TO_IMAGE_FAILURE_THRESHOLD_OF_CIRCUIT_BREAKER_FOR_LARGE_LANGUAGE_MODEL` to `TEXT_TO_IMAGE_NUMBER_OF_CONSECUTIVE_FAILURES_TO_OPEN_CIRCUIT_BREAKER_FOR_LARGE_LANGUAGE_MODEL` across all three locations where it appears: the NFR50 requirement text (§15), the Configuration Requirements table (§17), and the Appendix A environment variable reference table. The corresponding internal configuration field is renamed from `failure_threshold_of_circuit_breaker_for_large_language_model` to `number_of_consecutive_failures_to_open_circuit_breaker_for_large_language_model`, and the `CircuitBreaker` class parameter from `failure_threshold` to `number_of_consecutive_failures_to_open_circuit_breaker`. This rename conforms with the `number_of_` naming convention for variables that represent boundary values or constrained quantities, which prefers explicit `number_of_` phrasing over scalar-boundary terms such as `threshold`. The default value (5), semantics, and runtime behaviour are unchanged.
 
 ---
 

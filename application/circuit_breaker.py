@@ -13,14 +13,14 @@ State machine
 -------------
 The circuit breaker operates in three states::
 
-    CLOSED  ──(failure threshold reached)──▸  OPEN
+    CLOSED  ──(consecutive failure count reached)──▸  OPEN
     OPEN    ──(recovery timeout elapsed)───▸  HALF_OPEN
     HALF_OPEN ──(probe succeeds)───────────▸  CLOSED
     HALF_OPEN ──(probe fails)──────────────▸  OPEN
 
 - **CLOSED** (normal operation): requests pass through to the upstream
   service.  Each failure increments a counter of consecutive failures.  When
-  the counter reaches ``failure_threshold``, the circuit transitions to
+  the counter reaches ``number_of_consecutive_failures_to_open_circuit_breaker``, the circuit transitions to
   OPEN.  Any success resets the counter to zero.
 
 - **OPEN** (fail-fast): all requests are rejected immediately with
@@ -44,7 +44,7 @@ Configuration
 -------------
 Three parameters control the circuit breaker behaviour:
 
-- ``failure_threshold``: number of consecutive failures required to open
+- ``number_of_consecutive_failures_to_open_circuit_breaker``: number of consecutive failures required to open
   the circuit (default 5).
 - ``timeout_for_recovery_in_seconds``: how long the circuit remains OPEN before
   transitioning to HALF_OPEN for a probe attempt (default 30.0).
@@ -90,7 +90,7 @@ class CircuitBreaker:
     Usage::
 
         circuit_breaker = CircuitBreaker(
-            failure_threshold=5,
+            number_of_consecutive_failures_to_open_circuit_breaker=5,
             timeout_for_recovery_in_seconds=30.0,
             name="large_language_model",
         )
@@ -112,7 +112,7 @@ class CircuitBreaker:
 
     def __init__(
         self,
-        failure_threshold: int = 5,
+        number_of_consecutive_failures_to_open_circuit_breaker: int = 5,
         timeout_for_recovery_in_seconds: float = 30.0,
         name: str = "unnamed",
     ) -> None:
@@ -120,7 +120,7 @@ class CircuitBreaker:
         Initialise the circuit breaker.
 
         Args:
-            failure_threshold: The number of consecutive upstream
+            number_of_consecutive_failures_to_open_circuit_breaker: The number of consecutive upstream
                 failures required to transition the circuit from CLOSED
                 to OPEN.  A value of 1 opens the circuit on the very
                 first failure.  A higher value tolerates transient
@@ -134,7 +134,9 @@ class CircuitBreaker:
                 operational visibility and disambiguation when multiple
                 circuit breakers are active.
         """
-        self._failure_threshold = failure_threshold
+        self._number_of_consecutive_failures_to_open_circuit_breaker = (
+            number_of_consecutive_failures_to_open_circuit_breaker
+        )
         self._timeout_for_recovery_in_seconds = timeout_for_recovery_in_seconds
         self._name = name
 
@@ -279,7 +281,10 @@ class CircuitBreaker:
                 )
                 return
 
-            if self._state == CircuitState.CLOSED and self._number_of_consecutive_failures >= self._failure_threshold:
+            if (
+                self._state == CircuitState.CLOSED
+                and self._number_of_consecutive_failures >= self._number_of_consecutive_failures_to_open_circuit_breaker
+            ):
                 self._state = CircuitState.OPEN
                 state_of_circuit_breaker.labels(
                     circuit_name=self._name,

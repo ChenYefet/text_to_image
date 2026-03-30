@@ -33,7 +33,7 @@ ALL_CONFIGURATION_ENVIRONMENT_VARIABLE_NAMES: list[str] = [
     "TEXT_TO_IMAGE_RETRY_AFTER_NOT_READY_IN_SECONDS",
     "TEXT_TO_IMAGE_MAXIMUM_NUMBER_OF_BYTES_OF_REQUEST_PAYLOAD",
     "TEXT_TO_IMAGE_TIMEOUT_FOR_REQUESTS_IN_SECONDS",
-    "TEXT_TO_IMAGE_FAILURE_THRESHOLD_OF_CIRCUIT_BREAKER_FOR_LARGE_LANGUAGE_MODEL",
+    "TEXT_TO_IMAGE_NUMBER_OF_CONSECUTIVE_FAILURES_TO_OPEN_CIRCUIT_BREAKER_FOR_LARGE_LANGUAGE_MODEL",
     "TEXT_TO_IMAGE_RECOVERY_TIMEOUT_OF_CIRCUIT_BREAKER_FOR_LARGE_LANGUAGE_MODEL_IN_SECONDS",
 ]
 
@@ -87,7 +87,10 @@ class TestApplicationConfigurationDefaults:
         assert application_configuration.inference_timeout_by_stable_diffusion_per_baseline_unit_in_seconds is None
 
         # ── Circuit breaker settings ──
-        assert application_configuration.failure_threshold_of_circuit_breaker_for_large_language_model == 5
+        assert (
+            application_configuration.number_of_consecutive_failures_to_open_circuit_breaker_for_large_language_model
+            == 5
+        )
         assert application_configuration.recovery_timeout_of_circuit_breaker_for_large_language_model_in_seconds == 30.0
 
         # ── Admission control and resilience settings ──
@@ -176,10 +179,19 @@ class TestApplicationConfigurationOverrides:
         application_configuration = application.configuration.ApplicationConfiguration()
         assert application_configuration.timeout_for_requests_in_seconds == 600.0
 
-    def test_circuit_breaker_failure_threshold_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("TEXT_TO_IMAGE_FAILURE_THRESHOLD_OF_CIRCUIT_BREAKER_FOR_LARGE_LANGUAGE_MODEL", "10")
+    def test_circuit_breaker_number_of_consecutive_failures_override(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv(
+            "TEXT_TO_IMAGE_NUMBER_OF_CONSECUTIVE_FAILURES_TO_OPEN_CIRCUIT_BREAKER_FOR_LARGE_LANGUAGE_MODEL",
+            "10",
+        )
         application_configuration = application.configuration.ApplicationConfiguration()
-        assert application_configuration.failure_threshold_of_circuit_breaker_for_large_language_model == 10
+        assert (
+            application_configuration.number_of_consecutive_failures_to_open_circuit_breaker_for_large_language_model
+            == 10
+        )
 
     def test_circuit_breaker_recovery_timeout_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv(
@@ -195,7 +207,7 @@ class TestConfigurationEnvironmentVariables:
     Verify that environment variable names set the correct configuration values.
 
     These tests confirm that the canonical environment variable names defined
-    in Section 17 of the v5.11.0 specification are accepted and mapped to the
+    in Section 17 of the v5.12.0 specification are accepted and mapped to the
     correct Python fields.
     """
 
@@ -204,7 +216,7 @@ class TestConfigurationEnvironmentVariables:
     ) -> None:
         """TEXT_TO_IMAGE_LARGE_LANGUAGE_MODEL_PATH is accepted and mapped to the
         large_language_model_path field (reference-only variable for deployment
-        tooling visibility, §17 of the v5.11.0 specification)."""
+        tooling visibility, §17 of the v5.12.0 specification)."""
         _clear_all_configuration_environment_variables(monkeypatch)
         monkeypatch.setenv(
             "TEXT_TO_IMAGE_LARGE_LANGUAGE_MODEL_PATH",
@@ -351,13 +363,25 @@ class TestConfigurationValidation:
 
     # ── Circuit breaker configuration validation ──
 
-    def test_zero_circuit_breaker_failure_threshold_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("TEXT_TO_IMAGE_FAILURE_THRESHOLD_OF_CIRCUIT_BREAKER_FOR_LARGE_LANGUAGE_MODEL", "0")
+    def test_zero_circuit_breaker_number_of_consecutive_failures_rejected(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv(
+            "TEXT_TO_IMAGE_NUMBER_OF_CONSECUTIVE_FAILURES_TO_OPEN_CIRCUIT_BREAKER_FOR_LARGE_LANGUAGE_MODEL",
+            "0",
+        )
         with pytest.raises(pydantic.ValidationError):
             application.configuration.ApplicationConfiguration()
 
-    def test_negative_circuit_breaker_failure_threshold_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("TEXT_TO_IMAGE_FAILURE_THRESHOLD_OF_CIRCUIT_BREAKER_FOR_LARGE_LANGUAGE_MODEL", "-1")
+    def test_negative_circuit_breaker_number_of_consecutive_failures_rejected(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv(
+            "TEXT_TO_IMAGE_NUMBER_OF_CONSECUTIVE_FAILURES_TO_OPEN_CIRCUIT_BREAKER_FOR_LARGE_LANGUAGE_MODEL",
+            "-1",
+        )
         with pytest.raises(pydantic.ValidationError):
             application.configuration.ApplicationConfiguration()
 

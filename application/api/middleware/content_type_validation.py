@@ -7,7 +7,7 @@ HTTP 415 (``unsupported_media_type``).  GET, OPTIONS, HEAD, and other
 non-body-bearing methods pass through unchecked.
 
 This middleware enforces NFR18 (Content-Type enforcement) from the
-v5.11.0 specification.
+v5.12.0 specification.
 
 This middleware must be registered *inside* (after)
 ``CorrelationIdMiddleware`` so that the correlation ID is available

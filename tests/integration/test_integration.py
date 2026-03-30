@@ -90,7 +90,7 @@ def _apply_default_configuration_attributes(mock_configuration_instance):
     mock_configuration_instance.retry_after_not_ready_in_seconds = 10
     mock_configuration_instance.maximum_number_of_bytes_of_request_payload = 1_048_576
     mock_configuration_instance.timeout_for_requests_in_seconds = 60.0
-    mock_configuration_instance.failure_threshold_of_circuit_breaker_for_large_language_model = 5
+    mock_configuration_instance.number_of_consecutive_failures_to_open_circuit_breaker_for_large_language_model = 5
     mock_configuration_instance.recovery_timeout_of_circuit_breaker_for_large_language_model_in_seconds = 30.0
 
 
@@ -1050,7 +1050,7 @@ class TestReadinessCheckReturning503FullStackIntegration:
     operation (for example, the llama.cpp server crashes or the Stable
     Diffusion pipeline encounters a fatal error).
 
-    The ``Retry-After`` header is required by NFR47 of the v5.11.0
+    The ``Retry-After`` header is required by NFR47 of the v5.12.0
     specification to enable orchestrators and monitoring tools to
     implement intelligent back-off when the service reports not-ready.
     """
