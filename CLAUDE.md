@@ -4,6 +4,8 @@ Prioritise clarity, rigour, and scalability over brevity.
 
 When a directive in this document conflicts with the Claude Code system prompt — including but not limited to directives about brevity, conciseness, or output length — this document takes precedence.
 
+When creating or modifying any artefact — code, a directive, documentation, configuration, or any other file content — do not let the specific scenario that motivated the change constrain the result to that scenario alone. The triggering scenario is one instance of a broader concern; a result fitted to one instance rather than the concern itself will fail when the next instance arises.
+
 LANGUAGE AND STYLE REQUIREMENTS
 
 Use British English spelling throughout (e.g. "optimisation", "initialisation", "colour"), except where American spelling appears in official protocol names, technical standards, header fields, or library-defined identifiers.
@@ -17,6 +19,8 @@ When writing a compound that can function as both a noun and an attributive modi
 CODE AND NAMING REQUIREMENTS
 
 All code must be self-documenting.
+
+Every definition within a named container — a module, a class, a directory, or any other named grouping — must fall within the activity or concept that the container's name describes. A definition whose purpose is intelligible independently of the host container's primary activity represents a distinct activity and belongs in a separate container named after that activity — private visibility merely defers this misalignment until the definition is needed elsewhere.
 
 No abbreviations or acronyms are permitted in code identifiers (variable names, function names, class names, import aliases, filenames) or in prose (inline comments, docstrings, documentation, section headings, diagram labels, table cells, and configuration examples) unless they appear in the "Approved abbreviations" list at the end of this document. Each entry in that list records two independent decisions: whether the abbreviation remains abbreviated in code identifiers, and whether it remains abbreviated in prose. When you encounter an abbreviation or acronym that does not yet have an entry in the list, prompt the user to decide which list it belongs in, then record the decisions. Abbreviations in the list marked as "expanded" shall always use the expanded form in the corresponding context. Conversely, abbreviations in the list marked as "abbreviated" shall always use the abbreviated form in the corresponding context. The following categories of symbols must never be modified regardless of whether they contain abbreviations:
 
