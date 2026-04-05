@@ -68,6 +68,7 @@ import sys
 
 from helpers.deny_then_allow import run_deny_then_allow
 from helpers.parsing_of_hook_input_for_bash_commands import (
+    extract_commit_message_from_command,
     is_git_subcommand,
     read_hook_input_from_standard_input,
 )
@@ -394,39 +395,6 @@ def get_diff_between_tree_and_parent(
     return output if output else None
 
 
-def extract_commit_message_from_command(command: str) -> str | None:
-    """Extract the commit message from a git commit command string.
-
-    Handles heredoc syntax, double-quoted -m arguments, and single-quoted
-    -m arguments.  Returns None if no -m flag is found (bare --amend
-    reuses the existing message).
-    """
-    # Heredoc pattern: -m "$(cat <<'EOF' ... EOF )"
-    heredoc_match = re.search(
-        r"""-m\s+"\$\(cat\s+<<'EOF'\s*\n(.*?)\n\s*EOF\s*\)""",
-        command,
-        re.DOTALL,
-    )
-    if heredoc_match:
-        return heredoc_match.group(1).strip()
-
-    # Double-quoted: -m "message"
-    double_quoted_match = re.search(
-        r'-m\s+"((?:[^"\\]|\\.)*)"', command, re.DOTALL
-    )
-    if double_quoted_match:
-        return double_quoted_match.group(1).strip()
-
-    # Single-quoted: -m 'message'
-    single_quoted_match = re.search(
-        r"-m\s+'((?:[^'\\]|\\.)*)'", command, re.DOTALL
-    )
-    if single_quoted_match:
-        return single_quoted_match.group(1).strip()
-
-    return None
-
-
 def build_prompt_for_analysis_of_commit_message_accuracy(
     commit_message: str,
     diff_from_parent: str,
@@ -678,6 +646,8 @@ def check_and_build_blocking_message() -> str | None:
 
     return (
         "COMMIT MESSAGE ACCURACY REVIEW — COMMIT BLOCKED.\n"
+        "\n"
+        f"Commit message:\n\n{commit_message}\n"
         "\n"
         "The commit message does not accurately describe the diff from\n"
         "the parent commit.\n"

@@ -28,6 +28,7 @@ import sys
 
 from helpers.deny_then_allow import run_deny_then_allow
 from helpers.parsing_of_hook_input_for_bash_commands import (
+    extract_commit_message_from_command,
     is_git_subcommand,
     read_hook_input_from_standard_input,
 )
@@ -184,11 +185,21 @@ def call_claude_for_analysis(prompt: str) -> dict | None:
     return analysis
 
 
-def build_blocking_message_for_format_violation(explanation: str) -> str:
+def build_blocking_message_for_format_violation(
+    explanation: str, commit_message: str | None,
+) -> str:
     """Build the blocking message for a commit message format violation."""
+    if commit_message is not None:
+        message_section = (
+            f"Commit message:\n\n{commit_message}\n\n"
+        )
+    else:
+        message_section = ""
+
     return (
         "COMMIT MESSAGE FORMAT VIOLATION — COMMIT BLOCKED.\n"
         "\n"
+        f"{message_section}"
         "The commit message does not follow the required format.\n"
         "\n"
         f"Issue: {explanation}\n"
@@ -225,6 +236,7 @@ def build_blocking_message_for_failure_of_claude_cli() -> str:
 # Store the analysis result from main() so check_and_build_blocking_message
 # can access it without re-calling the Claude command-line interface.
 _analysis_result_cached: dict | None = None
+_commit_message_cached: str | None = None
 
 
 def check_and_build_blocking_message() -> str | None:
@@ -243,11 +255,13 @@ def check_and_build_blocking_message() -> str | None:
     if is_valid:
         return None
 
-    return build_blocking_message_for_format_violation(explanation)
+    return build_blocking_message_for_format_violation(
+        explanation, _commit_message_cached,
+    )
 
 
 def main() -> int:
-    global _analysis_result_cached
+    global _analysis_result_cached, _commit_message_cached
     hook_input = read_hook_input_from_standard_input()
 
     tool_input = hook_input.get("tool_input", {})
@@ -259,6 +273,8 @@ def main() -> int:
         and not is_git_subcommand(command, "merge")
     ):
         return 0
+
+    _commit_message_cached = extract_commit_message_from_command(command)
 
     # If a marker file for this session already exists, the
     # deny-then-allow mechanism is in the allow-on-second-attempt state

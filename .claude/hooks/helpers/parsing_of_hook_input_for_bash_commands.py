@@ -3,7 +3,8 @@
 Provides functions used at the entry point of every pre-commit hook:
 one that reads and parses the JSON input provided by Claude Code on
 standard input, a function that determines whether a Bash command
-invokes a specific ``git`` subcommand, and a character-by-character
+invokes a specific ``git`` subcommand, a function that extracts the
+commit message from a git command string, and a character-by-character
 shell scanner that yields characters at the top level of the shell
 (outside quoted strings, comments, and subshells).
 """
@@ -223,3 +224,37 @@ def is_git_subcommand(command: str, subcommand: str) -> bool:
                 return True
 
     return False
+
+
+def extract_commit_message_from_command(command: str) -> str | None:
+    """Extract the commit message from a git commit command string.
+
+    Handles heredoc syntax, double-quoted ``-m`` arguments, and
+    single-quoted ``-m`` arguments.  Returns ``None`` if no ``-m``
+    flag is found (e.g. ``--amend`` without ``-m``, which reuses
+    the existing message).
+    """
+    # Heredoc pattern: -m "$(cat <<'EOF' ... EOF )"
+    heredoc_match = re.search(
+        r"""-m\s+"\$\(cat\s+<<'EOF'\s*\n(.*?)\n\s*EOF\s*\)""",
+        command,
+        re.DOTALL,
+    )
+    if heredoc_match:
+        return heredoc_match.group(1).strip()
+
+    # Double-quoted: -m "message"
+    double_quoted_match = re.search(
+        r'-m\s+"((?:[^"\\]|\\.)*)"', command, re.DOTALL
+    )
+    if double_quoted_match:
+        return double_quoted_match.group(1).strip()
+
+    # Single-quoted: -m 'message'
+    single_quoted_match = re.search(
+        r"-m\s+'((?:[^'\\]|\\.)*)'", command, re.DOTALL
+    )
+    if single_quoted_match:
+        return single_quoted_match.group(1).strip()
+
+    return None

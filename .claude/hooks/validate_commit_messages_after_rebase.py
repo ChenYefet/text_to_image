@@ -318,6 +318,10 @@ def build_system_message_for_automatic_correction(
 
     for commit in problematic_commits:
         lines.append(f"  {commit['hash']}:")
+        lines.append("    Message:")
+        for message_line in commit["message"].splitlines():
+            lines.append(f"      {message_line}")
+        lines.append("    Issues:")
         for issue in commit["issues"]:
             lines.append(f"    - {issue}")
         lines.append("")
@@ -355,6 +359,10 @@ def build_system_message_for_manual_resolution(
 
     for commit in problematic_commits:
         lines.append(f"  {commit['hash']}:")
+        lines.append("    Message:")
+        for message_line in commit["message"].splitlines():
+            lines.append(f"      {message_line}")
+        lines.append("    Issues:")
         for issue in commit["issues"]:
             lines.append(f"    - {issue}")
         lines.append("")
@@ -439,13 +447,20 @@ def main() -> int:
     if analysis is None:
         return 0
 
+    # Build a lookup from short hash to commit message.
+    commit_message_indexed_by_short_hash = {
+        data["hash"]: data["message"] for data in commits_data
+    }
+
     # Extract commits with issues.
     problematic = []
     for commit_result in analysis.get("commits", []):
         issues = commit_result.get("issues", [])
         if issues:
+            short_hash = commit_result.get("hash", "unknown")
             problematic.append({
-                "hash": commit_result.get("hash", "unknown"),
+                "hash": short_hash,
+                "message": commit_message_indexed_by_short_hash.get(short_hash, "(unknown)"),
                 "issues": issues,
             })
 
