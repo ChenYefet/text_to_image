@@ -24,36 +24,18 @@ commit and logs a warning to stderr.
 Exit code 0 — always (output JSON controls blocking via permissionDecision).
 """
 
-import importlib.util
 import json
-import os
 import subprocess
 import sys
 
 from helpers.deny_then_allow import run_deny_then_allow
+from helpers.invoking_claude_cli_for_analysis import call_claude_cli_for_analysis
 from helpers.parsing_of_hook_input_for_bash_commands import read_hook_input_from_standard_input
+from helpers.validate_markdown_anchors import extract_anchors_from_headings
 
 PREFIX_OF_MARKER_FILE = (
     ".marker_file_for_pending_review_of_hyperlinking_of_heading_references_for_session_"
 )
-
-
-def load_function_to_extract_anchors_from_headings():
-    """Load ``extract_anchors_from_headings`` from
-    ``helpers/validate_markdown_anchors.py``.
-
-    Returns the function object.
-    """
-    directory_of_this_hook = os.path.dirname(os.path.abspath(__file__))
-    path_to_validation_module = os.path.join(
-        directory_of_this_hook, "helpers", "validate_markdown_anchors.py"
-    )
-    specification = importlib.util.spec_from_file_location(
-        "validate_markdown_anchors", path_to_validation_module
-    )
-    module = importlib.util.module_from_spec(specification)
-    specification.loader.exec_module(module)
-    return module.extract_anchors_from_headings
 
 
 def get_staged_markdown_files() -> list[str]:
@@ -170,113 +152,16 @@ def build_prompt_for_heading_reference_analysis(
     )
 
 
-def parse_violations_from_claude_response(
-    standard_output: str,
-) -> list[dict] | None:
-    """Parse the violations array from the Claude command-line interface JSON output.
-
-    The ``--output-format json`` flag wraps the response in a JSON object
-    with a ``result`` field containing the text Claude generated.
-
-    Returns the list of violation dictionaries on success, or None if
-    the response cannot be parsed.
-    """
-    response_text = standard_output
-    try:
-        cli_output = json.loads(standard_output)
-        if isinstance(cli_output, dict) and "result" in cli_output:
-            response_text = cli_output["result"]
-    except (json.JSONDecodeError, TypeError):
-        pass
-
-    # If the result is already a list (parsed directly), return it.
-    if isinstance(response_text, list):
-        return response_text
-
-    if not isinstance(response_text, str):
-        return None
-
-    # Strip markdown code fences if Claude wrapped the JSON in them.
-    cleaned = response_text.strip()
-    if cleaned.startswith("```"):
-        lines = cleaned.splitlines()
-        end_index = len(lines)
-        for i in range(len(lines) - 1, 0, -1):
-            if lines[i].strip().startswith("```"):
-                end_index = i
-                break
-        cleaned = "\n".join(lines[1:end_index]).strip()
-
-    try:
-        violations = json.loads(cleaned)
-        if isinstance(violations, list):
-            return violations
-    except (json.JSONDecodeError, TypeError):
-        pass
-
-    return None
-
-
 def call_claude_for_heading_reference_analysis(
     prompt: str,
 ) -> list[dict] | None:
-    """Call the Claude command-line interface to analyse heading references.
-
-    Returns a list of violation dictionaries on success, or None if the
-    command-line interface is unavailable, the call fails, or the response is unparseable.
-    """
-    # Unset CLAUDECODE to allow the command-line interface to run from within a Claude
-    # Code session (hooks execute inside the parent session's
-    # environment).
-    environment_without_nesting_guard = os.environ.copy()
-    environment_without_nesting_guard.pop("CLAUDECODE", None)
-
-    try:
-        result = subprocess.run(
-            [
-                "claude", "-p",
-                "--model", "sonnet",
-                "--output-format", "json",
-            ],
-            input=prompt,
-            capture_output=True,
-            encoding="utf-8",
-            timeout=60,
-            env=environment_without_nesting_guard,
-        )
-    except FileNotFoundError:
-        print(
-            "WARNING: Claude command-line interface not found in PATH; skipping heading"
-            " reference validation.",
-            file=sys.stderr,
-        )
-        return None
-    except subprocess.TimeoutExpired:
-        print(
-            "WARNING: Claude command-line interface timed out; skipping heading reference"
-            " validation.",
-            file=sys.stderr,
-        )
-        return None
-
-    if result.returncode != 0:
-        print(
-            f"WARNING: Claude command-line interface exited with code {result.returncode};"
-            " skipping heading reference validation.",
-            file=sys.stderr,
-        )
-        return None
-
-    violations = parse_violations_from_claude_response(result.stdout)
-    if violations is None:
-        print(
-            "WARNING: Could not parse Claude command-line interface response as JSON;"
-            " skipping heading reference validation.",
-            file=sys.stderr,
-        )
-        return None
-
-    return violations
+    """Call the Claude command-line interface to analyse heading references."""
+    return call_claude_cli_for_analysis(
+        prompt,
+        expected_type=list,
+        timeout_in_seconds=60,
+        description_of_analysis="heading reference validation",
+    )
 
 
 def build_blocking_message(
@@ -327,9 +212,6 @@ def check_and_build_blocking_message() -> str | None:
     if not staged_markdown_files:
         return None
 
-    extract_anchors_from_headings = (
-        load_function_to_extract_anchors_from_headings()
-    )
     violations_indexed_by_file_path: dict[str, list[dict]] = {}
 
     for file_path in staged_markdown_files:

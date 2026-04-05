@@ -18,34 +18,20 @@ allowing commits without review.
 Exit code 0 — always (output JSON controls blocking via permissionDecision).
 """
 
-import glob
 import json
 import pathlib
-import re
 import sys
 
+from helpers.management_of_session_marker_files import (
+    PREFIX_OF_MARKER_FILE_FOR_COMMIT_PERMITTED_AFTER_READING_OF_CLAUDE_MD,
+    clean_up_stale_marker_files,
+    get_marker_file_path_for_session,
+    is_command_for_git_rebase_with_abort,
+)
 from helpers.parsing_of_hook_input_for_bash_commands import (
     is_git_subcommand,
     read_hook_input_from_standard_input,
 )
-
-PREFIX_OF_MARKER_FILE = ".marker_file_for_commit_permitted_after_reading_of_claude_md_for_session_"
-
-
-def _is_command_for_git_rebase_with_abort(command: str) -> bool:
-    """Return True if *command* contains a ``git rebase --abort``."""
-    if not is_git_subcommand(command, "rebase"):
-        return False
-    return bool(re.search(r"--abort\b", command))
-
-
-def _clean_up_stale_marker_files(current_session_id: str) -> None:
-    """Remove read-marker files left behind by previous sessions."""
-    for stale_marker_path in glob.glob(
-        f"{PREFIX_OF_MARKER_FILE}*"
-    ):
-        if current_session_id not in stale_marker_path:
-            pathlib.Path(stale_marker_path).unlink(missing_ok=True)
 
 
 def main() -> int:
@@ -56,11 +42,11 @@ def main() -> int:
 
     # Clean up read-marker when a rebase is aborted — any markers
     # created during the aborted rebase are stale.
-    if session_id and _is_command_for_git_rebase_with_abort(command):
-        for marker_path in glob.glob(
-            f"{PREFIX_OF_MARKER_FILE}{session_id}"
-        ):
-            pathlib.Path(marker_path).unlink(missing_ok=True)
+    if session_id and is_command_for_git_rebase_with_abort(command):
+        get_marker_file_path_for_session(
+            PREFIX_OF_MARKER_FILE_FOR_COMMIT_PERMITTED_AFTER_READING_OF_CLAUDE_MD,
+            session_id,
+        ).unlink(missing_ok=True)
         return 0
 
     # Only gate git commit commands.
@@ -75,11 +61,15 @@ def main() -> int:
     if not pathlib.Path("CLAUDE.md").is_file():
         return 0
 
-    _clean_up_stale_marker_files(session_id)
+    clean_up_stale_marker_files(
+        PREFIX_OF_MARKER_FILE_FOR_COMMIT_PERMITTED_AFTER_READING_OF_CLAUDE_MD,
+        session_id,
+    )
 
     # Check for the read-marker created by track_reading_of_claude_md.py.
-    read_marker_path = pathlib.Path(
-        f"{PREFIX_OF_MARKER_FILE}{session_id}"
+    read_marker_path = get_marker_file_path_for_session(
+        PREFIX_OF_MARKER_FILE_FOR_COMMIT_PERMITTED_AFTER_READING_OF_CLAUDE_MD,
+        session_id,
     )
     if read_marker_path.exists():
         read_marker_path.unlink(missing_ok=True)

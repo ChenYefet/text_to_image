@@ -18,8 +18,10 @@ import json
 import pathlib
 import sys
 
-
-PREFIX_OF_MARKER_FILE = ".marker_file_for_commit_permitted_after_reading_of_claude_md_for_session_"
+from helpers.management_of_session_marker_files import (
+    PREFIX_OF_MARKER_FILE_FOR_COMMIT_PERMITTED_AFTER_READING_OF_CLAUDE_MD,
+    get_marker_file_path_for_session,
+)
 
 
 def main() -> int:
@@ -34,7 +36,10 @@ def main() -> int:
     if not file_path or pathlib.Path(file_path).name != "CLAUDE.md":
         return 0
 
-    marker_file_path = pathlib.Path(f"{PREFIX_OF_MARKER_FILE}{session_id}")
+    marker_file_path = get_marker_file_path_for_session(
+        PREFIX_OF_MARKER_FILE_FOR_COMMIT_PERMITTED_AFTER_READING_OF_CLAUDE_MD,
+        session_id,
+    )
     marker_file_path.touch()
 
     return 0

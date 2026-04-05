@@ -10,6 +10,7 @@ searches the repository for all occurrences of a search term using
 
 import re
 import subprocess
+import sys
 
 
 def convert_file_path_to_path_of_python_module(file_path: str) -> str | None:
@@ -37,11 +38,20 @@ def search_repository_for_references(
     Returns a list of (file_path, line_number, line_content) tuples.
     Excludes any files listed in excluded_file_paths.
     """
-    result = subprocess.run(
-        ["git", "grep", "-n", "--fixed-strings", search_term],
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            ["git", "grep", "-n", "--fixed-strings", search_term],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        print(
+            "WARNING: git grep timed out while searching for"
+            f" references to {search_term!r}.",
+            file=sys.stderr,
+        )
+        return []
     references = []
     excluded = set(excluded_file_paths or [])
     for line in result.stdout.strip().splitlines():

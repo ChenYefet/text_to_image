@@ -9,9 +9,7 @@ existing heading. If dead anchors are found, the commit is denied.
 Exit code 0 — always (output JSON controls blocking via permissionDecision).
 """
 
-import importlib.util
 import json
-import os
 import subprocess
 import sys
 
@@ -19,29 +17,10 @@ from helpers.parsing_of_hook_input_for_bash_commands import (
     is_git_subcommand,
     read_hook_input_from_standard_input,
 )
-
-
-def load_anchor_validation_functions() -> tuple:
-    """Load ``extract_anchors_from_headings`` and
-    ``extract_same_file_anchor_references`` from
-    ``helpers/validate_markdown_anchors.py``.
-
-    Returns a tuple of (extract_anchors_from_headings,
-    extract_same_file_anchor_references).
-    """
-    directory_of_this_hook = os.path.dirname(os.path.abspath(__file__))
-    path_to_validation_module = os.path.join(
-        directory_of_this_hook, "helpers", "validate_markdown_anchors.py"
-    )
-    specification = importlib.util.spec_from_file_location(
-        "validate_markdown_anchors", path_to_validation_module
-    )
-    module = importlib.util.module_from_spec(specification)
-    specification.loader.exec_module(module)
-    return (
-        module.extract_anchors_from_headings,
-        module.extract_same_file_anchor_references,
-    )
+from helpers.validate_markdown_anchors import (
+    extract_anchors_from_headings,
+    extract_same_file_anchor_references,
+)
 
 
 def get_staged_markdown_files() -> list[str]:
@@ -113,9 +92,6 @@ def main() -> int:
     if not staged_markdown_files:
         return 0
 
-    extract_anchors_from_headings, extract_same_file_anchor_references = (
-        load_anchor_validation_functions()
-    )
     dead_anchor_links_indexed_by_file_path: dict[
         str, list[tuple[str, str, int]]
     ] = {}

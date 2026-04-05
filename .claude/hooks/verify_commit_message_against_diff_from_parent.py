@@ -59,7 +59,6 @@ Exit code 0 — always (output JSON controls blocking via permissionDecision).
 """
 
 import json
-import os
 import pathlib
 import re
 import shlex
@@ -67,6 +66,7 @@ import subprocess
 import sys
 
 from helpers.deny_then_allow import run_deny_then_allow
+from helpers.invoking_claude_cli_for_analysis import call_claude_cli_for_analysis
 from helpers.parsing_of_hook_input_for_bash_commands import (
     extract_commit_message_from_command,
     is_git_subcommand,
@@ -447,108 +447,15 @@ def build_prompt_for_analysis_of_commit_message_accuracy(
     )
 
 
-def parse_analysis_from_claude_response(
-    standard_output: str,
-) -> dict | None:
-    """Parse the analysis result from the Claude command-line interface JSON output.
-
-    Returns the analysis dictionary on success, or None if the response
-    cannot be parsed.
-    """
-    response_text = standard_output
-    try:
-        parsed_output = json.loads(standard_output)
-        if isinstance(parsed_output, dict) and "result" in parsed_output:
-            response_text = parsed_output["result"]
-    except (json.JSONDecodeError, TypeError):
-        pass
-
-    if isinstance(response_text, dict):
-        return response_text
-
-    if not isinstance(response_text, str):
-        return None
-
-    # Strip markdown code fences if Claude wrapped the JSON in them.
-    cleaned = response_text.strip()
-    if cleaned.startswith("```"):
-        lines = cleaned.splitlines()
-        end_index = len(lines)
-        for i in range(len(lines) - 1, 0, -1):
-            if lines[i].strip().startswith("```"):
-                end_index = i
-                break
-        cleaned = "\n".join(lines[1:end_index]).strip()
-
-    try:
-        result = json.loads(cleaned)
-        if isinstance(result, dict) and "is_accurate" in result:
-            return result
-    except (json.JSONDecodeError, TypeError):
-        pass
-
-    return None
-
-
 def call_claude_for_analysis(prompt: str) -> dict | None:
-    """Call the Claude command-line interface to analyse commit message accuracy.
-
-    Returns the analysis dictionary on success, or None if the command-line interface is
-    unavailable, the call fails, or the response is unparseable.
-    """
-    environment_without_nesting_guard = os.environ.copy()
-    environment_without_nesting_guard.pop("CLAUDECODE", None)
-
-    try:
-        result = subprocess.run(
-            [
-                "claude", "-p",
-                "--model", "sonnet",
-                "--output-format", "json",
-            ],
-            input=prompt,
-            capture_output=True,
-            encoding="utf-8",
-            timeout=120,
-            env=environment_without_nesting_guard,
-        )
-    except FileNotFoundError:
-        print(
-            "WARNING: Claude command-line interface not found in PATH; skipping"
-            " analysis of commit message accuracy against diff"
-            " from parent.",
-            file=sys.stderr,
-        )
-        return None
-    except subprocess.TimeoutExpired:
-        print(
-            "WARNING: Claude command-line interface timed out; skipping"
-            " analysis of commit message accuracy against diff"
-            " from parent.",
-            file=sys.stderr,
-        )
-        return None
-
-    if result.returncode != 0:
-        print(
-            f"WARNING: Claude command-line interface exited with code {result.returncode};"
-            " skipping analysis of commit message accuracy against diff"
-            " from parent.",
-            file=sys.stderr,
-        )
-        return None
-
-    analysis = parse_analysis_from_claude_response(result.stdout)
-    if analysis is None:
-        print(
-            "WARNING: Could not parse Claude command-line interface response as JSON;"
-            " skipping analysis of commit message accuracy against diff"
-            " from parent.",
-            file=sys.stderr,
-        )
-        return None
-
-    return analysis
+    """Call the Claude command-line interface to analyse commit message accuracy."""
+    return call_claude_cli_for_analysis(
+        prompt,
+        timeout_in_seconds=120,
+        description_of_analysis=(
+            "analysis of commit message accuracy against diff from parent"
+        ),
+    )
 
 
 def resolve_commit_message_and_diff_from_parent() -> tuple[str, str] | None:

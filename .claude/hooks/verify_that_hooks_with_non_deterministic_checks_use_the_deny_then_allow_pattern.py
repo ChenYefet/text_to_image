@@ -22,12 +22,11 @@ commit and logs a warning to stderr.
 Exit code 0 — always (output JSON controls blocking via permissionDecision).
 """
 
-import json
-import os
 import subprocess
 import sys
 
 from helpers.deny_then_allow import run_deny_then_allow
+from helpers.invoking_claude_cli_for_analysis import call_claude_cli_for_analysis
 from helpers.parsing_of_hook_input_for_bash_commands import read_hook_input_from_standard_input
 
 PREFIX_OF_MARKER_FILE = (
@@ -106,104 +105,13 @@ def build_prompt_for_non_deterministic_check_analysis(
     )
 
 
-def parse_analysis_from_claude_response(
-    standard_output: str,
-) -> dict | None:
-    """Parse the analysis result from the Claude command-line interface JSON output.
-
-    Returns the analysis dictionary on success, or None if the response
-    cannot be parsed.
-    """
-    response_text = standard_output
-    try:
-        cli_output = json.loads(standard_output)
-        if isinstance(cli_output, dict) and "result" in cli_output:
-            response_text = cli_output["result"]
-    except (json.JSONDecodeError, TypeError):
-        pass
-
-    if isinstance(response_text, dict):
-        return response_text
-
-    if not isinstance(response_text, str):
-        return None
-
-    # Strip markdown code fences if Claude wrapped the JSON in them.
-    cleaned = response_text.strip()
-    if cleaned.startswith("```"):
-        lines = cleaned.splitlines()
-        end_index = len(lines)
-        for i in range(len(lines) - 1, 0, -1):
-            if lines[i].strip().startswith("```"):
-                end_index = i
-                break
-        cleaned = "\n".join(lines[1:end_index]).strip()
-
-    try:
-        result = json.loads(cleaned)
-        if isinstance(result, dict):
-            return result
-    except (json.JSONDecodeError, TypeError):
-        pass
-
-    return None
-
-
 def call_claude_for_analysis(prompt: str) -> dict | None:
-    """Call the Claude command-line interface to analyse a hook file.
-
-    Returns the analysis dictionary on success, or None if the command-line interface is
-    unavailable, the call fails, or the response is unparseable.
-    """
-    environment_without_nesting_guard = os.environ.copy()
-    environment_without_nesting_guard.pop("CLAUDECODE", None)
-
-    try:
-        result = subprocess.run(
-            [
-                "claude", "-p",
-                "--model", "sonnet",
-                "--output-format", "json",
-            ],
-            input=prompt,
-            capture_output=True,
-            encoding="utf-8",
-            timeout=60,
-            env=environment_without_nesting_guard,
-        )
-    except FileNotFoundError:
-        print(
-            "WARNING: Claude command-line interface not found in PATH; skipping"
-            " non-deterministic hook analysis.",
-            file=sys.stderr,
-        )
-        return None
-    except subprocess.TimeoutExpired:
-        print(
-            "WARNING: Claude command-line interface timed out; skipping non-deterministic"
-            " hook analysis.",
-            file=sys.stderr,
-        )
-        return None
-
-    if result.returncode != 0:
-        print(
-            f"WARNING: Claude command-line interface exited with code {result.returncode};"
-            " skipping non-deterministic hook analysis.",
-            file=sys.stderr,
-        )
-        return None
-
-    analysis = parse_analysis_from_claude_response(result.stdout)
-    if analysis is None:
-        print(
-            "WARNING: Could not parse Claude command-line interface response as JSON;"
-            " skipping non-deterministic hook analysis.",
-            file=sys.stderr,
-        )
-        return None
-
-    return analysis
+    """Call the Claude command-line interface to analyse a hook file."""
+    return call_claude_cli_for_analysis(
+        prompt,
+        timeout_in_seconds=60,
+        description_of_analysis="non-deterministic hook analysis",
+    )
 
 
 def build_blocking_message(
