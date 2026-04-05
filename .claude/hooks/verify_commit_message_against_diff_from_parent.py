@@ -131,7 +131,7 @@ def is_command_for_git_merge(command: str) -> bool:
         r"<<'EOF'\s*\n.*?\n\s*EOF", "", command, flags=re.DOTALL
     )
     return bool(
-        re.search(r"\b-m\b|--message\b", command_without_heredoc_content)
+        re.search(r"(?<!\S)-m(?!\w)|--message\b", command_without_heredoc_content)
     )
 
 
