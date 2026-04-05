@@ -19,6 +19,15 @@ Covered scenarios:
   where ``--continue`` creates or finalises a commit.  The diff is computed
   between the staging area and HEAD (the parent of the commit about to be
   created).
+- ``git merge -m``: Covers merge commits with a custom message.  The diff
+  is computed using the three-dot diff (``HEAD...target``) which shows
+  changes on the merge target since the merge base.  Only merges with an
+  explicit ``-m`` flag are validated; merges that use the auto-generated
+  message are skipped.
+- ``git commit-tree``: Covers low-level commit creation (plumbing command).
+  The diff is computed between the parent commit (``-p``) and the tree
+  object using ``git diff-tree``.  Only single-parent commits are
+  supported; merge commits with multiple ``-p`` flags are not validated.
 
 Known limitation — ``reword`` during interactive rebase: When
 ``git rebase -i`` includes ``reword`` actions, git handles the message
@@ -26,13 +35,17 @@ change internally within the single ``git rebase -i`` invocation.  No
 separate ``git commit --amend`` or ``git rebase --continue`` command is
 issued for the reword step, so no PreToolUse hook can intercept it.
 This hook therefore cannot verify commit message accuracy for pure
-``reword`` actions.
+``reword`` actions.  The PostToolUse hook
+``validate_commit_messages_after_rebase.py`` closes this gap by
+validating all commit messages in the ``ORIG_HEAD..HEAD`` range after
+the rebase completes.
 
 This is a Claude Code PreToolUse hook for the Bash tool.  On the first
-``git commit``, ``git commit --amend``, or ``git rebase --continue`` attempt
-within a session, it computes the diff between the staging area and the
-parent commit, then delegates accuracy analysis to Claude Sonnet via the
-``claude`` command-line interface.  If the message contains inaccuracies — false claims,
+``git commit``, ``git commit --amend``, ``git rebase --continue``,
+``git merge -m``, or ``git commit-tree`` attempt within a session, it
+computes the diff between the staging area (or tree object) and the
+parent commit, then delegates accuracy analysis to Claude Sonnet via
+the ``claude`` command-line interface.  If the message contains inaccuracies — false claims,
 references to intermediate states, significant omissions, or
 mischaracterisations — the commit is denied.  On the second attempt
 within the same session, the hook allows the commit to proceed
@@ -49,6 +62,7 @@ import json
 import os
 import pathlib
 import re
+import shlex
 import subprocess
 import sys
 
@@ -101,6 +115,93 @@ def is_command_for_git_commit_without_amend(command: str) -> bool:
         r"<<'EOF'\s*\n.*?\n\s*EOF", "", command, flags=re.DOTALL
     )
     return not bool(re.search(r"--amend\b", command_without_heredoc_content))
+
+
+def is_command_for_git_merge(command: str) -> bool:
+    """Return True if the command is a ``git merge`` invocation with a
+    ``-m`` flag (a custom commit message).
+
+    Merges without ``-m`` use an auto-generated message and do not need
+    validation.
+    """
+    if not is_git_subcommand(command, "merge"):
+        return False
+    command_without_heredoc_content = re.sub(
+        r"<<'EOF'\s*\n.*?\n\s*EOF", "", command, flags=re.DOTALL
+    )
+    return bool(
+        re.search(r"\b-m\b|--message\b", command_without_heredoc_content)
+    )
+
+
+# Merge options that consume a following argument token.
+_MERGE_FLAGS_THAT_CONSUME_AN_ARGUMENT = frozenset({
+    "-m", "--message", "-s", "-X", "--into-name", "--cleanup",
+})
+
+
+def extract_merge_target_from_command(command: str) -> str | None:
+    """Extract the branch or ref being merged from a ``git merge`` command.
+
+    Parses the tokens after ``merge``, skipping known flags and their
+    arguments, and returns the first positional argument (the merge
+    target).  Returns None if no target can be determined.
+    """
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return None
+
+    merge_index = None
+    for i, token in enumerate(tokens):
+        if token == "merge":
+            merge_index = i
+            break
+
+    if merge_index is None:
+        return None
+
+    remaining = tokens[merge_index + 1 :]
+    skip_next = False
+
+    for token in remaining:
+        if skip_next:
+            skip_next = False
+            continue
+        if token in _MERGE_FLAGS_THAT_CONSUME_AN_ARGUMENT:
+            skip_next = True
+            continue
+        if token.startswith("-"):
+            continue
+        return token
+
+    return None
+
+
+def get_diff_for_merge_target(target: str) -> str | None:
+    """Return the diff that merging *target* into HEAD would introduce.
+
+    Uses the three-dot diff (``HEAD...target``) which shows changes on
+    *target* since the merge base with HEAD — this is what the merge
+    commit message should describe.
+
+    Returns None if the diff cannot be computed.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "diff", f"HEAD...{target}"],
+            capture_output=True,
+            encoding="utf-8",
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        return None
+
+    if result.returncode != 0:
+        return None
+
+    output = result.stdout.strip()
+    return output if output else None
 
 
 def is_command_for_git_rebase_with_continue(command: str) -> bool:
@@ -210,6 +311,87 @@ def get_pending_commit_message_from_rebase() -> str | None:
         return content if content else None
     except OSError:
         return None
+
+
+def is_command_for_git_commit_tree(command: str) -> bool:
+    """Return True if the command is a ``git commit-tree`` invocation."""
+    return is_git_subcommand(command, "commit-tree")
+
+
+def extract_tree_and_parent_from_commit_tree_command(
+    command: str,
+) -> tuple[str, str] | None:
+    """Extract the tree SHA and parent SHA from a ``git commit-tree`` command.
+
+    Parses the command to find the positional tree argument and the
+    ``-p <parent>`` flag.  Returns ``(tree_sha, parent_sha)`` or None
+    if either cannot be determined.  Only the first ``-p`` flag is used;
+    merge commits with multiple parents are not supported.
+    """
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return None
+
+    # Find the tokens after 'commit-tree'.
+    commit_tree_index = None
+    for i, token in enumerate(tokens):
+        if token == "commit-tree":
+            commit_tree_index = i
+            break
+
+    if commit_tree_index is None:
+        return None
+
+    remaining = tokens[commit_tree_index + 1 :]
+
+    tree_sha = None
+    parent_sha = None
+    skip_next = False
+
+    for i, token in enumerate(remaining):
+        if skip_next:
+            skip_next = False
+            continue
+        if token == "-p" and i + 1 < len(remaining):
+            parent_sha = remaining[i + 1]
+            skip_next = True
+        elif token == "-m" and i + 1 < len(remaining):
+            skip_next = True
+        elif not token.startswith("-") and tree_sha is None:
+            tree_sha = token
+
+    if not tree_sha or not parent_sha:
+        return None
+
+    return (tree_sha, parent_sha)
+
+
+def get_diff_between_tree_and_parent(
+    tree_sha: str, parent_sha: str,
+) -> str | None:
+    """Return the diff between a parent commit and a tree object.
+
+    Uses ``git diff-tree -p`` to compute the diff, which is the same
+    diff that ``git commit-tree`` would record for the new commit.
+
+    Returns None if the diff cannot be computed.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "diff-tree", "-p", parent_sha, tree_sha],
+            capture_output=True,
+            encoding="utf-8",
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        return None
+
+    if result.returncode != 0:
+        return None
+
+    output = result.stdout.strip()
+    return output if output else None
 
 
 def extract_commit_message_from_command(command: str) -> str | None:
@@ -437,6 +619,24 @@ def resolve_commit_message_and_diff_from_parent() -> tuple[str, str] | None:
         commit_message = get_pending_commit_message_from_rebase()
         diff_from_parent = get_diff_of_staged_changes_from_head()
 
+    elif is_command_for_git_merge(_captured_command):
+        commit_message = extract_commit_message_from_command(_captured_command)
+        merge_target = extract_merge_target_from_command(_captured_command)
+        if merge_target is not None:
+            diff_from_parent = get_diff_for_merge_target(merge_target)
+        else:
+            diff_from_parent = None
+
+    elif is_command_for_git_commit_tree(_captured_command):
+        commit_message = extract_commit_message_from_command(_captured_command)
+        tree_and_parent = extract_tree_and_parent_from_commit_tree_command(
+            _captured_command
+        )
+        if tree_and_parent is not None:
+            diff_from_parent = get_diff_between_tree_and_parent(*tree_and_parent)
+        else:
+            diff_from_parent = None
+
     else:
         return None
 
@@ -504,6 +704,8 @@ def main() -> int:
         not is_command_for_git_commit_without_amend(command)
         and not is_command_for_git_commit_with_amend(command)
         and not is_command_for_git_rebase_with_continue(command)
+        and not is_command_for_git_merge(command)
+        and not is_command_for_git_commit_tree(command)
     ):
         return 0
 

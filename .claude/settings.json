@@ -72,6 +72,15 @@
             "command": "python3 .claude/hooks/track_reading_of_claude_md.py"
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 .claude/hooks/validate_commit_messages_after_rebase.py"
+          }
+        ]
       }
     ]
   }

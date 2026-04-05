@@ -5,7 +5,7 @@ This is a Claude Code PreToolUse hook for the Bash tool.  It intercepts
 every Bash tool invocation and denies the command if all three conditions
 are met simultaneously:
 
-1. The command contains a ``git commit`` invocation.
+1. The command contains a ``git commit`` or ``git commit-tree`` invocation.
 2. The command contains a shell operator (``&&``, ``||``, ``;``, or
    ``|``) at the top level of the shell.
 3. An interactive rebase is currently in progress (detected by the
@@ -77,7 +77,9 @@ def command_contains_git_commit_in_compound_command(command: str) -> bool:
     """
     if not _is_interactive_rebase_in_progress():
         return False
-    if not is_git_subcommand(command, "commit"):
+    if not is_git_subcommand(command, "commit") and not is_git_subcommand(
+        command, "commit-tree"
+    ):
         return False
     return command_contains_shell_operator_at_top_level(command)
 

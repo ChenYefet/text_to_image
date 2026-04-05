@@ -2,9 +2,10 @@
 format.
 
 This is a Claude Code PreToolUse hook for the Bash tool.  On the first
-``git commit`` attempt within a session, it extracts the commit message
-from the command and delegates format analysis to Claude Sonnet via the
-``claude`` command-line interface.  If the message body uses prose paragraphs instead of
+``git commit``, ``git commit-tree``, or ``git merge`` attempt within a
+session, it extracts the commit message from the command and delegates
+format analysis to Claude Sonnet via the ``claude`` command-line interface.  If the
+message body uses prose paragraphs instead of
 bullet points, the commit is denied.  On the second attempt within the
 same session, the hook allows the commit to proceed regardless — because
 the analysis is itself non-deterministic.
@@ -252,7 +253,11 @@ def main() -> int:
     tool_input = hook_input.get("tool_input", {})
     command = tool_input.get("command", "")
 
-    if not is_git_subcommand(command, "commit"):
+    if (
+        not is_git_subcommand(command, "commit")
+        and not is_git_subcommand(command, "commit-tree")
+        and not is_git_subcommand(command, "merge")
+    ):
         return 0
 
     # If a marker file for this session already exists, the
