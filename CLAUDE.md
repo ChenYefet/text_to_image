@@ -291,3 +291,5 @@ APPROVED ABBREVIATIONS
 | README | read me | abbreviated | abbreviated |
 | v | version | expanded | expanded |
 | CLI | command-line interface | abbreviated | expanded |
+| max | maximum | expanded | expanded |
+| min | minimum | expanded | expanded |
