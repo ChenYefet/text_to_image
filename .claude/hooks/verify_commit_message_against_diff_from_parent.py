@@ -77,8 +77,7 @@ PREFIX_OF_MARKER_FILE = (
     ".marker_file_for_pending_review_of_accuracy_of_commit_message_against_diff_from_parent_for_session_"
 )
 
-# Store the command from hook input so the closure can access it.
-_captured_command = ""
+_command_read_from_hook_input = ""
 
 
 def is_command_for_git_commit_with_amend(command: str) -> bool:
@@ -478,34 +477,34 @@ def resolve_commit_message_and_diff_from_parent() -> tuple[str, str] | None:
     Returns a (commit_message, diff_from_parent) tuple, or None if
     the message or diff cannot be determined.
     """
-    if is_command_for_git_commit_without_amend(_captured_command):
-        commit_message = extract_commit_message_from_command(_captured_command)
+    if is_command_for_git_commit_without_amend(_command_read_from_hook_input):
+        commit_message = extract_commit_message_from_command(_command_read_from_hook_input)
         diff_from_parent = get_diff_of_staged_changes_from_head()
 
-    elif is_command_for_git_commit_with_amend(_captured_command):
+    elif is_command_for_git_commit_with_amend(_command_read_from_hook_input):
         commit_message = extract_commit_message_from_command(
-            _captured_command
+            _command_read_from_hook_input
         )
         if commit_message is None:
             commit_message = get_commit_message_of_head()
         diff_from_parent = get_diff_of_staged_changes_from_parent_for_amend()
 
-    elif is_command_for_git_rebase_with_continue(_captured_command):
+    elif is_command_for_git_rebase_with_continue(_command_read_from_hook_input):
         commit_message = get_pending_commit_message_from_rebase()
         diff_from_parent = get_diff_of_staged_changes_from_head()
 
-    elif is_command_for_git_merge(_captured_command):
-        commit_message = extract_commit_message_from_command(_captured_command)
-        merge_target = extract_merge_target_from_command(_captured_command)
+    elif is_command_for_git_merge(_command_read_from_hook_input):
+        commit_message = extract_commit_message_from_command(_command_read_from_hook_input)
+        merge_target = extract_merge_target_from_command(_command_read_from_hook_input)
         if merge_target is not None:
             diff_from_parent = get_diff_for_merge_target(merge_target)
         else:
             diff_from_parent = None
 
-    elif is_command_for_git_commit_tree(_captured_command):
-        commit_message = extract_commit_message_from_command(_captured_command)
+    elif is_command_for_git_commit_tree(_command_read_from_hook_input):
+        commit_message = extract_commit_message_from_command(_command_read_from_hook_input)
         tree_and_parent = extract_tree_and_parent_from_commit_tree_command(
-            _captured_command
+            _command_read_from_hook_input
         )
         if tree_and_parent is not None:
             diff_from_parent = get_diff_between_tree_and_parent(*tree_and_parent)
@@ -571,7 +570,7 @@ def check_and_build_blocking_message() -> str | None:
 
 
 def main() -> int:
-    global _captured_command
+    global _command_read_from_hook_input
     hook_input = read_hook_input_from_standard_input()
 
     tool_input = hook_input.get("tool_input", {})
@@ -586,7 +585,7 @@ def main() -> int:
     ):
         return 0
 
-    _captured_command = command
+    _command_read_from_hook_input = command
 
     return run_deny_then_allow(
         hook_input,
