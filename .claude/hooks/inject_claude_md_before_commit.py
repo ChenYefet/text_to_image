@@ -94,7 +94,7 @@ def main() -> int:
         "\n"
         "1. Read CLAUDE.md in full using the Read tool.\n"
         "\n"
-        "2. Review all staged code changes — including commit "
+        "2. Review all staged changes — including commit "
         "composition, version references, refactoring verification, "
         "and changelog updates — against each applicable directive.\n"
         "\n"
