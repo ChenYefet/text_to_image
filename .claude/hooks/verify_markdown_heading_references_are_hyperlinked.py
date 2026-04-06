@@ -9,7 +9,7 @@ without a ``[...](#...)`` hyperlink.  If un-hyperlinked references are
 found, the commit is denied and the violations are injected as a
 ``systemMessage``.  On the second attempt within the same session, the
 hook allows the commit to proceed regardless — this ensures that false
-positives from the non-deterministic LLM analysis never permanently
+positives from the non-deterministic analysis by the large language model never permanently
 block a commit.
 
 Session isolation is achieved via a marker file whose name includes the

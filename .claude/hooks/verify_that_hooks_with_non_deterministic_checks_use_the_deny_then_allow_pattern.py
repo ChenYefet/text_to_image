@@ -5,15 +5,16 @@ This is a Claude Code PreToolUse hook for the Bash tool.  On the first
 ``git commit`` attempt within a session, it inspects staged
 ``.claude/hooks/*.py`` files and delegates analysis to Claude Sonnet
 via the ``claude`` command-line interface to determine whether each hook uses a
-non-deterministic check (such as an LLM call).  If a hook uses a
+non-deterministic check (such as a call to a large language model).  If a hook uses a
 non-deterministic check but does not import and use
 ``helpers.deny_then_allow``, the commit is denied.  On the second attempt
 within the same session, the hook allows the commit to proceed
 regardless — because the analysis is itself non-deterministic.
 
 This hook is self-referentially consistent: It enforces the rule that
-LLM-based hooks must use the deny-then-allow pattern, and it is itself
-an LLM-based hook that uses the deny-then-allow pattern.
+hooks based on large language models must use the deny-then-allow
+pattern, and it is itself a hook based on a large language model that
+uses the deny-then-allow pattern.
 
 Graceful degradation: If the ``claude`` command-line interface is not found, times out,
 returns an error, or produces unparseable output, the hook allows the
@@ -77,7 +78,7 @@ def build_prompt_for_non_deterministic_check_analysis(
         "that is, a check whose result may vary across invocations given "
         "identical input. The most common example is delegating analysis "
         "to a large language model (such as calling the `claude` command-line interface, "
-        "calling an LLM API, or invoking any generative AI service).\n"
+        "calling an API of a large language model, or invoking any generative AI service).\n"
         "\n"
         "If the hook uses a non-deterministic check, determine whether "
         "it imports and uses the `helpers.deny_then_allow` module "
@@ -92,7 +93,7 @@ def build_prompt_for_non_deterministic_check_analysis(
         "\n"
         "Return ONLY a JSON object with these fields:\n"
         '- "uses_non_deterministic_check": boolean — true if the hook '
-        "uses a non-deterministic check (LLM call, generative AI "
+        "uses a non-deterministic check (call to a large language model, generative AI "
         "service, etc.), false otherwise.\n"
         '- "uses_deny_then_allow": boolean — true if the hook imports '
         "and uses `run_deny_then_allow` from `helpers.deny_then_allow`, false "
@@ -121,8 +122,8 @@ def build_blocking_message(
     non-deterministic checks without the deny-then-allow pattern.
     """
     lines = [
-        "The following hook files use non-deterministic checks (such as LLM",
-        "calls) but do not use the `helpers.deny_then_allow` module.  Hooks",
+        "The following hook files use non-deterministic checks (such as calls",
+        "to large language models) but do not use the `helpers.deny_then_allow` module.  Hooks",
         "with non-deterministic checks must import and use",
         "`run_deny_then_allow` from `helpers.deny_then_allow` to ensure that",
         "false positives do not",
