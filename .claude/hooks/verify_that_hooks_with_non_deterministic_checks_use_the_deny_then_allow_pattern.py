@@ -38,9 +38,11 @@ def get_staged_hook_files() -> list[str]:
     """Return file paths of staged ``.claude/hooks/*.py`` files that were
     added or modified.
 
-    The glob ``.claude/hooks/*.py`` does not recurse into subdirectories,
-    so helper modules in ``.claude/hooks/helpers/`` are automatically
-    excluded.
+    Only top-level hook files are returned.  Helper modules in
+    ``.claude/hooks/helpers/`` are excluded by an explicit path-depth
+    filter because git's pathspec glob ``*.py`` recurses into
+    subdirectories on some platforms (observed on Windows with Git
+    for Windows).
     """
     result = subprocess.run(
         [
@@ -54,6 +56,7 @@ def get_staged_hook_files() -> list[str]:
         line.strip()
         for line in result.stdout.strip().splitlines()
         if line.strip()
+        and line.strip().count("/") == 2  # .claude/hooks/file.py
     ]
 
 

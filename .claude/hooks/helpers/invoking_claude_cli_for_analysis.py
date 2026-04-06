@@ -32,6 +32,14 @@ def parse_json_from_claude_cli_output(
     This function unwraps that envelope, strips markdown code fences if
     present, parses the inner JSON, and validates the result type.
 
+    When the model self-corrects mid-response, the ``result`` field may
+    contain multiple markdown code blocks (e.g. an initial answer
+    followed by prose like "Wait, let me re-evaluate" and a corrected
+    answer in a second code block).  In that case, this function
+    extracts each code block individually and returns the last one
+    that parses as valid JSON of the expected type — the last block
+    is the model's final answer.
+
     Parameters:
         standard_output: The raw stdout from the Claude command-line
             interface subprocess.
@@ -56,15 +64,50 @@ def parse_json_from_claude_cli_output(
         return None
 
     # Strip markdown code fences if Claude wrapped the JSON in them.
+    # When the model self-corrects, it may produce multiple code blocks
+    # (e.g. an initial answer followed by "Wait, let me re-evaluate"
+    # and a corrected answer).  Extract each code block individually
+    # and return the last one that parses as valid JSON of the
+    # expected type — the last block is the model's final answer.
+    # If no code blocks are found, try parsing the entire text as
+    # JSON.
     cleaned = response_text.strip()
     if cleaned.startswith("```"):
         lines = cleaned.splitlines()
-        end_index = len(lines)
-        for i in range(len(lines) - 1, 0, -1):
-            if lines[i].strip().startswith("```"):
-                end_index = i
-                break
-        cleaned = "\n".join(lines[1:end_index]).strip()
+        block_start = None
+        last_valid_result = None
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if stripped.startswith("```"):
+                if block_start is None:
+                    # Opening fence — content starts on the next line.
+                    block_start = i + 1
+                else:
+                    # Closing fence — extract the block and try to parse.
+                    block_text = "\n".join(
+                        lines[block_start:i]
+                    ).strip()
+                    try:
+                        result = json.loads(block_text)
+                        if isinstance(result, expected_type):
+                            last_valid_result = result
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+                    # Reset for the next code block, if any.
+                    block_start = None
+        # If a code block was opened but never closed, try parsing
+        # everything after the opening fence.
+        if block_start is not None:
+            block_text = "\n".join(
+                lines[block_start:]
+            ).strip()
+            try:
+                result = json.loads(block_text)
+                if isinstance(result, expected_type):
+                    last_valid_result = result
+            except (json.JSONDecodeError, TypeError):
+                pass
+        return last_valid_result
 
     try:
         result = json.loads(cleaned)
