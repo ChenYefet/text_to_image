@@ -25,6 +25,7 @@ import pathlib
 import sys
 
 from helpers.deny_then_allow import run_deny_then_allow
+from helpers import invoking_claude_cli_for_analysis
 from helpers.invoking_claude_cli_for_analysis import call_claude_cli_for_analysis
 from helpers.parsing_of_hook_input_for_bash_commands import (
     extract_commit_message_from_command,
@@ -132,14 +133,29 @@ def build_blocking_message_for_format_violation(
 
 
 def build_blocking_message_for_failure_of_claude_cli() -> str:
-    """Build the blocking message when the Claude command-line interface is unavailable."""
+    """Build the blocking message when the Claude command-line interface is unavailable.
+
+    Includes the specific failure reason from the most recent attempt,
+    if available, to aid diagnosis.
+    """
+    failure_detail = (
+        invoking_claude_cli_for_analysis.description_of_last_failure
+    )
+    detail_section = (
+        f"\nFailure detail: {failure_detail}\n"
+        if failure_detail
+        else ""
+    )
     return (
         "COMMIT MESSAGE FORMAT CHECK FAILED — COMMIT BLOCKED.\n"
         "\n"
         "The commit message format could not be verified because the\n"
-        "Claude command-line interface was unavailable or returned an unexpected error.\n"
+        "Claude command-line interface was unavailable or returned an"
+        " unexpected error.\n"
+        f"{detail_section}"
         "\n"
-        "Resolve the issue with the Claude command-line interface before re-attempting\n"
+        "Resolve the issue with the Claude command-line interface before"
+        " re-attempting\n"
         "the commit.  Unlike format violations, this block does not\n"
         "benefit from the deny-then-allow escape hatch — every attempt\n"
         "is blocked until the command-line interface issue is resolved."
