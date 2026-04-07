@@ -252,81 +252,88 @@ ESTABLISHED TECHNICAL COMPOUND TERMS
 
 APPROVED ABBREVIATIONS
 
+When the same abbreviation appears in multiple rows — because it is used to shorten more than one distinct term — the correct expansion is determined by context. The abbreviation/expansion rule (always abbreviate or always expand) applies equally to all rows sharing that abbreviation; only the choice of which expansion to use varies by context.
+
 | Abbreviation | Expansion | In code | In prose |
 |---|---|---|---|
-| AI | artificial intelligence | abbreviated | abbreviated |
 | All file extensions | (varies by extension) | abbreviated | abbreviated |
 | All ISO 4217 currency codes | (varies by currency) | abbreviated | abbreviated |
-| ID | identifier | abbreviated | abbreviated |
-| KB | kilobyte | abbreviated | abbreviated |
-| MB | megabyte | abbreviated | abbreviated |
-| GB | gigabyte | abbreviated | abbreviated |
-| CPU | central processing unit | abbreviated | abbreviated |
-| GPU | graphics processing unit | abbreviated | abbreviated |
-| I/O | input/output | abbreviated | abbreviated |
-| DevOps | development operations | abbreviated | abbreviated |
-| HTTP | Hypertext Transfer Protocol | abbreviated | abbreviated |
-| URL | Uniform Resource Locator | abbreviated | abbreviated |
-| JSON | JavaScript Object Notation | abbreviated | abbreviated |
-| API | Application Programming Interface | abbreviated | abbreviated |
-| UUID | Universally Unique Identifier | abbreviated | abbreviated |
-| NSFW | not safe for work | abbreviated | abbreviated |
-| NFR | non-functional requirement | abbreviated | abbreviated |
-| FR | functional requirement | abbreviated | abbreviated |
-| RO | Reference Operation | abbreviated | abbreviated |
-| PNG | Portable Network Graphics | abbreviated | abbreviated |
-| JPG | Joint Photographic Experts Group (variant) | abbreviated | abbreviated |
-| JPEG | Joint Photographic Experts Group | abbreviated | abbreviated |
-| IP | Internet Protocol | abbreviated | abbreviated |
-| CORS | Cross-Origin Resource Sharing | abbreviated | abbreviated |
-| CUDA | Compute Unified Device Architecture | abbreviated | abbreviated |
-| TCP | Transmission Control Protocol | abbreviated | abbreviated |
-| CLIP | Contrastive Language-Image Pre-training | abbreviated | abbreviated |
-| GGUF | GGML Unified Format | abbreviated | abbreviated |
-| VRAM | video random-access memory | abbreviated | abbreviated |
-| RAM | random-access memory | abbreviated | abbreviated |
-| GDPR | General Data Protection Regulation | abbreviated | abbreviated |
-| WSL2 | Windows Subsystem for Linux 2 | abbreviated | abbreviated |
-| WSL | Windows Subsystem for Linux | abbreviated | abbreviated |
-| JIT | just-in-time | abbreviated | abbreviated |
-| HPA | Horizontal Pod Autoscaler | abbreviated | abbreviated |
-| LLM | large language model | abbreviated | expanded |
-| ASGI | Asynchronous Server Gateway Interface | abbreviated | abbreviated |
-| WSGI | Web Server Gateway Interface | abbreviated | abbreviated |
-| e.g. | for example | expanded | abbreviated |
-| i.e. | that is to say | expanded | abbreviated |
-| etc. | et cetera | abbreviated | abbreviated |
-| spec | specification | expanded | expanded |
-| CI | continuous integration | expanded | expanded |
-| SQL | Structured Query Language | abbreviated | abbreviated |
-| diff | difference | abbreviated | abbreviated |
-| README | read me | abbreviated | abbreviated |
-| v | version | expanded | expanded |
-| CLI | command-line interface | abbreviated | expanded |
-| max | maximum | expanded | expanded |
-| min | minimum | expanded | expanded |
-| repo | repository | expanded | expanded |
-| msg | message | expanded | expanded |
-| arch | architecture | expanded | expanded |
-| req | requirement | expanded | expanded |
-| sub | subsystem | expanded | expanded |
-| dep | dependency | expanded | expanded |
-| pkg | package | expanded | expanded |
-| cwd | current working directory | expanded | expanded |
-| rel | relative | expanded | expanded |
-| gomod | Go module | expanded | expanded |
-| num | number | expanded | expanded |
 | adv | adversarial | expanded | expanded |
-| ext | extension | expanded | expanded |
-| pyproj | pyproject | expanded | expanded |
-| cmd | command | expanded | expanded |
-| desc | description | expanded | expanded |
-| sev | severity | expanded | expanded |
-| obs | observation | expanded | expanded |
-| kw | keyword | expanded | expanded |
+| AI | artificial intelligence | abbreviated | abbreviated |
+| API | Application Programming Interface | abbreviated | abbreviated |
+| arch | architecture | expanded | expanded |
+| ASGI | Asynchronous Server Gateway Interface | abbreviated | abbreviated |
 | bid | batch identifier | expanded | expanded |
-| rid | requirement identifier | expanded | expanded |
 | cat | category | expanded | expanded |
-| lf | lock file | expanded | expanded |
+| CI | continuous integration | expanded | expanded |
+| CLI | command-line interface | abbreviated | expanded |
+| CLIP | Contrastive Language-Image Pre-training | abbreviated | abbreviated |
+| cmd | command | expanded | expanded |
+| CORS | Cross-Origin Resource Sharing | abbreviated | abbreviated |
+| CPU | central processing unit | abbreviated | abbreviated |
+| CUDA | Compute Unified Device Architecture | abbreviated | abbreviated |
+| cwd | current working directory | expanded | expanded |
+| dep | dependency | expanded | expanded |
+| desc | description | expanded | expanded |
+| DevOps | development operations | abbreviated | abbreviated |
+| diff | difference | abbreviated | abbreviated |
+| docs | documentation | expanded | expanded |
+| e.g. | for example | expanded | abbreviated |
+| etc. | et cetera | abbreviated | abbreviated |
+| ext | extension | expanded | expanded |
+| FR | functional requirement | abbreviated | abbreviated |
+| GB | gigabyte | abbreviated | abbreviated |
+| GDPR | General Data Protection Regulation | abbreviated | abbreviated |
+| GGUF | GGML Unified Format | abbreviated | abbreviated |
+| gomod | Go module | expanded | expanded |
+| GPU | graphics processing unit | abbreviated | abbreviated |
+| HPA | Horizontal Pod Autoscaler | abbreviated | abbreviated |
+| HTTP | Hypertext Transfer Protocol | abbreviated | abbreviated |
+| i.e. | that is to say | expanded | abbreviated |
+| ID | identifier | abbreviated | abbreviated |
 | idx | index | expanded | expanded |
+| info | information | expanded | expanded |
+| I/O | input/output | abbreviated | abbreviated |
+| IP | Internet Protocol | abbreviated | abbreviated |
+| JIT | just-in-time | abbreviated | abbreviated |
+| JPEG | Joint Photographic Experts Group | abbreviated | abbreviated |
+| JPG | Joint Photographic Experts Group (variant) | abbreviated | abbreviated |
+| JSON | JavaScript Object Notation | abbreviated | abbreviated |
+| KB | kilobyte | abbreviated | abbreviated |
+| kw | keyword | expanded | expanded |
+| lf | lock file | expanded | expanded |
+| LLM | large language model | abbreviated | expanded |
+| max | maximum | expanded | expanded |
+| MB | megabyte | abbreviated | abbreviated |
+| min | minimum | expanded | expanded |
+| msg | message | expanded | expanded |
+| NFR | non-functional requirement | abbreviated | abbreviated |
+| NSFW | not safe for work | abbreviated | abbreviated |
+| num | number | expanded | expanded |
+| obs | observation | expanded | expanded |
+| pkg | package | expanded | expanded |
+| PNG | Portable Network Graphics | abbreviated | abbreviated |
+| pyproj | pyproject | expanded | expanded |
+| RAM | random-access memory | abbreviated | abbreviated |
+| README | read me | abbreviated | abbreviated |
+| rel | relative | expanded | expanded |
+| repo | repository | expanded | expanded |
+| req | requirement | expanded | expanded |
+| REST | Representational State Transfer | abbreviated | abbreviated |
+| rid | requirement identifier | expanded | expanded |
+| RO | Reference Operation | abbreviated | abbreviated |
+| sev | severity | expanded | expanded |
+| spec | specification | expanded | expanded |
+| SQL | Structured Query Language | abbreviated | abbreviated |
+| SSH | Secure Shell | abbreviated | abbreviated |
+| sub | subsystem | expanded | expanded |
+| TCP | Transmission Control Protocol | abbreviated | abbreviated |
+| temp | temporary | expanded | expanded |
 | temp | temperature | expanded | expanded |
+| URL | Uniform Resource Locator | abbreviated | abbreviated |
+| UUID | Universally Unique Identifier | abbreviated | abbreviated |
+| v | version | expanded | expanded |
+| VRAM | video random-access memory | abbreviated | abbreviated |
+| WSGI | Web Server Gateway Interface | abbreviated | abbreviated |
+| WSL | Windows Subsystem for Linux | abbreviated | abbreviated |
+| WSL2 | Windows Subsystem for Linux 2 | abbreviated | abbreviated |
