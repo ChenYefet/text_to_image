@@ -32,6 +32,7 @@ No abbreviations or acronyms are permitted in code identifiers (variable names, 
 - Reserved keywords
 - Third-party library symbols
 - Standard library symbols
+- Standard Python single-letter loop variables (`i`, `j`, `k` as loop indices; `f`, `b`, `d`, `m`, `s`, `p` as element-of-collection iterators; `e` as an exception variable in `except ... as e` clauses) — these are idiomatic Python conventions whose meaning is established by their syntactic position rather than by their name
 
 You may introduce additional libraries if justified architecturally.
 
