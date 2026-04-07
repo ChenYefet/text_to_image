@@ -101,6 +101,8 @@ When a participial modifier (such as 'allowed', 'configured', 'accumulated', 'de
 
 When a variable, field, or property represents a boundary value or constrained quantity — even one that could be expressed using a well-understood scalar-boundary term such as `threshold`, `limit`, `capacity`, `quota`, `budget`, `ceiling`, or `floor` — prefer the `number_of_` form. For example, prefer `number_of_consecutive_failures_to_open_circuit_breaker` over `failure_threshold_of_circuit_breaker`, and `maximum_number_of_connections_allowed` over `connection_limit`.
 
+When two or more variables of the same kind are distinguished only by ordinal position (e.g. two input strings, two lengths), a trailing `_1`, `_2` suffix is permitted. The suffix implicitly binds the variable to the correspondingly numbered peer (e.g. `length_1` refers to the length of `string_1`); this relationship need not be restated in the name.
+
 When correcting a violation in a phrase, follow this procedure:
 
 1. Fix the violation that was identified.
