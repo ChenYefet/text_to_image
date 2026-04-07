@@ -302,3 +302,28 @@ APPROVED ABBREVIATIONS
 | CLI | command-line interface | abbreviated | expanded |
 | max | maximum | expanded | expanded |
 | min | minimum | expanded | expanded |
+| repo | repository | expanded | expanded |
+| msg | message | expanded | expanded |
+| arch | architecture | expanded | expanded |
+| req | requirement | expanded | expanded |
+| sub | subsystem | expanded | expanded |
+| dep | dependency | expanded | expanded |
+| pkg | package | expanded | expanded |
+| cwd | current working directory | expanded | expanded |
+| rel | relative | expanded | expanded |
+| gomod | Go module | expanded | expanded |
+| num | number | expanded | expanded |
+| adv | adversarial | expanded | expanded |
+| ext | extension | expanded | expanded |
+| pyproj | pyproject | expanded | expanded |
+| cmd | command | expanded | expanded |
+| desc | description | expanded | expanded |
+| sev | severity | expanded | expanded |
+| obs | observation | expanded | expanded |
+| kw | keyword | expanded | expanded |
+| bid | batch identifier | expanded | expanded |
+| rid | requirement identifier | expanded | expanded |
+| cat | category | expanded | expanded |
+| lf | lock file | expanded | expanded |
+| idx | index | expanded | expanded |
+| temp | temperature | expanded | expanded |
