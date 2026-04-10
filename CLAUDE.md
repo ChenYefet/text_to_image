@@ -263,6 +263,7 @@ When the same abbreviation appears in multiple rows — because it is used to sh
 | API | Application Programming Interface | abbreviated | abbreviated |
 | arch | architecture | expanded | expanded |
 | ASGI | Asynchronous Server Gateway Interface | abbreviated | abbreviated |
+| BE | backend | expanded | expanded |
 | bid | batch identifier | expanded | expanded |
 | cat | category | expanded | expanded |
 | CI | continuous integration | expanded | expanded |
@@ -273,6 +274,7 @@ When the same abbreviation appears in multiple rows — because it is used to sh
 | CPU | central processing unit | abbreviated | abbreviated |
 | CUDA | Compute Unified Device Architecture | abbreviated | abbreviated |
 | cwd | current working directory | expanded | expanded |
+| DDL | data definition language | abbreviated | expanded |
 | dep | dependency | expanded | expanded |
 | desc | description | expanded | expanded |
 | DevOps | development operations | abbreviated | abbreviated |
@@ -281,6 +283,7 @@ When the same abbreviation appears in multiple rows — because it is used to sh
 | e.g. | for example | expanded | abbreviated |
 | etc. | et cetera | abbreviated | abbreviated |
 | ext | extension | expanded | expanded |
+| FE | frontend | expanded | expanded |
 | FR | functional requirement | abbreviated | abbreviated |
 | GB | gigabyte | abbreviated | abbreviated |
 | GDPR | General Data Protection Regulation | abbreviated | abbreviated |
@@ -295,6 +298,7 @@ When the same abbreviation appears in multiple rows — because it is used to sh
 | info | information | expanded | expanded |
 | I/O | input/output | abbreviated | abbreviated |
 | IP | Internet Protocol | abbreviated | abbreviated |
+| JDBC | Java Database Connectivity | abbreviated | expanded |
 | JIT | just-in-time | abbreviated | abbreviated |
 | JPEG | Joint Photographic Experts Group | abbreviated | abbreviated |
 | JPG | Joint Photographic Experts Group (variant) | abbreviated | abbreviated |
@@ -307,13 +311,16 @@ When the same abbreviation appears in multiple rows — because it is used to sh
 | MB | megabyte | abbreviated | abbreviated |
 | min | minimum | expanded | expanded |
 | msg | message | expanded | expanded |
+| MTBF | mean time between failures | expanded | expanded |
 | NFR | non-functional requirement | abbreviated | abbreviated |
 | NSFW | not safe for work | abbreviated | abbreviated |
 | num | number | expanded | expanded |
 | obs | observation | expanded | expanded |
+| OLAP | online analytical processing | expanded | expanded |
 | pkg | package | expanded | expanded |
 | PNG | Portable Network Graphics | abbreviated | abbreviated |
 | pyproj | pyproject | expanded | expanded |
+| QPS | queries per second | expanded | expanded |
 | RAM | random-access memory | abbreviated | abbreviated |
 | README | read me | abbreviated | abbreviated |
 | rel | relative | expanded | expanded |
@@ -325,11 +332,13 @@ When the same abbreviation appears in multiple rows — because it is used to sh
 | sev | severity | expanded | expanded |
 | spec | specification | expanded | expanded |
 | SQL | Structured Query Language | abbreviated | abbreviated |
+| SSB | Star Schema Benchmark | abbreviated | expanded |
 | SSH | Secure Shell | abbreviated | abbreviated |
 | sub | subsystem | expanded | expanded |
 | TCP | Transmission Control Protocol | abbreviated | abbreviated |
 | temp | temporary | expanded | expanded |
 | temp | temperature | expanded | expanded |
+| TPC-H | Transaction Processing Performance Council Benchmark H | abbreviated | expanded |
 | URL | Uniform Resource Locator | abbreviated | abbreviated |
 | UUID | Universally Unique Identifier | abbreviated | abbreviated |
 | v | version | expanded | expanded |
