@@ -28,8 +28,12 @@ The hook only fires when all of the following are true:
 3. New commits were created (``ORIG_HEAD..HEAD`` is non-empty).
 
 If issues are found, the hook injects a ``systemMessage`` instructing
-Claude to correct the problematic commit messages.  Since this is a
-PostToolUse hook, it cannot block the command — it can only report.
+Claude to correct the problematic commit messages.  The validation
+model also produces corrected commit messages, which are included in
+the ``systemMessage`` so that Claude's correction task is purely
+mechanical — applying pre-written messages rather than interpreting
+issues and composing fixes.  Since this is a PostToolUse hook, it
+cannot block the command — it can only report.
 
 Graceful degradation: If the ``claude`` command-line interface is not found, times out,
 returns an error, or produces unparseable output, the hook exits
@@ -190,12 +194,18 @@ def build_validation_prompt(commits_data: list[dict]) -> str:
         '      "hash": "...",\n'
         '      "format_valid": true/false,\n'
         '      "accuracy_valid": true/false,\n'
-        '      "issues": ["description of issue 1", ...]\n'
+        '      "issues": ["description of issue 1", ...],\n'
+        '      "corrected_message": "full corrected commit message"\n'
         "    }\n"
         "  ]\n"
         "}\n"
         "\n"
-        'The "issues" array must be empty if both checks pass.'
+        'The "issues" array must be empty if both checks pass.  When '
+        '"issues" is non-empty, "corrected_message" must contain the '
+        "full corrected commit message — header line, blank line, and "
+        "bullet-point body — that resolves every listed issue while "
+        "accurately describing the diff from the parent commit.  When "
+        '"issues" is empty, omit "corrected_message".'
     )
 
 
@@ -214,35 +224,59 @@ def build_system_message_for_automatic_correction(
     """Build the systemMessage that instructs Claude to correct commit
     messages automatically via a non-interactive rebase.
 
+    When corrected messages are available (provided by the validation
+    model), the instruction includes the exact replacement text so that
+    Claude's task is purely mechanical.  When a corrected message is
+    not available for a commit, Claude is asked to compose one.
+
     This is used on the first firing within a session.
     """
+    all_have_corrections = all(
+        "corrected_message" in commit for commit in problematic_commits
+    )
+
     lines = [
         "POST-REBASE COMMIT MESSAGE VALIDATION — ISSUES FOUND.",
         "",
         "The following commits created by the rebase have commit message",
-        "issues that should be corrected:",
+        "issues that must be corrected:",
         "",
     ]
 
     for commit in problematic_commits:
         lines.append(f"  {commit['hash']}:")
-        lines.append("    Message:")
+        lines.append("    Current message:")
         for message_line in commit["message"].splitlines():
             lines.append(f"      {message_line}")
         lines.append("    Issues:")
         for issue in commit["issues"]:
             lines.append(f"    - {issue}")
+        if "corrected_message" in commit:
+            lines.append("    Corrected message (apply exactly as shown):")
+            for message_line in commit["corrected_message"].splitlines():
+                lines.append(f"      {message_line}")
         lines.append("")
 
-    lines.extend([
-        "Correct the commit messages using a non-interactive",
-        "``git rebase -i`` by setting ``GIT_SEQUENCE_EDITOR`` to a",
-        "``sed`` command that marks the affected commits as ``reword``,",
-        "and ``GIT_EDITOR`` to a script that writes the corrected",
-        "message.  Each rewritten message must follow the header +",
-        "bullet point format and accurately describe the diff from the",
-        "parent commit.",
-    ])
+    if all_have_corrections:
+        lines.extend([
+            "Apply the corrected messages above exactly as shown using a",
+            "non-interactive ``git rebase -i`` by setting",
+            "``GIT_SEQUENCE_EDITOR`` to a ``sed`` command that marks the",
+            "affected commits as ``reword``, and ``GIT_EDITOR`` to a",
+            "script that writes the corrected message.  Do not modify",
+            "the corrected messages — apply them verbatim.",
+        ])
+    else:
+        lines.extend([
+            "Correct the commit messages using a non-interactive",
+            "``git rebase -i`` by setting ``GIT_SEQUENCE_EDITOR`` to a",
+            "``sed`` command that marks the affected commits as ``reword``,",
+            "and ``GIT_EDITOR`` to a script that writes the corrected",
+            "message.  Where a corrected message is provided above, apply",
+            "it exactly as shown.  Where no corrected message is provided,",
+            "compose one that follows the header + bullet point format and",
+            "accurately describes the diff from the parent commit.",
+        ])
 
     return "\n".join(lines)
 
@@ -366,11 +400,15 @@ def main() -> int:
         issues = commit_result.get("issues", [])
         if issues:
             short_hash = commit_result.get("hash", "unknown")
-            problematic.append({
+            entry = {
                 "hash": short_hash,
                 "message": commit_message_indexed_by_short_hash.get(short_hash, "(unknown)"),
                 "issues": issues,
-            })
+            }
+            corrected = commit_result.get("corrected_message")
+            if corrected:
+                entry["corrected_message"] = corrected
+            problematic.append(entry)
 
     if not problematic:
         return 0
