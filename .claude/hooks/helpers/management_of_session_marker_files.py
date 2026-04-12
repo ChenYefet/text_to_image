@@ -2,7 +2,7 @@
 
 Provides functions for creating, locating, and cleaning up marker files
 used by hooks to coordinate state across tool invocations within a
-session.  Two patterns use these utilities:
+session.  Three patterns use these utilities:
 
 - The deny-then-allow pattern (``deny_then_allow.py``), which creates a
   marker file when a tool call is denied and consumes it on the next
@@ -10,8 +10,13 @@ session.  Two patterns use these utilities:
 - The read-before-commit pattern (``inject_claude_md_before_commit.py``
   and ``track_reading_of_claude_md.py``), which creates a marker file
   when CLAUDE.md is read and consumes it when a commit is allowed.
+- The relay pattern for post-rebase correction
+  (``validate_commit_messages_after_rebase.py`` and
+  ``relay_of_instructions_for_post_rebase_correction.py``), which writes
+  correction instructions to a results file after a rebase and relays
+  them via a PreToolUse deny on the next Bash command.
 
-Both patterns share the same marker file lifecycle: session-scoped
+All patterns share the same marker file lifecycle: session-scoped
 creation, stale cleanup across sessions, and cleanup on
 ``git rebase --abort``.
 """
@@ -24,6 +29,10 @@ from helpers.parsing_of_hook_input_for_bash_commands import is_git_subcommand
 
 PREFIX_OF_MARKER_FILE_FOR_COMMIT_PERMITTED_AFTER_READING_OF_CLAUDE_MD = (
     ".marker_file_for_commit_permitted_after_reading_of_claude_md_for_session_"
+)
+
+PREFIX_OF_RESULTS_FILE_FOR_INSTRUCTIONS_FOR_POST_REBASE_CORRECTION = (
+    ".results_file_for_instructions_for_post_rebase_correction_for_session_"
 )
 
 

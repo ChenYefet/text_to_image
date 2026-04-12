@@ -27,29 +27,42 @@ The hook only fires when all of the following are true:
    ``.git/rebase-apply/`` directory exists).
 3. New commits were created (``ORIG_HEAD..HEAD`` is non-empty).
 
-If issues are found, the hook injects a ``systemMessage`` instructing
-Claude to correct the problematic commit messages.  The validation
-model also produces corrected commit messages, which are included in
-the ``systemMessage`` so that Claude's correction task is purely
-mechanical — applying pre-written messages rather than interpreting
-issues and composing fixes.  Since this is a PostToolUse hook, it
-cannot block the command — it can only report.
+If issues are found, the hook writes the correction instructions to a
+results file scoped to the session.  The companion PreToolUse hook
+``relay_of_instructions_for_post_rebase_correction.py`` detects this file on
+the next Bash command and delivers the instructions by denying the
+command with the correction text as ``permissionDecisionReason``.
 
-Graceful degradation: If the ``claude`` command-line interface is not found, times out,
-returns an error, or produces unparseable output, the hook exits
-silently without injecting any message.
+This two-phase relay is necessary because Claude Code does not inject
+``systemMessage`` output from PostToolUse hooks into the model's
+conversation context.  The PostToolUse hook
+performs the expensive validation (calling the ``claude`` command-line
+interface), and the PreToolUse hook performs the instant delivery
+(reading a file and outputting a deny).
 
-Exit code 0 — always (output JSON controls behaviour via systemMessage).
+The validation model also produces corrected commit messages, which
+are included in the correction instructions so that Claude's
+correction task is purely mechanical — applying pre-written messages
+rather than interpreting issues and composing fixes.
+
+Graceful degradation: If the ``claude`` command-line interface is not
+found, times out, returns an error, or produces unparseable output,
+the hook exits silently without writing a results file.
+
+Exit code 0 — always.
 """
 
-import glob
-import json
 import pathlib
 import re
 import subprocess
 import sys
 
 from helpers.invoking_claude_cli_for_analysis import call_claude_cli_for_analysis
+from helpers.management_of_session_marker_files import (
+    PREFIX_OF_RESULTS_FILE_FOR_INSTRUCTIONS_FOR_POST_REBASE_CORRECTION,
+    clean_up_stale_marker_files,
+    get_marker_file_path_for_session,
+)
 from helpers.parsing_of_hook_input_for_bash_commands import (
     is_git_subcommand,
     read_hook_input_from_standard_input,
@@ -318,13 +331,6 @@ def build_system_message_for_manual_resolution(
     return "\n".join(lines)
 
 
-def _clean_up_stale_marker_files(current_session_id: str) -> None:
-    """Remove marker files left behind by previous sessions."""
-    for stale_marker_path in glob.glob(f"{PREFIX_OF_MARKER_FILE}*"):
-        if current_session_id not in stale_marker_path:
-            pathlib.Path(stale_marker_path).unlink(missing_ok=True)
-
-
 def main() -> int:
     hook_input = read_hook_input_from_standard_input()
 
@@ -360,9 +366,9 @@ def main() -> int:
     marker_file_path = None
 
     if session_id:
-        _clean_up_stale_marker_files(session_id)
-        marker_file_path = pathlib.Path(
-            f"{PREFIX_OF_MARKER_FILE}{session_id}"
+        clean_up_stale_marker_files(PREFIX_OF_MARKER_FILE, session_id)
+        marker_file_path = get_marker_file_path_for_session(
+            PREFIX_OF_MARKER_FILE, session_id
         )
         if marker_file_path.exists():
             is_second_attempt = True
@@ -425,13 +431,19 @@ def main() -> int:
         if marker_file_path is not None:
             marker_file_path.touch()
 
-    output = {
-        "hookSpecificOutput": {
-            "hookEventName": "PostToolUse",
-            "systemMessage": system_message,
-        },
-    }
-    print(json.dumps(output))
+    # Write the correction instructions to a results file for the
+    # companion PreToolUse hook to relay on the next Bash command.
+    if session_id:
+        clean_up_stale_marker_files(
+            PREFIX_OF_RESULTS_FILE_FOR_INSTRUCTIONS_FOR_POST_REBASE_CORRECTION,
+            session_id,
+        )
+        results_file_path = get_marker_file_path_for_session(
+            PREFIX_OF_RESULTS_FILE_FOR_INSTRUCTIONS_FOR_POST_REBASE_CORRECTION,
+            session_id,
+        )
+        results_file_path.write_text(system_message, encoding="utf-8")
+
     return 0
 
 
