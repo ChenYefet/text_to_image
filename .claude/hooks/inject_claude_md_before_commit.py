@@ -5,10 +5,12 @@ This is a Claude Code PreToolUse hook for the Bash tool.  On every
 ``git commit`` attempt, it checks for a session-scoped marker file
 created by the PostToolUse hook ``track_reading_of_claude_md.py``,
 which fires when the Read tool is used on CLAUDE.md.  If the marker
-exists, the commit is allowed and the marker is consumed so that the
-next commit requires a fresh read.  If the marker does not exist, the
-commit is denied with a message instructing the model to read CLAUDE.md
-before re-attempting.
+exists, the commit is allowed.  The marker is not consumed here — it is
+consumed by ``track_reading_of_claude_md.py`` after the commit actually
+executes (via a PostToolUse hook on Bash), ensuring that a commit denied
+by another PreToolUse hook does not invalidate the read marker.  If the
+marker does not exist, the commit is denied with a message instructing
+the model to read CLAUDE.md before re-attempting.
 
 Session isolation is achieved via a marker file whose name includes the
 ``session_id`` from the hook input.  A marker created by a different
@@ -72,7 +74,11 @@ def main() -> int:
         session_id,
     )
     if read_marker_path.exists():
-        read_marker_path.unlink(missing_ok=True)
+        # The marker is not consumed here.  Consumption is handled by
+        # ``track_reading_of_claude_md.py`` (PostToolUse on Bash) after
+        # the commit actually executes.  This prevents a denied commit
+        # — blocked by another PreToolUse hook — from invalidating the
+        # read marker.
         output = {
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",

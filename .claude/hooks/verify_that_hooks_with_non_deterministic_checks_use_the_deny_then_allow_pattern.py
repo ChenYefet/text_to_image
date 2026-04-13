@@ -5,11 +5,13 @@ This is a Claude Code PreToolUse hook for the Bash tool.  On the first
 ``git commit`` attempt within a session, it inspects staged
 ``.claude/hooks/*.py`` files and delegates analysis to Claude Sonnet
 via the ``claude`` command-line interface to determine whether each hook uses a
-non-deterministic check (such as a call to a large language model).  If a hook uses a
-non-deterministic check but does not import and use
-``helpers.deny_then_allow``, the commit is denied.  On the second attempt
-within the same session, the hook allows the commit to proceed
-regardless — because the analysis is itself non-deterministic.
+non-deterministic check (such as a call to a large language model).  If a
+PreToolUse hook uses a non-deterministic check but does not import and
+use ``helpers.deny_then_allow``, the commit is denied.  PostToolUse hooks
+are exempt from this requirement because they run after tool execution
+and cannot deny or block tool calls.  On the second attempt within the
+same session, the hook allows the commit to proceed regardless — because
+the analysis is itself non-deterministic.
 
 This hook is self-referentially consistent: It enforces the rule that
 hooks based on large language models must use the deny-then-allow
@@ -88,6 +90,15 @@ def build_prompt_for_non_deterministic_check_analysis(
         "(specifically the `run_deny_then_allow` function) to ensure that false "
         "positives do not permanently block commits.\n"
         "\n"
+        "Also determine whether the hook is a PreToolUse hook or a "
+        "PostToolUse hook.  PreToolUse hooks run before a tool executes "
+        "and can deny (block) tool calls via permissionDecision.  "
+        "PostToolUse hooks run after a tool has already executed and "
+        "cannot deny or block tool calls.  Look for docstring "
+        "declarations (such as 'PreToolUse hook' or 'PostToolUse hook') "
+        "and code patterns (such as outputting a permissionDecision of "
+        "'deny') to determine the hook type.\n"
+        "\n"
         f"File: {file_path}\n"
         "\n"
         "```python\n"
@@ -101,6 +112,9 @@ def build_prompt_for_non_deterministic_check_analysis(
         '- "uses_deny_then_allow": boolean — true if the hook imports '
         "and uses `run_deny_then_allow` from `helpers.deny_then_allow`, false "
         "otherwise.\n"
+        '- "is_pre_tool_use_hook": boolean — true if the hook is a '
+        "PreToolUse hook that can deny tool calls, false if it is a "
+        "PostToolUse hook that cannot deny.\n"
         '- "explanation": string — a brief explanation of your '
         "reasoning.\n"
         "\n"
@@ -179,9 +193,16 @@ def check_and_build_blocking_message() -> str | None:
         uses_deny_then_allow = analysis.get(
             "uses_deny_then_allow", False
         )
+        is_pre_tool_use_hook = analysis.get(
+            "is_pre_tool_use_hook", True
+        )
         explanation = analysis.get("explanation", "")
 
-        if uses_non_deterministic_check and not uses_deny_then_allow:
+        if (
+            uses_non_deterministic_check
+            and is_pre_tool_use_hook
+            and not uses_deny_then_allow
+        ):
             violations.append((file_path, explanation))
 
     if not violations:
