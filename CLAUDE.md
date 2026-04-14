@@ -16,6 +16,8 @@ When a colon introduces a complete independent clause — one that could stand a
 
 When writing a compound that can function as both a noun and an attributive modifier, do not hyphenate the noun form. Hyphens in compound terms apply only in the attributive modifier position — that is, when the compound directly precedes a head noun. For example, write 'a short circuit' (standalone noun) and 'short-circuit evaluation' (attributive modifier preceding 'evaluation'). Before hyphenating any compound, verify that it directly precedes and modifies a head noun; if it does not, write it without a hyphen.
 
+When a compound modifier that precedes a head noun includes a multi-word atomic term — whether an established technical compound, an automatically recognised atomic compound, or a multi-word command name — a hyphen must not be placed between the non-term word and only the first word of the atomic term, because this creates a false grouping that binds the non-term word to the first element alone rather than to the atomic term as a whole. For example, 'compound-`git commit` hook' falsely groups 'compound' with 'git' rather than with '`git commit`'. Removing the false hyphen yields 'compound `git commit` hook', which resolves the grouping issue but may still require restructuring under the connector rule (in this case, 'hook blocking `git commit` in compound commands').
+
 CODE AND NAMING REQUIREMENTS
 
 All code must be self-documenting.
