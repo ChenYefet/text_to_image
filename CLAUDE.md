@@ -276,6 +276,7 @@ When the same abbreviation appears in multiple rows — because it is used to sh
 | cat | category | expanded | expanded |
 | CI | continuous integration | expanded | expanded |
 | CLI | command-line interface | abbreviated | expanded |
+| CRUD | create, read, update, delete | abbreviated | abbreviated |
 | CLIP | Contrastive Language-Image Pre-training | abbreviated | abbreviated |
 | cmd | command | expanded | expanded |
 | CORS | Cross-Origin Resource Sharing | abbreviated | abbreviated |
@@ -294,8 +295,10 @@ When the same abbreviation appears in multiple rows — because it is used to sh
 | FE | frontend | expanded | expanded |
 | FR | functional requirement | abbreviated | abbreviated |
 | GB | gigabyte | abbreviated | abbreviated |
+| GCC | GNU Compiler Collection | abbreviated | abbreviated |
 | GDPR | General Data Protection Regulation | abbreviated | abbreviated |
 | GGUF | GGML Unified Format | abbreviated | abbreviated |
+| GNU | GNU's Not Unix | abbreviated | abbreviated |
 | gomod | Go module | expanded | expanded |
 | GPU | graphics processing unit | abbreviated | abbreviated |
 | HPA | Horizontal Pod Autoscaler | abbreviated | abbreviated |
@@ -311,6 +314,8 @@ When the same abbreviation appears in multiple rows — because it is used to sh
 | JPEG | Joint Photographic Experts Group | abbreviated | abbreviated |
 | JPG | Joint Photographic Experts Group (variant) | abbreviated | abbreviated |
 | JSON | JavaScript Object Notation | abbreviated | abbreviated |
+| JTI | JSON Token Identifier | abbreviated | abbreviated |
+| JWT | JSON Web Token | abbreviated | abbreviated |
 | KB | kilobyte | abbreviated | abbreviated |
 | kw | keyword | expanded | expanded |
 | lf | lock file | expanded | expanded |
@@ -325,6 +330,7 @@ When the same abbreviation appears in multiple rows — because it is used to sh
 | num | number | expanded | expanded |
 | obs | observation | expanded | expanded |
 | OLAP | online analytical processing | expanded | expanded |
+| op | operation | expanded | expanded |
 | pkg | package | expanded | expanded |
 | PNG | Portable Network Graphics | abbreviated | abbreviated |
 | pyproj | pyproject | expanded | expanded |
