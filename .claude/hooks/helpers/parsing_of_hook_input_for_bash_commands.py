@@ -4,9 +4,11 @@ Provides functions used at the entry point of every pre-commit hook:
 one that reads and parses the JSON input provided by Claude Code on
 standard input, a function that determines whether a Bash command
 invokes a specific ``git`` subcommand, a function that extracts the
-commit message from a git command string, and a character-by-character
-shell scanner that yields characters at the top level of the shell
-(outside quoted strings, comments, and subshells).
+commit message from a git command string, a character-by-character
+shell scanner that returns characters at the top level of the shell
+(outside quoted strings, comments, and subshells), and a function
+that detects shell operators anywhere in a command after stripping
+quoted strings and comments.
 """
 
 import json
@@ -107,38 +109,30 @@ def iterate_over_top_level_characters_in_shell_command(
     return top_level_characters
 
 
-def command_contains_shell_operator_at_top_level(command: str) -> bool:
+def command_contains_shell_operator_at_any_depth(command: str) -> bool:
     """Return True if *command* contains a shell operator (``&&``,
-    ``||``, ``;``, or ``|``) at the top level of the shell — that is,
-    outside quoted strings, comments, and subshells.
+    ``||``, ``;``, or ``|``) anywhere in the command.
 
-    A command that contains a top-level shell operator is a compound
-    command: it chains multiple commands together in a single shell
-    invocation.
+    This function strips single-quoted strings, double-quoted strings
+    (handling backslash escape sequences), and comments via a single
+    regular expression pass, then searches the remainder for any shell
+    operator.  Unlike the depth-aware scanner provided by
+    ``iterate_over_top_level_characters_in_shell_command``, this
+    function ignores parenthesis depth entirely, making it suitable for
+    detecting compound commands in which operators may appear inside a
+    subshell — for example, ``(cd /path && git commit -m "msg")`` — where
+    a top-level-only scanner cannot see the ``&&`` at depth one.
     """
-    top_level_characters = (
-        iterate_over_top_level_characters_in_shell_command(command)
+    command_without_quoted_strings_and_comments = re.sub(
+        r"""'[^']*'|"(?:[^"\\]|\\.)*"|#[^\n]*""",
+        "",
+        command,
+        flags=re.DOTALL,
     )
-    for position, (index, character) in enumerate(top_level_characters):
-        if character == ";":
-            return True
-        if character == "&":
-            next_character = (
-                top_level_characters[position + 1][1]
-                if position + 1 < len(top_level_characters)
-                else None
-            )
-            if next_character == "&":
-                return True
-        if character == "|":
-            next_character = (
-                top_level_characters[position + 1][1]
-                if position + 1 < len(top_level_characters)
-                else None
-            )
-            # Both '|' (pipe) and '||' (or) are compound operators.
-            return True
-    return False
+    return bool(re.search(
+        r"&&|\|\||;|\|",
+        command_without_quoted_strings_and_comments,
+    ))
 
 
 def _extract_git_subcommand_from_tokens(tokens: list[str]) -> str | None:
