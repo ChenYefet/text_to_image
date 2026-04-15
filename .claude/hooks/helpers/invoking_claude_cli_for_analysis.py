@@ -4,10 +4,11 @@ parsing its JSON output.
 Provides two functions used by hooks that delegate analysis to the
 Claude command-line interface:
 
-- ``parse_json_from_claude_cli_output`` — unwraps the
-  ``{"result": ...}`` envelope produced by ``--output-format json``,
-  strips markdown code fences if present, parses the JSON, and
-  validates the result type.
+- ``parse_json_from_claude_cli_output`` — unwraps the envelope
+  produced by ``--output-format json`` (either a legacy
+  ``{"result": ...}`` object or the current array-of-events
+  format), strips markdown code fences if present, parses the
+  JSON, and validates the result type.
 - ``call_claude_cli_for_analysis`` — invokes the Claude command-line
   interface as a subprocess with the standard flags, retries on
   transient failures, handles errors gracefully, and returns the
@@ -27,10 +28,12 @@ def parse_json_from_claude_cli_output(
 ) -> dict | list | None:
     """Parse JSON from the Claude command-line interface output.
 
-    The ``--output-format json`` flag wraps the response in a JSON
-    object with a ``result`` field containing the text Claude generated.
-    This function unwraps that envelope, strips markdown code fences if
-    present, parses the inner JSON, and validates the result type.
+    The ``--output-format json`` flag produces either a JSON object
+    with a ``result`` field (legacy format) or a JSON array of event
+    objects where the result is in the event whose ``type`` field is
+    ``"result"`` (current format).  This function unwraps either
+    envelope, strips markdown code fences if present, parses the
+    inner JSON, and validates the result type.
 
     When the model self-corrects mid-response, the ``result`` field may
     contain multiple markdown code blocks (e.g. an initial answer
@@ -54,6 +57,15 @@ def parse_json_from_claude_cli_output(
         parsed_output = json.loads(standard_output)
         if isinstance(parsed_output, dict) and "result" in parsed_output:
             response_text = parsed_output["result"]
+        elif isinstance(parsed_output, list):
+            for event in parsed_output:
+                if (
+                    isinstance(event, dict)
+                    and event.get("type") == "result"
+                    and "result" in event
+                ):
+                    response_text = event["result"]
+                    break
     except (json.JSONDecodeError, TypeError):
         pass
 
