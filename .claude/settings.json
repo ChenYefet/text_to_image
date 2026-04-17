@@ -62,6 +62,10 @@
           },
           {
             "type": "command",
+            "command": "python3 .claude/hooks/deny_git_push_and_publishing_of_branches_via_github_cli.py"
+          },
+          {
+            "type": "command",
             "command": "python3 .claude/hooks/evaluate_specification_changelog.py"
           }
         ]
