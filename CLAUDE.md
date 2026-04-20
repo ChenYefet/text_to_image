@@ -278,6 +278,7 @@ This requirement applies to all numerical values in all output contexts: archite
 ESTABLISHED TECHNICAL COMPOUND TERMS
 
 - cloud provider
+- data transfer object
 - deep learning
 - file path
 - large language model
@@ -317,6 +318,7 @@ When the same abbreviation appears in multiple rows — because it is used to sh
 | DevOps | development operations | abbreviated | abbreviated |
 | diff | difference | abbreviated | abbreviated |
 | docs | documentation | expanded | expanded |
+| DTO | data transfer object | abbreviated | expanded |
 | e.g. | for example | expanded | abbreviated |
 | etc. | et cetera | abbreviated | abbreviated |
 | ext | extension | expanded | expanded |
