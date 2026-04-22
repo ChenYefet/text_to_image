@@ -92,12 +92,21 @@ Diffs are computed against the first parent only, via
 ``git diff-tree -p <first_parent_hash> <commit_hash>``, so that merge
 commits produced by ``git rebase --rebase-merges`` are included in
 validation rather than dropped because the default combined diff for
-merge commits is empty for clean merges.  Commits without a first
-parent (root commits, typically produced by ``git rebase --root``)
-and commits with an empty diff (typically created with
-``git commit --allow-empty``) are dropped from validation with a
-warning on standard error so that the omission is visible rather
-than silent.
+merge commits is empty for clean merges.  The first-parent diff of a
+merge commit lists all content brought in from the other branch and
+therefore does not correspond to the usual text of a merge commit
+message (for example, ``Merge branch 'foo'``).  To avoid flagging
+such messages as inaccurate against a diff they were never meant to
+describe, the validation prompt annotates each commit with its
+parent count and instructs the validation model to exempt any
+commit with two or more parents from the accuracy checks while still
+applying the format rules to its subject line.
+
+Commits without a first parent (root commits, typically produced by
+``git rebase --root``) and commits with an empty diff (typically
+created with ``git commit --allow-empty``) are dropped from
+validation with a warning on standard error so that the omission is
+visible rather than silent.
 
 The second-attempt marker is consumed on every completed rebase
 invocation, before the empty-commits early exits, so that the marker
@@ -373,6 +382,43 @@ def get_first_parent_hash(commit_hash: str) -> str | None:
     return first_parent_hash if first_parent_hash else None
 
 
+def get_number_of_parents(commit_hash: str) -> int | None:
+    """Return the number of parents of *commit_hash*.
+
+    Uses ``git show --no-patch --format=%P`` so that every parent is
+    listed in a single line of output regardless of how many parents
+    the commit has.  The returned integer has the following meaning:
+
+    - ``0``: a root commit, typically produced by
+      ``git rebase --root``.
+    - ``1``: a standard commit whose history is linear at this point.
+    - ``2`` or more: a merge commit, typically preserved by
+      ``git rebase --rebase-merges``.
+
+    Returns ``None`` on any subprocess failure so that callers can
+    fall back to a safe default — treating the commit as non-merge —
+    rather than assume a false exemption when the parent count cannot
+    be determined.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "show", "--no-patch", "--format=%P", commit_hash],
+            capture_output=True,
+            encoding="utf-8",
+            timeout=10,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return None
+
+    if result.returncode != 0:
+        return None
+
+    parent_hashes_field = result.stdout.strip()
+    if not parent_hashes_field:
+        return 0
+    return len(parent_hashes_field.split())
+
+
 def get_diff_between_parent_and_commit(
     parent_hash: str, commit_hash: str,
 ) -> str | None:
@@ -628,11 +674,27 @@ def split_commits_into_batches_under_character_budget(
 
 def build_validation_prompt(commits_data: list[dict]) -> str:
     """Build a single prompt that validates a batch of commits for both
-    format and accuracy."""
+    format and accuracy.
+
+    For each commit, the prompt emits an explicit ``Number of parents``
+    line so that the validation model can identify merge commits
+    (parent count of two or more) and apply the merge-commit
+    exemption to accuracy.  The exemption itself is defined once
+    alongside the other checks, so both the model's task and the
+    rules it applies are fully specified within a single prompt.
+    """
     commits_text = ""
     for index, commit_data in enumerate(commits_data, start=1):
+        number_of_parents = commit_data.get("number_of_parents", 1)
         commits_text += (
             f"\n--- COMMIT {index} (hash: {commit_data['hash']}) ---\n"
+            f"Number of parents: {number_of_parents}"
+            + (
+                "  (merge commit — accuracy exemption applies)"
+                if number_of_parents >= 2
+                else ""
+            )
+            + "\n"
             "<untrusted_commit_message>\n"
             f"{commit_data['message']}\n"
             "</untrusted_commit_message>\n"
@@ -666,6 +728,22 @@ def build_validation_prompt(commits_data: list[dict]) -> str:
         "for:\n"
         "\n"
         f"{build_text_describing_categories_of_accuracy_checks()}\n"
+        "\n"
+        "**Merge-commit exemption** — any commit whose ``Number of "
+        "parents`` line shows 2 or more (a merge commit, typically "
+        "preserved by ``git rebase --rebase-merges``) is exempt from "
+        "the accuracy checks above.  The diff shown for a merge "
+        "commit is its diff against its first parent, which lists all "
+        "content brought in from the other branch; a typical merge-"
+        "commit message (for example, ``Merge branch 'foo'``) does "
+        "not describe that content, and flagging such a message as "
+        "inaccurate against its first-parent diff would be a false "
+        "positive.  For every merge commit, report ``accuracy_valid: "
+        "true`` and do not add any accuracy issue to its ``issues`` "
+        "array, regardless of whether the message describes the "
+        "diff.  Continue to apply the format rules to the subject "
+        "line of merge commits; a format violation on a merge commit "
+        "is still a violation.\n"
         f"{commits_text}\n"
         "\n"
         "Return ONLY a JSON object (no markdown fences, no "
@@ -1158,10 +1236,19 @@ def main() -> int:
         diff = truncate_diff_to_maximum_size_with_explicit_marker(
             diff, _MAXIMUM_NUMBER_OF_CHARACTERS_OF_DIFF_PER_COMMIT,
         )
+        # When the parent count cannot be determined, default to 1 so
+        # that the validation model applies the standard accuracy
+        # check rather than the merge-commit exemption — treating an
+        # unknown commit as a merge would suppress accuracy signal
+        # for standard commits on any transient ``git show`` failure.
+        number_of_parents = get_number_of_parents(commit_hash)
+        if number_of_parents is None:
+            number_of_parents = 1
         commits_data.append({
             "hash": commit_hash,
             "message": message,
             "diff": diff,
+            "number_of_parents": number_of_parents,
         })
 
     if not commits_data:
