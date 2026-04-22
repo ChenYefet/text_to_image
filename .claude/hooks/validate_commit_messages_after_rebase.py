@@ -783,11 +783,22 @@ def call_claude_for_validation_and_return_failure_description(
     required because ``validate_commits_across_batches`` runs
     multiple invocations concurrently and must associate each
     failure with the batch that produced it.
+
+    The 60-second per-attempt timeout is a deliberate upper bound
+    for post-rebase validation.  A single batch is a bounded analysis
+    task whose median latency on Claude Sonnet is well under a
+    minute even for multi-commit batches near the character budget;
+    waiting materially longer does not improve the analysis, it only
+    increases the worst-case delay before the model sees the next
+    tool-call result.  The failure path writes an infrastructure-
+    failure notice to the results file, so a timeout does not lose
+    the validation signal — it defers it to the next rebase that
+    changes the affected commits.
     """
     return (
         call_claude_cli_for_analysis_and_return_result_with_failure_description(
             prompt,
-            timeout_in_seconds=120,
+            timeout_in_seconds=60,
             description_of_analysis=(
                 "post-rebase commit message validation"
             ),
