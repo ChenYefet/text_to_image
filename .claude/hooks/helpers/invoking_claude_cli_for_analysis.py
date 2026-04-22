@@ -1,7 +1,7 @@
 """Shared utilities for invoking the Claude command-line interface and
 parsing its JSON output.
 
-Provides two functions used by hooks that delegate analysis to the
+Provides three functions used by hooks that delegate analysis to the
 Claude command-line interface:
 
 - ``parse_json_from_claude_cli_output`` — unwraps the envelope
@@ -12,7 +12,15 @@ Claude command-line interface:
 - ``call_claude_cli_for_analysis`` — invokes the Claude command-line
   interface as a subprocess with the standard flags, retries on
   transient failures, handles errors gracefully, and returns the
-  parsed result.
+  parsed result.  Writes the failure reason from the final attempt
+  to the module-level ``description_of_last_failure`` variable so
+  that synchronous callers can include it in diagnostic messages.
+- ``call_claude_cli_for_analysis_and_return_result_with_failure_description``
+  — same invocation and retry behaviour as ``call_claude_cli_for_analysis``
+  but returns a ``(result, failure_description)`` tuple and does not
+  touch the module-level variable, so that callers issuing multiple
+  invocations concurrently can capture per-invocation failures
+  without racing on shared state.
 """
 
 import json
@@ -140,59 +148,29 @@ blocking messages.
 """
 
 
-def call_claude_cli_for_analysis(
+def _run_claude_cli_with_retries_and_return_result_and_failure_description(
     prompt: str,
     *,
-    expected_type: type = dict,
-    timeout_in_seconds: int = 60,
-    maximum_number_of_attempts: int = 2,
-    number_of_seconds_between_attempts: int = 3,
+    expected_type: type,
+    timeout_in_seconds: int,
+    maximum_number_of_attempts: int,
+    number_of_seconds_between_attempts: int,
     description_of_analysis: str,
-    severity: str = "WARNING",
-) -> dict | list | None:
-    """Call the Claude command-line interface to perform an analysis.
+    severity: str,
+) -> tuple[dict | list | None, str | None]:
+    """Run the Claude command-line interface with retries and return
+    both the parsed result (or ``None`` on failure) and the failure
+    description from the final attempt (or ``None`` on success).
 
-    Invokes ``claude -p --model sonnet --output-format json`` with the
-    given prompt on stdin, parses the JSON response, and returns the
-    result.  Retries on transient failures (timeout, non-zero exit
-    code, unparseable output) up to ``maximum_number_of_attempts``
-    times with a delay of ``number_of_seconds_between_attempts``
-    seconds between retries.  Does not retry when the command-line
-    interface binary is not found (a non-transient failure).
-
-    On failure, sets the module-level ``description_of_last_failure``
-    variable with a diagnostic message that callers can include in
-    blocking output.
-
-    Parameters:
-        prompt: The prompt text to send to the Claude command-line
-            interface via stdin.
-        expected_type: The expected Python type of the parsed result
-            (``dict`` or ``list``).  Defaults to ``dict``.
-        timeout_in_seconds: Subprocess timeout in seconds.  Defaults
-            to 60.
-        maximum_number_of_attempts: The maximum number of attempts
-            before giving up.  Defaults to 2 (one original attempt
-            plus one retry).
-        number_of_seconds_between_attempts: The number of seconds to
-            wait between retry attempts.  Defaults to 3.
-        description_of_analysis: A short description of the analysis
-            being performed, used in error/warning messages (e.g.
-            ``"commit message format analysis"``).
-        severity: The prefix for log messages — ``"ERROR"`` or
-            ``"WARNING"``.  Use ``"ERROR"`` when the hook hard-blocks
-            on failure; use ``"WARNING"`` when the hook degrades
-            gracefully.  Defaults to ``"WARNING"``.
-
-    Returns the parsed result if successful, or None on any failure.
+    This is the shared implementation behind ``call_claude_cli_for_analysis``
+    and ``call_claude_cli_for_analysis_and_return_result_with_failure_description``.
+    It uses only local state, so concurrent invocations from multiple
+    threads do not interfere with each other.
     """
-    global description_of_last_failure
-    description_of_last_failure = None
-
     environment_without_nesting_guard = os.environ.copy()
     environment_without_nesting_guard.pop("CLAUDECODE", None)
 
-    last_failure = None
+    last_failure: str | None = None
 
     for attempt_index in range(maximum_number_of_attempts):
         if attempt_index > 0:
@@ -228,8 +206,7 @@ def call_claude_cli_for_analysis(
                 f" skipping {description_of_analysis}.",
                 file=sys.stderr,
             )
-            description_of_last_failure = last_failure
-            return None
+            return None, last_failure
         except subprocess.TimeoutExpired:
             last_failure = (
                 f"command-line interface timed out after"
@@ -261,9 +238,8 @@ def call_claude_cli_for_analysis(
             )
             continue
 
-        return analysis
+        return analysis, None
 
-    description_of_last_failure = last_failure
     print(
         f"{severity}: All {maximum_number_of_attempts} attempt(s) failed"
         f" for {description_of_analysis}"
@@ -271,4 +247,119 @@ def call_claude_cli_for_analysis(
         + ".",
         file=sys.stderr,
     )
-    return None
+    return None, last_failure
+
+
+def call_claude_cli_for_analysis(
+    prompt: str,
+    *,
+    expected_type: type = dict,
+    timeout_in_seconds: int = 60,
+    maximum_number_of_attempts: int = 2,
+    number_of_seconds_between_attempts: int = 3,
+    description_of_analysis: str,
+    severity: str = "WARNING",
+) -> dict | list | None:
+    """Call the Claude command-line interface to perform an analysis.
+
+    Invokes ``claude -p --model sonnet --output-format json`` with the
+    given prompt on stdin, parses the JSON response, and returns the
+    result.  Retries on transient failures (timeout, non-zero exit
+    code, unparseable output) up to ``maximum_number_of_attempts``
+    times with a delay of ``number_of_seconds_between_attempts``
+    seconds between retries.  Does not retry when the command-line
+    interface binary is not found (a non-transient failure).
+
+    On failure, sets the module-level ``description_of_last_failure``
+    variable with a diagnostic message that callers can include in
+    blocking output.  Synchronous callers that wish to report the
+    failure reason should read ``description_of_last_failure``
+    immediately after the call returns.  Callers that issue multiple
+    invocations concurrently must use
+    ``call_claude_cli_for_analysis_and_return_result_with_failure_description``
+    instead, because the module-level variable is shared across threads.
+
+    Parameters:
+        prompt: The prompt text to send to the Claude command-line
+            interface via stdin.
+        expected_type: The expected Python type of the parsed result
+            (``dict`` or ``list``).  Defaults to ``dict``.
+        timeout_in_seconds: Subprocess timeout in seconds.  Defaults
+            to 60.
+        maximum_number_of_attempts: The maximum number of attempts
+            before giving up.  Defaults to 2 (one original attempt
+            plus one retry).
+        number_of_seconds_between_attempts: The number of seconds to
+            wait between retry attempts.  Defaults to 3.
+        description_of_analysis: A short description of the analysis
+            being performed, used in error/warning messages (e.g.
+            ``"commit message format analysis"``).
+        severity: The prefix for log messages — ``"ERROR"`` or
+            ``"WARNING"``.  Use ``"ERROR"`` when the hook hard-blocks
+            on failure; use ``"WARNING"`` when the hook degrades
+            gracefully.  Defaults to ``"WARNING"``.
+
+    Returns the parsed result if successful, or None on any failure.
+    """
+    global description_of_last_failure
+    description_of_last_failure = None
+
+    result, failure_description = (
+        _run_claude_cli_with_retries_and_return_result_and_failure_description(
+            prompt,
+            expected_type=expected_type,
+            timeout_in_seconds=timeout_in_seconds,
+            maximum_number_of_attempts=maximum_number_of_attempts,
+            number_of_seconds_between_attempts=(
+                number_of_seconds_between_attempts
+            ),
+            description_of_analysis=description_of_analysis,
+            severity=severity,
+        )
+    )
+
+    description_of_last_failure = failure_description
+    return result
+
+
+def call_claude_cli_for_analysis_and_return_result_with_failure_description(
+    prompt: str,
+    *,
+    expected_type: type = dict,
+    timeout_in_seconds: int = 60,
+    maximum_number_of_attempts: int = 2,
+    number_of_seconds_between_attempts: int = 3,
+    description_of_analysis: str,
+    severity: str = "WARNING",
+) -> tuple[dict | list | None, str | None]:
+    """Call the Claude command-line interface and return both the
+    parsed result and the failure description as a tuple.
+
+    Behaves identically to ``call_claude_cli_for_analysis`` with
+    respect to invocation, retries, and error handling, but returns
+    the failure description as the second element of the tuple
+    instead of writing it to the module-level
+    ``description_of_last_failure`` variable.  Use this function
+    whenever multiple invocations may be in flight concurrently,
+    because the module-level variable is shared across threads and
+    cannot be used to associate a failure with the invocation that
+    produced it.
+
+    Returns ``(result, None)`` on success and
+    ``(None, failure_description)`` on failure.  ``failure_description``
+    may itself be ``None`` if no attempts ran (for example, if
+    ``maximum_number_of_attempts`` is zero).
+    """
+    return (
+        _run_claude_cli_with_retries_and_return_result_and_failure_description(
+            prompt,
+            expected_type=expected_type,
+            timeout_in_seconds=timeout_in_seconds,
+            maximum_number_of_attempts=maximum_number_of_attempts,
+            number_of_seconds_between_attempts=(
+                number_of_seconds_between_attempts
+            ),
+            description_of_analysis=description_of_analysis,
+            severity=severity,
+        )
+    )

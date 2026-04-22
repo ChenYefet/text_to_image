@@ -134,8 +134,15 @@ that the model treat tag content as data rather than as directives.
 Graceful degradation: if the ``claude`` command-line interface is not
 found, times out, returns an error, or produces unparseable output,
 the affected batch is skipped with a warning on standard error and
-the hook exits without writing a results file.  Batches that do
-succeed are still processed.
+the commits it contained are reported as unvalidated in the results
+file so that the relay surfaces them to the model via
+``permissionDecisionReason`` on the next Bash command.  Batches that
+do succeed are still processed.  When the only remaining concern
+after the successful batches is the set of unvalidated commits, the
+results file contains an infrastructure-failure notice that asks
+for manual inspection rather than an automatic correction, and the
+second-attempt marker is not created because the next rebase is a
+fresh attempt rather than a retry of a correction.
 
 Exit code 0 — always.
 """
@@ -149,7 +156,9 @@ from helpers.description_of_rules_for_validation_of_commit_messages import (
     build_text_describing_categories_of_accuracy_checks,
     build_text_describing_format_rules,
 )
-from helpers.invoking_claude_cli_for_analysis import call_claude_cli_for_analysis
+from helpers.invoking_claude_cli_for_analysis import (
+    call_claude_cli_for_analysis_and_return_result_with_failure_description,
+)
 from helpers.management_of_session_marker_files import (
     PREFIX_OF_RESULTS_FILE_FOR_INSTRUCTIONS_FOR_POST_REBASE_CORRECTION,
     clean_up_stale_marker_files,
@@ -684,21 +693,36 @@ def build_validation_prompt(commits_data: list[dict]) -> str:
     )
 
 
-def call_claude_for_validation(prompt: str) -> dict | None:
-    """Call the ``claude`` command-line interface to validate commit messages."""
-    return call_claude_cli_for_analysis(
-        prompt,
-        timeout_in_seconds=120,
-        description_of_analysis="post-rebase commit message validation",
+def call_claude_for_validation_and_return_failure_description(
+    prompt: str,
+) -> tuple[dict | None, str | None]:
+    """Call the ``claude`` command-line interface to validate commit
+    messages and return both the parsed result and the failure
+    description from the final attempt.
+
+    Returns ``(result, None)`` on success and
+    ``(None, failure_description)`` on failure.  The tuple shape is
+    required because ``validate_commits_across_batches`` runs
+    multiple invocations concurrently and must associate each
+    failure with the batch that produced it.
+    """
+    return (
+        call_claude_cli_for_analysis_and_return_result_with_failure_description(
+            prompt,
+            timeout_in_seconds=120,
+            description_of_analysis=(
+                "post-rebase commit message validation"
+            ),
+        )
     )
 
 
 def validate_commits_across_batches(
     commits_data: list[dict],
-) -> list[dict]:
+) -> tuple[list[dict], list[dict]]:
     """Run the validation model over *commits_data* in batches sized
-    under the character budget and return the combined list of
-    per-commit validation results.
+    under the character budget and return both the combined list of
+    per-commit validation results and a list of batches that failed.
 
     Batches are validated concurrently up to
     ``_MAXIMUM_NUMBER_OF_CONCURRENT_BATCHES`` at a time so that the
@@ -708,17 +732,34 @@ def validate_commits_across_batches(
     interface, which threading parallelises effectively.
 
     Batches that fail validation (timeout, non-zero exit, unparseable
-    output) are skipped with a warning on standard error.  Remaining
-    batches are still processed, so that a transient failure in one
-    batch does not discard the results for the others.
+    output) are recorded in the returned failure list and a warning
+    is printed to standard error.  Remaining batches are still
+    processed, so that a transient failure in one batch does not
+    discard the results for the others.
+
+    Returns a two-element tuple:
+
+    - ``successful_results``: a list of per-commit validation result
+      dicts extracted from the ``"commits"`` field of each successful
+      batch response.  The caller reconstructs per-commit issues and
+      corrected messages from this list.
+    - ``failed_batches``: a list of dicts describing each batch whose
+      validation did not complete.  Each entry contains the keys
+      ``"batch_index"`` (1-based), ``"number_of_batches"`` (total
+      number of batches in this run), ``"commits_in_batch"`` (the list
+      of commit data dicts that were submitted in the failed batch),
+      and ``"failure_description"`` (a short human-readable reason
+      from the command-line-interface helper, or ``None`` if the
+      helper did not produce one).
     """
-    all_commit_results: list[dict] = []
+    successful_results: list[dict] = []
+    failed_batches: list[dict] = []
     batches = split_commits_into_batches_under_character_budget(
         commits_data,
         _MAXIMUM_NUMBER_OF_CHARACTERS_PER_VALIDATION_BATCH,
     )
     if not batches:
-        return all_commit_results
+        return successful_results, failed_batches
 
     number_of_workers = min(
         len(batches), _MAXIMUM_NUMBER_OF_CONCURRENT_BATCHES,
@@ -726,31 +767,37 @@ def validate_commits_across_batches(
     with concurrent.futures.ThreadPoolExecutor(
         max_workers=number_of_workers,
     ) as executor:
-        future_to_batch_index_and_size = {
+        future_to_batch_index_and_commits = {
             executor.submit(
-                call_claude_for_validation,
+                call_claude_for_validation_and_return_failure_description,
                 build_validation_prompt(batch),
-            ): (batch_index, len(batch))
+            ): (batch_index, batch)
             for batch_index, batch in enumerate(batches, start=1)
         }
         for future in concurrent.futures.as_completed(
-            future_to_batch_index_and_size,
+            future_to_batch_index_and_commits,
         ):
-            batch_index, number_of_commits_in_batch = (
-                future_to_batch_index_and_size[future]
+            batch_index, commits_in_batch = (
+                future_to_batch_index_and_commits[future]
             )
-            analysis = future.result()
+            analysis, failure_description = future.result()
             if analysis is None:
                 print(
                     f"WARNING: post-rebase commit message validation"
                     f" failed for batch {batch_index} of {len(batches)}"
-                    f" ({number_of_commits_in_batch} commits);"
+                    f" ({len(commits_in_batch)} commits);"
                     f" skipping this batch.",
                     file=sys.stderr,
                 )
+                failed_batches.append({
+                    "batch_index": batch_index,
+                    "number_of_batches": len(batches),
+                    "commits_in_batch": commits_in_batch,
+                    "failure_description": failure_description,
+                })
                 continue
-            all_commit_results.extend(analysis.get("commits", []))
-    return all_commit_results
+            successful_results.extend(analysis.get("commits", []))
+    return successful_results, failed_batches
 
 
 def build_system_message_for_automatic_correction(
@@ -850,6 +897,130 @@ def build_system_message_for_manual_resolution(
         "proceed.",
     ])
 
+    return "\n".join(lines)
+
+
+def _build_text_listing_failed_batches(
+    failed_batches: list[dict],
+) -> list[str]:
+    """Return the lines that enumerate why each failed batch failed.
+
+    Separated from the message-builder functions so that both the
+    standalone infrastructure-failure message and the appended section
+    that accompanies real issues share the same formatting for the
+    per-batch failure reasons.
+    """
+    if not failed_batches:
+        return []
+    lines = ["Failure reasons by batch:"]
+    for batch in failed_batches:
+        number_of_commits_in_batch = len(batch["commits_in_batch"])
+        commit_or_commits = (
+            "commit"
+            if number_of_commits_in_batch == 1
+            else "commits"
+        )
+        lines.append(
+            f"  Batch {batch['batch_index']} of"
+            f" {batch['number_of_batches']}"
+            f" ({number_of_commits_in_batch} {commit_or_commits}):"
+            f" {batch['failure_description'] or 'unknown'}"
+        )
+    lines.append("")
+    return lines
+
+
+def _build_text_listing_unvalidated_commits(
+    unvalidated_commits: list[dict],
+) -> list[str]:
+    """Return the lines that enumerate each commit whose validation did
+    not complete, showing the commit's abbreviated hash and message.
+    """
+    lines: list[str] = []
+    for commit_data in unvalidated_commits:
+        abbreviated_hash = commit_data["hash"][
+            :_NUMBER_OF_CHARACTERS_IN_ABBREVIATED_COMMIT_HASH
+        ]
+        lines.append(f"  {abbreviated_hash}:")
+        lines.append("    Message:")
+        for message_line in commit_data["message"].splitlines():
+            lines.append(f"      {message_line}")
+        lines.append("")
+    return lines
+
+
+def build_system_message_for_validation_infrastructure_failure(
+    unvalidated_commits: list[dict],
+    failed_batches: list[dict],
+) -> str:
+    """Build the systemMessage that reports an infrastructure failure
+    blocking post-rebase commit message validation.
+
+    Used when validation did not complete for any commit because every
+    batch failed, or when the only remaining concern after successful
+    batches is the set of commits whose batches did not complete.  The
+    message does not instruct Claude to perform an automatic
+    correction — the failure is not with the commit messages
+    themselves but with the validation infrastructure, so the correct
+    next action is manual inspection of each listed commit against
+    its diff from the parent.
+    """
+    lines = [
+        "POST-REBASE COMMIT MESSAGE VALIDATION — COULD NOT COMPLETE.",
+        "",
+        "The following commits produced by the rebase could not be",
+        "validated because the Claude command-line interface failed",
+        "for their batch:",
+        "",
+    ]
+    lines.extend(_build_text_listing_unvalidated_commits(unvalidated_commits))
+    lines.extend(_build_text_listing_failed_batches(failed_batches))
+    lines.extend([
+        "Inspect each listed commit message manually against its diff",
+        "from the parent commit (``git show <hash>``).  If any need",
+        "correction, apply the corrected messages using a",
+        "non-interactive ``git rebase -i`` by setting",
+        "``GIT_SEQUENCE_EDITOR`` to a ``sed`` command that marks the",
+        "affected commits as ``reword``, and ``GIT_EDITOR`` to a",
+        "script that writes the corrected message.",
+        "",
+        "If the command-line-interface failure was transient (for",
+        "example, a timeout), a subsequent rebase that changes any of",
+        "these commits will trigger validation again.",
+    ])
+    return "\n".join(lines)
+
+
+def build_text_describing_commits_that_could_not_be_validated(
+    unvalidated_commits: list[dict],
+    failed_batches: list[dict],
+) -> str:
+    """Build the trailing section that reports commits whose
+    validation did not complete, intended to be appended to one of
+    the existing correction messages when real issues and
+    infrastructure failures coexist.
+
+    The section is clearly separated from the primary correction
+    instructions so that Claude applies the corrected messages for
+    the commits with real issues and treats the unvalidated commits
+    as a distinct manual-inspection task.
+    """
+    lines = [
+        "ADDITIONAL COMMITS COULD NOT BE VALIDATED — MANUAL INSPECTION",
+        "REQUIRED.",
+        "",
+        "Validation did not complete for the following commits because",
+        "the Claude command-line interface failed for their batch:",
+        "",
+    ]
+    lines.extend(_build_text_listing_unvalidated_commits(unvalidated_commits))
+    lines.extend(_build_text_listing_failed_batches(failed_batches))
+    lines.extend([
+        "Inspect each listed commit message manually against its diff",
+        "from the parent commit.  If any need correction, include them",
+        "in the same non-interactive ``git rebase -i`` used to apply",
+        "the corrections above.",
+    ])
     return "\n".join(lines)
 
 
@@ -996,9 +1167,29 @@ def main() -> int:
     if not commits_data:
         return 0
 
-    all_commit_results = validate_commits_across_batches(commits_data)
-    if not all_commit_results:
-        return 0
+    successful_results, failed_batches = validate_commits_across_batches(
+        commits_data
+    )
+
+    # Identify commits whose validation did not complete.  A commit is
+    # unvalidated either because its batch failed (recorded in
+    # ``failed_batches``) or because the validation model's response
+    # omitted its hash from ``"commits"``.  Both are captured by the
+    # set difference between the hashes we submitted and the hashes
+    # the model returned results for.  Reporting these is the only
+    # way the model learns that the safety check did not run —
+    # standard-error warnings from this hook do not reach the
+    # conversation, and exiting silently would make a failed-batch
+    # rebase indistinguishable from a validated-clean rebase.
+    hashes_of_validated_commits = {
+        commit_result.get("hash", "")
+        for commit_result in successful_results
+    }
+    unvalidated_commits = [
+        commit_data
+        for commit_data in commits_data
+        if commit_data["hash"] not in hashes_of_validated_commits
+    ]
 
     # Build a lookup from full hash to commit message.
     commit_message_indexed_by_full_hash = {
@@ -1006,9 +1197,9 @@ def main() -> int:
         for commit_data in commits_data
     }
 
-    # Extract commits with issues.
+    # Extract commits with issues from the successful results.
     problematic: list[dict] = []
-    for commit_result in all_commit_results:
+    for commit_result in successful_results:
         issues = commit_result.get("issues", [])
         if not issues:
             continue
@@ -1028,19 +1219,44 @@ def main() -> int:
             entry["corrected_message"] = corrected
         problematic.append(entry)
 
-    if not problematic:
+    # Happy path: every commit was validated and none had issues.
+    if not problematic and not unvalidated_commits:
         return 0
 
-    if is_second_attempt:
-        system_message = build_system_message_for_manual_resolution(
-            problematic
-        )
+    if problematic:
+        # Genuine issues drive the automatic-correction / manual-
+        # resolution lifecycle exactly as before.  The second-attempt
+        # marker is created only when this path runs, because only a
+        # rebase that produced actual issues counts as a prior attempt
+        # whose retry should escalate to manual resolution.
+        if is_second_attempt:
+            system_message = build_system_message_for_manual_resolution(
+                problematic
+            )
+        else:
+            system_message = (
+                build_system_message_for_automatic_correction(problematic)
+            )
+            marker_file_path.touch()
+        if unvalidated_commits:
+            system_message = (
+                system_message
+                + "\n\n"
+                + build_text_describing_commits_that_could_not_be_validated(
+                    unvalidated_commits, failed_batches,
+                )
+            )
     else:
-        system_message = build_system_message_for_automatic_correction(
-            problematic
+        # No genuine issues were detected; the only remaining concern
+        # is that some commits' validation did not complete.  Do not
+        # create the second-attempt marker — the problem is with the
+        # validation infrastructure, not with the commit messages, so
+        # the next rebase should receive a first-attempt response.
+        system_message = (
+            build_system_message_for_validation_infrastructure_failure(
+                unvalidated_commits, failed_batches,
+            )
         )
-        # Create marker so the next firing uses manual resolution.
-        marker_file_path.touch()
 
     # Write the correction instructions to a results file for the
     # companion PreToolUse hook to relay on the next Bash command.
