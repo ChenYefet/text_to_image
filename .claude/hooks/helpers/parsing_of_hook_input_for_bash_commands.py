@@ -7,12 +7,17 @@ invokes a specific ``git`` subcommand, a function that determines
 whether a Bash command invokes a specific ``git`` subcommand with a
 specific flag attached to the same command segment (so that compound
 command lines do not cause flags belonging to a different command to
-be attributed to the ``git`` invocation), a function that extracts
-the commit message from a git command string, a character-by-character
-shell scanner that returns characters at the top level of the shell
-(outside quoted strings, comments, and subshells), and a function
-that detects shell operators anywhere in a command after stripping
-quoted strings and comments.
+be attributed to the ``git`` invocation), a function that determines
+whether a Bash command invokes any ``git`` subcommand that authors at
+least one commit on successful execution (so that hooks whose
+invariant is about new commits entering history — rather than about
+the literal ``git commit`` command — gate every authoring path rather
+than only the direct one), a function that extracts the commit message
+from a git command string, a character-by-character shell scanner that
+returns characters at the top level of the shell (outside quoted
+strings, comments, and subshells), and a function that detects shell
+operators anywhere in a command after stripping quoted strings and
+comments.
 """
 
 import json
@@ -33,6 +38,54 @@ _GIT_FLAGS_THAT_CONSUME_AN_ARGUMENT = frozenset({
     "--super-prefix",
     "--config-env",
 })
+
+
+# Map from the name of a git subcommand that authors at least one commit
+# on successful execution, to the set of flags whose presence as a token
+# of the same command segment indicates that this particular invocation
+# does not author a commit.  Suppression reasons include aborting or
+# quitting a paused operation (``--abort``, ``--quit``), explicitly
+# suppressing commit creation (``--no-commit`` and its short form
+# ``-n`` on cherry-pick and revert; ``--no-commit`` on merge — note
+# that ``-n`` on merge means ``--no-stat`` rather than ``--no-commit``
+# and is therefore not a suppression flag for merge; ``--ff-only`` on
+# merge, which fast-forwards or fails but never authors a new merge
+# commit; ``--squash`` on merge, which stages the merged tree without
+# recording a merge commit and requires a follow-up ``git commit``),
+# running the subcommand in an informational mode
+# (``--show-current-patch`` on rebase and am, ``--edit-todo`` on
+# rebase), or running without side effects (``--dry-run`` on commit).
+# ``--continue`` and ``--skip`` are not suppression flags because they
+# advance a paused operation to the point of authoring a commit; their
+# absence from this map means invocations carrying them remain gated.
+# The map covers cherry-pick, revert, rebase, am, and merge — the set
+# of porcelain subcommands that author commits beyond ``git commit``
+# and ``git commit-tree``.  ``git pull`` is intentionally excluded: it
+# wraps fetch with merge or rebase, and its most common outcome
+# (fast-forward) authors no local commit, making broad gating of
+# pull-style invocations disruptive relative to the residual miss (a
+# pull that authors a merge commit without conflict), which remains
+# observable in ``git log``.
+_GIT_SUBCOMMANDS_PRODUCING_A_COMMIT_AND_FLAGS_SUPPRESSING_THE_COMMIT = {
+    "commit": frozenset({"--dry-run"}),
+    "commit-tree": frozenset(),
+    "cherry-pick": frozenset({"--abort", "--quit", "--no-commit", "-n"}),
+    "revert": frozenset({"--abort", "--quit", "--no-commit", "-n"}),
+    "rebase": frozenset({
+        "--abort",
+        "--quit",
+        "--edit-todo",
+        "--show-current-patch",
+    }),
+    "am": frozenset({"--abort", "--quit", "--show-current-patch"}),
+    "merge": frozenset({
+        "--abort",
+        "--quit",
+        "--no-commit",
+        "--ff-only",
+        "--squash",
+    }),
+}
 
 
 def read_hook_input_from_standard_input() -> dict:
@@ -323,6 +376,57 @@ def is_git_subcommand(command: str, subcommand: str) -> bool:
             ):
                 return True
 
+    return False
+
+
+def is_git_subcommand_producing_a_new_commit(command: str) -> bool:
+    """Return True if *command* contains a ``git`` invocation whose
+    subcommand authors at least one commit on successful execution, and
+    whose command segment carries no flag that suppresses the authoring
+    for this particular invocation.
+
+    The set of commit-authoring subcommands and their per-subcommand
+    suppression flags is declared in
+    ``_GIT_SUBCOMMANDS_PRODUCING_A_COMMIT_AND_FLAGS_SUPPRESSING_THE_COMMIT``.
+    The function scans each top-level command segment separately so that
+    compound command lines such as
+    ``git status && git cherry-pick --continue`` — where the
+    commit-authoring invocation is not the first ``git`` token — are
+    detected, and so that a suppression flag attached to a different
+    command segment is not misattributed to the git invocation (for
+    example, ``git cherry-pick master && echo --abort`` still reports
+    True because ``--abort`` belongs to the ``echo`` segment).
+
+    Callers use this predicate in place of
+    ``is_git_subcommand(command, "commit")`` when the hook's
+    invariant is about new commits entering the repository's history
+    rather than about the literal ``git commit`` command.
+    """
+    for segment in split_command_into_segments_at_top_level_shell_operators(
+        command,
+    ):
+        try:
+            tokens = shlex.split(segment)
+        except ValueError:
+            continue
+        for position, token in enumerate(tokens):
+            if token != "git" and not token.endswith("/git"):
+                continue
+            tokens_after_git = tokens[position + 1 :]
+            subcommand = _extract_git_subcommand_from_tokens(tokens_after_git)
+            if (
+                subcommand
+                not in _GIT_SUBCOMMANDS_PRODUCING_A_COMMIT_AND_FLAGS_SUPPRESSING_THE_COMMIT
+            ):
+                continue
+            suppression_flags = (
+                _GIT_SUBCOMMANDS_PRODUCING_A_COMMIT_AND_FLAGS_SUPPRESSING_THE_COMMIT[
+                    subcommand
+                ]
+            )
+            if any(flag in tokens_after_git for flag in suppression_flags):
+                continue
+            return True
     return False
 
 

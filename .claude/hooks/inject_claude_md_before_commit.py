@@ -2,15 +2,32 @@
 a commit.
 
 This is a Claude Code PreToolUse hook for the Bash tool.  On every
-``git commit`` attempt, it checks for a session-scoped marker file
-created by the PostToolUse hook ``track_reading_of_claude_md.py``,
-which fires when the Read tool is used on CLAUDE.md.  If the marker
-exists, the commit is allowed.  The marker is not consumed here — it is
-consumed by ``track_reading_of_claude_md.py`` after the commit actually
-executes (via a PostToolUse hook on Bash), ensuring that a commit denied
-by another PreToolUse hook does not invalidate the read marker.  If the
-marker does not exist, the commit is denied with a message instructing
+Bash command that invokes a ``git`` subcommand authoring at least one
+commit on successful execution — ``git commit``, ``git commit-tree``,
+``git cherry-pick`` (initial invocation and its ``--continue`` /
+``--skip`` completion forms), ``git revert`` (likewise), ``git rebase``
+(likewise), ``git am`` (likewise), and ``git merge`` (initial and
+``--continue``), excluding invocations carrying flags that suppress
+commit authoring such as ``--abort``, ``--quit``, ``--no-commit``,
+``--ff-only``, ``--show-current-patch``, ``--edit-todo``, or
+``--dry-run`` — it checks for a session-scoped marker file created by
+the PostToolUse hook ``track_reading_of_claude_md.py``, which fires
+when the Read tool is used on CLAUDE.md.  If the marker exists, the
+command is allowed.  The marker is not consumed here — it is consumed
+by ``track_reading_of_claude_md.py`` after the command actually executes
+(via a PostToolUse hook on Bash), ensuring that a command denied by
+another PreToolUse hook does not invalidate the read marker.  If the
+marker does not exist, the command is denied with a message instructing
 the model to read CLAUDE.md before re-attempting.
+
+Gating every commit-authoring subcommand rather than only the literal
+``git commit`` is necessary because the hook's stated invariant — that
+the next commit entering the repository's history requires a fresh
+read of CLAUDE.md — applies to every path by which a commit can enter
+history, not merely to the direct one.  Gating only ``git commit``
+would let a ``git cherry-pick --continue`` or a ``git rebase
+--continue`` after conflict resolution author a commit without any
+pre-commit review, silently violating the invariant.
 
 Session isolation is achieved via a marker file whose name includes the
 ``session_id`` from the hook input.  A marker created by a different
@@ -31,7 +48,7 @@ from helpers.management_of_session_marker_files import (
     is_command_for_git_rebase_with_abort,
 )
 from helpers.parsing_of_hook_input_for_bash_commands import (
-    is_git_subcommand,
+    is_git_subcommand_producing_a_new_commit,
     read_hook_input_from_standard_input,
 )
 
@@ -51,8 +68,16 @@ def main() -> int:
         ).unlink(missing_ok=True)
         return 0
 
-    # Only gate git commit commands.
-    if not is_git_subcommand(command, "commit"):
+    # Only gate commands whose git subcommand authors at least one new
+    # commit on successful execution.  Covers direct ``git commit``, the
+    # plumbing ``git commit-tree``, and the porcelain subcommands
+    # (cherry-pick, revert, rebase, am, merge) in both their initial
+    # form and their ``--continue`` / ``--skip`` completion forms.
+    # Invocations carrying suppression flags (``--abort``, ``--quit``,
+    # ``--no-commit``, ``--ff-only``, ``--show-current-patch``,
+    # ``--edit-todo``, ``--dry-run``) author no commit and are passed
+    # through.
+    if not is_git_subcommand_producing_a_new_commit(command):
         return 0
 
     # Without a session ID, the marker mechanism cannot work — allow.
@@ -83,34 +108,42 @@ def main() -> int:
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "allow",
-                "permissionDecisionReason": "CLAUDE.md was read right before this commit — commit permitted.",
+                "permissionDecisionReason": "CLAUDE.md was read right before this commit-authoring command — command permitted.",
             },
         }
         print(json.dumps(output))
         return 0
 
-    # CLAUDE.md has not been read right before this commit — deny.
+    # CLAUDE.md has not been read right before this commit-authoring
+    # command — deny.
     message = (
-        "MANDATORY PRE-COMMIT REVIEW — COMMIT BLOCKED.\n"
+        "MANDATORY PRE-COMMIT REVIEW — COMMIT-AUTHORING COMMAND BLOCKED.\n"
         "\n"
-        "This commit has been blocked because CLAUDE.md has not been "
-        "read right before this commit.\n"
+        "This command has been blocked because CLAUDE.md has not been "
+        "read right before it.  The command was detected as one that "
+        "authors at least one new commit on successful execution "
+        "(``git commit`` / ``git commit-tree``, or any of cherry-pick, "
+        "revert, rebase, am, merge — including their ``--continue`` "
+        "and ``--skip`` completion forms — without a suppression flag "
+        "such as ``--abort``, ``--quit``, ``--no-commit``, "
+        "``--ff-only``, ``--show-current-patch``, ``--edit-todo``, or "
+        "``--dry-run``).\n"
         "\n"
-        "Before re-attempting the commit:\n"
+        "Before re-attempting the command:\n"
         "\n"
         "1. Read CLAUDE.md in full using the Read tool.\n"
         "\n"
-        "2. Review all staged changes — including commit "
-        "composition, version references, refactoring verification, "
-        "and changelog updates — against each applicable directive.\n"
+        "2. Review all changes that will be committed — including "
+        "commit composition, version references, refactoring "
+        "verification, and changelog updates — against each applicable "
+        "directive.\n"
         "\n"
         "3. Review the commit message separately.\n"
         "\n"
-        "If any directive is violated in either the staged changes or "
-        "the commit message, fix the violation and restage before "
-        "re-attempting the commit.  If all directives are satisfied, "
-        "re-attempt the commit — it will be allowed once CLAUDE.md "
-        "has been read."
+        "If any directive is violated in either the changes or the "
+        "commit message, fix the violation before re-attempting.  If "
+        "all directives are satisfied, re-attempt the command — it "
+        "will be allowed once CLAUDE.md has been read."
     )
 
     output = {
