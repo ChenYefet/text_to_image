@@ -3,8 +3,12 @@
 Provides functions used at the entry point of every pre-commit hook:
 one that reads and parses the JSON input provided by Claude Code on
 standard input, a function that determines whether a Bash command
-invokes a specific ``git`` subcommand, a function that extracts the
-commit message from a git command string, a character-by-character
+invokes a specific ``git`` subcommand, a function that determines
+whether a Bash command invokes a specific ``git`` subcommand with a
+specific flag attached to the same command segment (so that compound
+command lines do not cause flags belonging to a different command to
+be attributed to the ``git`` invocation), a function that extracts
+the commit message from a git command string, a character-by-character
 shell scanner that returns characters at the top level of the shell
 (outside quoted strings, comments, and subshells), and a function
 that detects shell operators anywhere in a command after stripping
@@ -176,6 +180,108 @@ def _extract_git_subcommand_from_tokens(tokens: list[str]) -> str | None:
 
     # Reached end of tokens without finding a subcommand.
     return None
+
+
+def split_command_into_segments_at_top_level_shell_operators(
+    command: str,
+) -> list[str]:
+    """Split *command* into segments separated by top-level shell
+    operators ``;``, ``&&``, ``||``, ``|``, and ``&``, and return the
+    segments.
+
+    Top-level means outside quoted strings, comments, and
+    parenthesised subshells; the scanning logic for identifying
+    top-level characters is reused from
+    ``iterate_over_top_level_characters_in_shell_command``.
+    Operators that appear inside quotes or subshells belong to those
+    enclosed contexts and do not split the command.
+
+    The returned segments are strings of the original command text
+    with the separating operator characters removed.  Each segment may
+    contain leading or trailing whitespace; callers that tokenise with
+    ``shlex.split`` need not strip it.
+    """
+    indices_of_top_level_characters = {
+        index
+        for index, _ in iterate_over_top_level_characters_in_shell_command(
+            command,
+        )
+    }
+    segment_boundaries: list[tuple[int, int]] = []
+    index = 0
+    length_of_command = len(command)
+    while index < length_of_command:
+        if index not in indices_of_top_level_characters:
+            index += 1
+            continue
+        character = command[index]
+        if character in ("&", "|"):
+            if (
+                index + 1 < length_of_command
+                and command[index + 1] == character
+                and (index + 1) in indices_of_top_level_characters
+            ):
+                segment_boundaries.append((index, index + 2))
+                index += 2
+                continue
+            segment_boundaries.append((index, index + 1))
+            index += 1
+            continue
+        if character == ";":
+            segment_boundaries.append((index, index + 1))
+            index += 1
+            continue
+        index += 1
+    if not segment_boundaries:
+        return [command]
+    segments: list[str] = []
+    start_of_current_segment = 0
+    for start_of_operator, end_of_operator in segment_boundaries:
+        segments.append(command[start_of_current_segment:start_of_operator])
+        start_of_current_segment = end_of_operator
+    segments.append(command[start_of_current_segment:])
+    return segments
+
+
+def is_git_subcommand_with_flag(
+    command: str, subcommand: str, flag: str,
+) -> bool:
+    """Return True if *command* contains a ``git <subcommand>`` invocation
+    that also passes *flag* as a token of the same invocation — not as a
+    token of a different command that appears before or after a shell
+    operator within the same command line.
+
+    This is the command-segment-scoped counterpart to
+    ``is_git_subcommand``.  It answers not just whether *subcommand*
+    appears after some ``git`` token, but whether *flag* is part of the
+    same command segment, so compound command lines such as
+    ``git rebase master && echo --abort`` or
+    ``git rebase master; echo --abort`` do not cause *flag* to be
+    attributed to the ``git rebase`` invocation when it was actually
+    passed to ``echo``.
+    """
+    for segment in split_command_into_segments_at_top_level_shell_operators(
+        command,
+    ):
+        try:
+            tokens = shlex.split(segment)
+        except ValueError:
+            # Skip segments whose quoting is unparseable.  An
+            # unparseable segment cannot be reliably analysed, and
+            # skipping it is safer than treating its raw text as if
+            # the flag were attached to the ``git`` invocation.
+            continue
+        for position, token in enumerate(tokens):
+            if token != "git" and not token.endswith("/git"):
+                continue
+            tokens_after_git = tokens[position + 1 :]
+            if (
+                _extract_git_subcommand_from_tokens(tokens_after_git)
+                == subcommand
+                and flag in tokens_after_git
+            ):
+                return True
+    return False
 
 
 def is_git_subcommand(command: str, subcommand: str) -> bool:

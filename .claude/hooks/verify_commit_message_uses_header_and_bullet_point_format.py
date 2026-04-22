@@ -25,6 +25,9 @@ import pathlib
 import sys
 
 from helpers.deny_then_allow import run_deny_then_allow
+from helpers.description_of_rules_for_validation_of_commit_messages import (
+    build_text_describing_format_rules,
+)
 from helpers import invoking_claude_cli_for_analysis
 from helpers.invoking_claude_cli_for_analysis import call_claude_cli_for_analysis
 from helpers.parsing_of_hook_input_for_bash_commands import (
@@ -43,28 +46,11 @@ def build_prompt_for_analysis_of_commit_message_format(
 ) -> str:
     """Build the analysis prompt for a check of commit message format."""
     return (
-        "You are a commit message format validator. Your task is to "
+        "You are a commit message format validator.  Your task is to "
         "determine whether the commit message in the following git "
-        "commit command follows the required format:\n"
+        "commit command satisfies every rule below:\n"
         "\n"
-        "1. The message must have a single subject line (the header). "
-        "The header must use present-tense imperative mood (e.g. "
-        "'Add', 'Remove', 'Update', 'Fix', 'Rename', 'Replace'). "
-        "A header that begins with a past-tense verb (e.g. 'Added', "
-        "'Removed', 'Updated', 'Fixed') is a violation.\n"
-        "2. If a body is present (text after a blank line following the "
-        "header), it must use bullet points (lines beginning with "
-        "`- `) — never prose paragraphs.\n"
-        "3. If a bullet point begins with a verb, that verb must be in "
-        "the past tense (e.g. 'Added', 'Removed', 'Updated', 'Fixed', "
-        "'Replaced', 'Renamed'). A bullet point that begins with a "
-        "present-tense verb (e.g. 'Add', 'Remove', 'Update', 'Fix') "
-        "is a violation. A bullet point that begins with a non-verb "
-        "word is acceptable regardless of tense.\n"
-        "4. The Co-Authored-By trailer line at the end is not part of "
-        "the body and should be ignored.\n"
-        "5. A commit message with only a subject line and no body is "
-        "acceptable.\n"
+        f"{build_text_describing_format_rules()}\n"
         "\n"
         "Here is the git commit command:\n"
         "\n"
@@ -78,6 +64,11 @@ def build_prompt_for_analysis_of_commit_message_format(
         '- "header_uses_present_tense": boolean — true if the header '
         "begins with a present-tense imperative verb or a non-verb "
         "word. false if the header begins with a past-tense verb.\n"
+        '- "subject_separated_from_body_by_blank_line": boolean — true '
+        "if the message either has no body, or has an empty line "
+        "immediately after the subject line separating it from the "
+        "body. false if a non-empty second line directly follows the "
+        "subject line with no empty line between them.\n"
         '- "body_uses_bullet_points": boolean — true if the body '
         "(when present) uses bullet points, or if there is no body. "
         "false if the body uses prose paragraphs.\n"
@@ -85,10 +76,8 @@ def build_prompt_for_analysis_of_commit_message_format(
         "bullet point that begins with a verb uses a past-tense verb, "
         "or if there is no body. false if any bullet point begins with "
         "a present-tense verb.\n"
-        '- "is_valid": boolean — true if the format is correct '
-        "(has header using present-tense imperative mood, body if "
-        "present uses bullet points, and no bullet point begins with "
-        "a present-tense verb).\n"
+        '- "is_valid": boolean — true if every rule above is '
+        "satisfied. false if any rule is violated.\n"
         '- "explanation": string — a brief explanation of any format '
         "violations found, or a confirmation that the format is correct.\n"
         "\n"
@@ -127,13 +116,8 @@ def build_blocking_message_for_format_violation(
         f"Issue: {explanation}\n"
         "\n"
         "Required format:\n"
-        "- A single subject line (the header) using present-tense\n"
-        "  imperative mood (e.g. 'Add', 'Remove', 'Update', 'Fix').\n"
-        "- If a body is needed, a blank line followed by bullet points\n"
-        "  (each line beginning with `- `). Never use prose paragraphs.\n"
-        "- Each bullet point that begins with a verb must use the past\n"
-        "  tense (e.g. 'Added', 'Removed', 'Updated', 'Fixed').\n"
-        "- The Co-Authored-By trailer is not part of the body.\n"
+        "\n"
+        f"{build_text_describing_format_rules()}\n"
         "\n"
         "Fix the commit message and re-attempt the commit.  If this is\n"
         "a false positive, re-attempt the commit unchanged — it will be\n"

@@ -66,6 +66,9 @@ import subprocess
 import sys
 
 from helpers.deny_then_allow import run_deny_then_allow
+from helpers.description_of_rules_for_validation_of_commit_messages import (
+    build_text_describing_categories_of_accuracy_checks,
+)
 from helpers.invoking_claude_cli_for_analysis import call_claude_cli_for_analysis
 from helpers.parsing_of_hook_input_for_bash_commands import (
     extract_commit_message_from_command,
@@ -408,26 +411,7 @@ def build_prompt_for_analysis_of_commit_message_accuracy(
         "Determine whether the commit message accurately describes the "
         "changes shown in the diff.  Check for:\n"
         "\n"
-        "1. **False claims**: The message describes changes NOT present "
-        "in the diff — for example, claiming to 'replace X with Y' when "
-        "X does not appear in the removed lines, or claiming to 'remove "
-        "Z' when Z is not removed in the diff.\n"
-        "\n"
-        "2. **Intermediate state references**: The message describes "
-        "changes relative to an intermediate editing state rather than "
-        "relative to the parent commit.  This happens when a commit is "
-        "amended multiple times and the message still describes a delta "
-        "between edits rather than the delta from the parent.\n"
-        "\n"
-        "3. **Significant omissions**: The diff contains changes that "
-        "represent a distinct purpose or intent not covered by any part "
-        "of the message.  Supporting implementation details that serve a "
-        "described change do not need to be mentioned separately.\n"
-        "\n"
-        "4. **Inaccurate characterisation**: The message mischaracterises "
-        "a change — for example, saying 'add' for something that already "
-        "existed in the parent and was modified, or saying 'remove' for "
-        "something that was restructured.\n"
+        f"{build_text_describing_categories_of_accuracy_checks()}\n"
         "\n"
         "Respond with ONLY a JSON object (no markdown fences, no "
         "explanation outside the JSON):\n"

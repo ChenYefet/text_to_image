@@ -13,6 +13,12 @@ denies the Bash command with the instructions as
 instructions and can act on them.  On the next Bash tool invocation,
 the results file no longer exists and the command proceeds normally.
 
+``git rebase --abort`` is exempt from delivery: when the user signals
+that the current rebase chain is being abandoned, the abort must
+proceed unimpeded so that the companion PostToolUse hook can run and
+clean up both the second-attempt marker and any stale results file.
+A relay denial of the abort would prevent that cleanup from running.
+
 This relay is necessary because Claude Code does not inject
 ``systemMessage`` output from PostToolUse hooks into the model's
 conversation context.  The PostToolUse hook
@@ -31,6 +37,7 @@ from helpers.management_of_session_marker_files import (
     PREFIX_OF_RESULTS_FILE_FOR_INSTRUCTIONS_FOR_POST_REBASE_CORRECTION,
     clean_up_stale_marker_files,
     get_marker_file_path_for_session,
+    is_command_for_git_rebase_with_abort,
 )
 from helpers.parsing_of_hook_input_for_bash_commands import (
     read_hook_input_from_standard_input,
@@ -42,6 +49,17 @@ def main() -> int:
     session_id = hook_input.get("session_id", "")
 
     if not session_id:
+        return 0
+
+    tool_input = hook_input.get("tool_input", {})
+    command = tool_input.get("command", "")
+
+    # ``git rebase --abort`` must proceed unimpeded so that the
+    # companion PostToolUse hook can clean up the second-attempt
+    # marker and the results file as part of abandoning the rebase
+    # chain.  Delivering correction instructions here would deny the
+    # abort before that cleanup could run.
+    if is_command_for_git_rebase_with_abort(command):
         return 0
 
     clean_up_stale_marker_files(
