@@ -362,6 +362,7 @@ When the same abbreviation appears in multiple rows — because it is used to sh
 | FE | frontend | expanded | expanded |
 | FR | functional requirement | abbreviated | abbreviated |
 | GB | gigabyte | abbreviated | abbreviated |
+| GiB | gibibyte | abbreviated | abbreviated |
 | GCC | GNU Compiler Collection | abbreviated | abbreviated |
 | GDPR | General Data Protection Regulation | abbreviated | abbreviated |
 | GGUF | GGML Unified Format | abbreviated | abbreviated |
