@@ -16,7 +16,7 @@ the results file no longer exists and the command proceeds normally.
 ``git rebase --abort`` is exempt from delivery: when the user signals
 that the current rebase chain is being abandoned, the abort must
 proceed unimpeded so that the companion PostToolUse hook can run and
-clean up both the second-attempt marker and any stale results file.
+clean up both the prior-attempt marker and any stale results file.
 A relay denial of the abort would prevent that cleanup from running.
 
 This relay is necessary because Claude Code does not inject
@@ -40,6 +40,7 @@ from helpers.management_of_session_marker_files import (
     is_command_for_git_rebase_with_abort,
 )
 from helpers.parsing_of_hook_input_for_bash_commands import (
+    is_git_subcommand_without_flag,
     read_hook_input_from_standard_input,
 )
 
@@ -55,11 +56,21 @@ def main() -> int:
     command = tool_input.get("command", "")
 
     # ``git rebase --abort`` must proceed unimpeded so that the
-    # companion PostToolUse hook can clean up the second-attempt
+    # companion PostToolUse hook can clean up the prior-attempt
     # marker and the results file as part of abandoning the rebase
     # chain.  Delivering correction instructions here would deny the
-    # abort before that cleanup could run.
-    if is_command_for_git_rebase_with_abort(command):
+    # abort before that cleanup could run.  The carve-out is scoped
+    # to commands whose only rebase invocation is the abort: a
+    # compound such as ``git rebase master && git rebase --abort``,
+    # where the first rebase would run to completion, must remain
+    # subject to delivery of any pending correction instructions,
+    # because those corrections are the outcome of a previous rebase
+    # whose resolution must not be bypassed by an unrelated
+    # subsequent rebase pipeline that happens to end in an abort.
+    if (
+        is_command_for_git_rebase_with_abort(command)
+        and not is_git_subcommand_without_flag(command, "rebase", "--abort")
+    ):
         return 0
 
     clean_up_stale_marker_files(

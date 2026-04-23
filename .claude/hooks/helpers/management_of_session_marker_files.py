@@ -44,7 +44,7 @@ PREFIX_OF_RESULTS_FILE_FOR_INSTRUCTIONS_FOR_POST_REBASE_CORRECTION = (
 # Marker files created by the post-rebase validator and the
 # deny-then-allow pattern are ordinarily consumed on the next tool call
 # (for results files) or on the next rebase finalising within the same
-# session (for the second-attempt marker); both lifetimes are measured
+# session (for the prior-attempt marker); both lifetimes are measured
 # in seconds to minutes.  A marker that has not been consumed after
 # this threshold reflects an abandoned workflow — a session crash, a
 # user disengagement, or an abort whose cleanup path did not run.
@@ -111,7 +111,7 @@ def clean_up_stale_marker_files(
     Claude Code sessions ran in the same working directory
     concurrently, each would treat the other's live markers as stale
     and delete them, masking correction instructions and
-    second-attempt state.  Filtering by age instead of by session
+    prior-attempt state.  Filtering by age instead of by session
     membership preserves the live markers of other active sessions
     while still removing markers left behind by sessions that have
     crashed or exited without cleanup.

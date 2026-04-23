@@ -8,6 +8,12 @@ whether a Bash command invokes a specific ``git`` subcommand with a
 specific flag attached to the same command segment (so that compound
 command lines do not cause flags belonging to a different command to
 be attributed to the ``git`` invocation), a function that determines
+whether a Bash command invokes a specific ``git`` subcommand without
+a specific flag attached to the same command segment (complementing
+the with-flag predicate so that callers can detect compound commands
+that carry both flagged and unflagged invocations of the same
+subcommand, neither of which follows from the negation of the other),
+a function that determines
 whether a Bash command invokes any ``git`` subcommand that authors at
 least one commit on successful execution (so that hooks whose
 invariant is about new commits entering history — rather than about
@@ -417,6 +423,55 @@ def is_git_subcommand_with_flag(
                 _extract_git_subcommand_from_tokens(tokens_after_git)
                 == subcommand
                 and flag in tokens_after_git
+            ):
+                return True
+    return False
+
+
+def is_git_subcommand_without_flag(
+    command: str, subcommand: str, flag: str,
+) -> bool:
+    """Return True if *command* contains at least one
+    ``git <subcommand>`` invocation whose command segment does not
+    carry *flag*.
+
+    This is the counterpart to ``is_git_subcommand_with_flag``: the
+    existing predicate answers whether *any* segment carries the flag,
+    while this predicate answers whether *any* segment lacks it.  The
+    two are not logical negations of each other, because a compound
+    command may contain both a segment that carries the flag and a
+    segment that does not — for example,
+    ``git rebase master && git rebase --abort``.  In that command,
+    ``is_git_subcommand_with_flag(command, "rebase", "--abort")`` is
+    True (the second segment carries ``--abort``) and
+    ``is_git_subcommand_without_flag(command, "rebase", "--abort")``
+    is also True (the first segment does not).  Both predicates are
+    needed because the presence of one form does not preclude the
+    presence of the other.
+
+    Callers use this predicate to determine whether a command's
+    treatment should be conditioned on the presence of at least one
+    unflagged invocation of the subcommand — for example, to avoid
+    routing a compound command to an abort-only handler when the
+    command also contains a non-abort rebase whose output still
+    requires validation.
+    """
+    command = flatten_subshell_parentheses_in_shell_command(command)
+    for segment in split_command_into_segments_at_top_level_shell_operators(
+        command,
+    ):
+        try:
+            tokens = shlex.split(segment)
+        except ValueError:
+            continue
+        for position, token in enumerate(tokens):
+            if token != "git" and not token.endswith("/git"):
+                continue
+            tokens_after_git = tokens[position + 1 :]
+            if (
+                _extract_git_subcommand_from_tokens(tokens_after_git)
+                == subcommand
+                and flag not in tokens_after_git
             ):
                 return True
     return False
