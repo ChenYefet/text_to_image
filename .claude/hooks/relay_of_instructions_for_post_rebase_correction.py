@@ -13,11 +13,14 @@ denies the Bash command with the instructions as
 instructions and can act on them.  On the next Bash tool invocation,
 the results file no longer exists and the command proceeds normally.
 
-``git rebase --abort`` is exempt from delivery: when the user signals
-that the current rebase chain is being abandoned, the abort must
-proceed unimpeded so that the companion PostToolUse hook can run and
-clean up both the prior-attempt marker and any stale results file.
-A relay denial of the abort would prevent that cleanup from running.
+``git rebase --abort`` and ``git rebase --quit`` are both exempt
+from delivery: when the user signals that the current rebase chain
+is being abandoned — whether by the HEAD-resetting ``--abort`` or
+by the non-resetting ``--quit`` — the abandonment must proceed
+unimpeded so that the companion PostToolUse hook can run and clean
+up both the prior-attempt marker and any stale results file.  A
+relay denial of the abandonment would prevent that cleanup from
+running.
 
 This relay is necessary because Claude Code does not inject
 ``systemMessage`` output from PostToolUse hooks into the model's
@@ -37,10 +40,10 @@ from helpers.management_of_session_marker_files import (
     PREFIX_OF_RESULTS_FILE_FOR_INSTRUCTIONS_FOR_POST_REBASE_CORRECTION,
     clean_up_stale_marker_files,
     get_marker_file_path_for_session,
-    is_command_for_git_rebase_with_abort,
+    is_command_for_git_rebase_with_abort_or_quit,
 )
 from helpers.parsing_of_hook_input_for_bash_commands import (
-    is_git_subcommand_without_flag,
+    is_git_subcommand_without_any_of_flags,
     read_hook_input_from_standard_input,
 )
 
@@ -55,21 +58,27 @@ def main() -> int:
     tool_input = hook_input.get("tool_input", {})
     command = tool_input.get("command", "")
 
-    # ``git rebase --abort`` must proceed unimpeded so that the
-    # companion PostToolUse hook can clean up the prior-attempt
-    # marker and the results file as part of abandoning the rebase
-    # chain.  Delivering correction instructions here would deny the
-    # abort before that cleanup could run.  The carve-out is scoped
-    # to commands whose only rebase invocation is the abort: a
-    # compound such as ``git rebase master && git rebase --abort``,
-    # where the first rebase would run to completion, must remain
-    # subject to delivery of any pending correction instructions,
-    # because those corrections are the outcome of a previous rebase
-    # whose resolution must not be bypassed by an unrelated
-    # subsequent rebase pipeline that happens to end in an abort.
+    # ``git rebase --abort`` and ``git rebase --quit`` must proceed
+    # unimpeded so that the companion PostToolUse hook can clean up
+    # the prior-attempt marker and the results file as part of
+    # abandoning the rebase chain.  Both flags terminate the rebase
+    # lifecycle — the former by resetting HEAD to ORIG_HEAD, the
+    # latter by leaving HEAD in its detached state — and both leave
+    # the session's accumulated correction state stale.  Delivering
+    # correction instructions here would deny the abandonment before
+    # that cleanup could run.  The carve-out is scoped to commands
+    # whose every rebase invocation is an abandonment: a compound
+    # such as ``git rebase master && git rebase --abort``, where the
+    # first rebase would run to completion, must remain subject to
+    # delivery of any pending correction instructions, because those
+    # corrections are the outcome of a previous rebase whose
+    # resolution must not be bypassed by an unrelated subsequent
+    # rebase pipeline that happens to end in an abandonment.
     if (
-        is_command_for_git_rebase_with_abort(command)
-        and not is_git_subcommand_without_flag(command, "rebase", "--abort")
+        is_command_for_git_rebase_with_abort_or_quit(command)
+        and not is_git_subcommand_without_any_of_flags(
+            command, "rebase", ("--abort", "--quit"),
+        )
     ):
         return 0
 

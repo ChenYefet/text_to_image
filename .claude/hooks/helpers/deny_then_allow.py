@@ -18,12 +18,15 @@ Two public entry points are provided:
   Use this for hooks that must check arbitrary shell commands rather
   than only git commits.
 
-Both entry points also detect ``git rebase --abort`` commands and clean
-up all marker files for the current session before allowing the command.
-A ``git rebase --abort`` discards the in-progress rebase, invalidating
-any marker files that were created by denied commits during that rebase;
-without cleanup, those stale markers would cause the next commit to be
-allowed unconditionally without review.
+Both entry points also detect ``git rebase --abort`` and
+``git rebase --quit`` commands and clean up all marker files for
+the current session before allowing the command.  Both flags
+abandon the in-progress rebase — ``--abort`` by ending it and
+resetting HEAD to ORIG_HEAD, ``--quit`` by ending it without
+resetting HEAD — and both invalidate any marker files that were
+created by denied commits during that rebase; without cleanup,
+those stale markers would cause the next commit to be allowed
+unconditionally without review.
 
 Session isolation is achieved via a marker file whose name includes the
 ``session_id`` from the hook input.  A marker created by a different
@@ -38,7 +41,7 @@ from helpers.management_of_session_marker_files import (
     clean_up_all_marker_files_for_current_session,
     clean_up_stale_marker_files,
     get_marker_file_path_for_session,
-    is_command_for_git_rebase_with_abort,
+    is_command_for_git_rebase_with_abort_or_quit,
 )
 from helpers.parsing_of_hook_input_for_bash_commands import is_git_subcommand
 
@@ -150,10 +153,12 @@ def run_deny_then_allow(
     tool_input = hook_input.get("tool_input", {})
     command = tool_input.get("command", "")
 
-    # Clean up all marker files when a rebase is aborted, because any
-    # markers created by denied commits during the rebase are now stale.
+    # Clean up all marker files when a rebase is abandoned, because
+    # any markers created by denied commits during the rebase are now
+    # stale.  Both ``--abort`` and ``--quit`` end the rebase without
+    # finalising its authored commits.
     session_id = hook_input.get("session_id", "")
-    if session_id and is_command_for_git_rebase_with_abort(command):
+    if session_id and is_command_for_git_rebase_with_abort_or_quit(command):
         clean_up_all_marker_files_for_current_session(session_id)
         return 0
 
@@ -202,12 +207,14 @@ def run_deny_then_allow_on_bash_command(
     Returns 0 always (output JSON on stdout controls blocking via
     ``permissionDecision``).
     """
-    # Clean up all marker files when a rebase is aborted, because any
-    # markers created by denied commits during the rebase are now stale.
+    # Clean up all marker files when a rebase is abandoned, because
+    # any markers created by denied commits during the rebase are now
+    # stale.  Both ``--abort`` and ``--quit`` end the rebase without
+    # finalising its authored commits.
     tool_input = hook_input.get("tool_input", {})
     command = tool_input.get("command", "")
     session_id = hook_input.get("session_id", "")
-    if session_id and is_command_for_git_rebase_with_abort(command):
+    if session_id and is_command_for_git_rebase_with_abort_or_quit(command):
         clean_up_all_marker_files_for_current_session(session_id)
         return 0
 

@@ -45,7 +45,7 @@ from helpers.management_of_session_marker_files import (
     PREFIX_OF_MARKER_FILE_FOR_COMMIT_PERMITTED_AFTER_READING_OF_CLAUDE_MD,
     clean_up_stale_marker_files,
     get_marker_file_path_for_session,
-    is_command_for_git_rebase_with_abort,
+    is_command_for_git_rebase_with_abort_or_quit,
 )
 from helpers.parsing_of_hook_input_for_bash_commands import (
     is_git_subcommand_producing_a_new_commit,
@@ -59,9 +59,16 @@ def main() -> int:
     command = tool_input.get("command", "")
     session_id = hook_input.get("session_id", "")
 
-    # Clean up read-marker when a rebase is aborted — any markers
-    # created during the aborted rebase are stale.
-    if session_id and is_command_for_git_rebase_with_abort(command):
+    # Clean up read-marker when a rebase is abandoned — any markers
+    # created during an abandoned rebase are stale.  ``--abort`` and
+    # ``--quit`` both terminate the rebase without finalising its
+    # authored commits: ``--abort`` resets HEAD to ORIG_HEAD, while
+    # ``--quit`` leaves HEAD detached on the partially-applied state,
+    # which the branch reference does not point at.  In either case
+    # the commits that were in flight when the marker was created
+    # are no longer on the branch, so the marker no longer describes
+    # a live pre-commit review.
+    if session_id and is_command_for_git_rebase_with_abort_or_quit(command):
         get_marker_file_path_for_session(
             PREFIX_OF_MARKER_FILE_FOR_COMMIT_PERMITTED_AFTER_READING_OF_CLAUDE_MD,
             session_id,

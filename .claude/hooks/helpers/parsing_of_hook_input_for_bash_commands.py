@@ -8,11 +8,15 @@ whether a Bash command invokes a specific ``git`` subcommand with a
 specific flag attached to the same command segment (so that compound
 command lines do not cause flags belonging to a different command to
 be attributed to the ``git`` invocation), a function that determines
-whether a Bash command invokes a specific ``git`` subcommand without
-a specific flag attached to the same command segment (complementing
-the with-flag predicate so that callers can detect compound commands
-that carry both flagged and unflagged invocations of the same
-subcommand, neither of which follows from the negation of the other),
+whether a Bash command invokes a specific ``git`` subcommand
+without any flag from a given set attached to the same command
+segment (complementing the with-flag predicate so that callers
+whose semantic category is expressed by a set of mutually-
+compatible flags — such as the rebase-abandonment category
+expressed by either ``--abort`` or ``--quit`` — can detect
+compound commands that carry both in-category and out-of-category
+invocations of the same subcommand, neither of which follows from
+the negation of the other),
 a function that determines
 whether a Bash command invokes any ``git`` subcommand that authors at
 least one commit on successful execution (so that hooks whose
@@ -428,33 +432,36 @@ def is_git_subcommand_with_flag(
     return False
 
 
-def is_git_subcommand_without_flag(
-    command: str, subcommand: str, flag: str,
+def is_git_subcommand_without_any_of_flags(
+    command: str, subcommand: str, flags: tuple[str, ...],
 ) -> bool:
     """Return True if *command* contains at least one
-    ``git <subcommand>`` invocation whose command segment does not
-    carry *flag*.
+    ``git <subcommand>`` invocation whose command segment carries none
+    of *flags*.
 
-    This is the counterpart to ``is_git_subcommand_with_flag``: the
-    existing predicate answers whether *any* segment carries the flag,
-    while this predicate answers whether *any* segment lacks it.  The
-    two are not logical negations of each other, because a compound
-    command may contain both a segment that carries the flag and a
-    segment that does not — for example,
-    ``git rebase master && git rebase --abort``.  In that command,
+    This is the counterpart to ``is_git_subcommand_with_flag``: that
+    predicate answers whether *any* segment carries at least one of a
+    set of flags, while this predicate answers whether *any* segment
+    lacks every flag in a set.  The two are not logical negations of
+    each other, because a compound command may contain both a segment
+    that carries some in-category flag and a segment that lacks every
+    in-category flag — for example,
+    ``git rebase master && git rebase --abort``.  With
+    ``flags=("--abort", "--quit")`` on that command,
     ``is_git_subcommand_with_flag(command, "rebase", "--abort")`` is
     True (the second segment carries ``--abort``) and
-    ``is_git_subcommand_without_flag(command, "rebase", "--abort")``
-    is also True (the first segment does not).  Both predicates are
-    needed because the presence of one form does not preclude the
-    presence of the other.
+    ``is_git_subcommand_without_any_of_flags(command, "rebase",
+    ("--abort", "--quit"))`` is also True (the first segment carries
+    neither ``--abort`` nor ``--quit``).  Both predicates are needed
+    because the presence of one form does not preclude the presence
+    of the other.
 
     Callers use this predicate to determine whether a command's
     treatment should be conditioned on the presence of at least one
-    unflagged invocation of the subcommand — for example, to avoid
-    routing a compound command to an abort-only handler when the
-    command also contains a non-abort rebase whose output still
-    requires validation.
+    invocation outside a semantic category — for example, to avoid
+    routing a compound command to an abandonment-only handler when
+    the command also contains a non-abandonment rebase whose output
+    still requires validation.
     """
     command = flatten_subshell_parentheses_in_shell_command(command)
     for segment in split_command_into_segments_at_top_level_shell_operators(
@@ -463,6 +470,11 @@ def is_git_subcommand_without_flag(
         try:
             tokens = shlex.split(segment)
         except ValueError:
+            # Skip segments whose quoting is unparseable.  An
+            # unparseable segment cannot be reliably analysed, and
+            # skipping it is safer than treating its raw text as if
+            # every listed flag were absent from the ``git``
+            # invocation.
             continue
         for position, token in enumerate(tokens):
             if token != "git" and not token.endswith("/git"):
@@ -471,7 +483,7 @@ def is_git_subcommand_without_flag(
             if (
                 _extract_git_subcommand_from_tokens(tokens_after_git)
                 == subcommand
-                and flag not in tokens_after_git
+                and not any(flag in tokens_after_git for flag in flags)
             ):
                 return True
     return False

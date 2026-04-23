@@ -73,8 +73,10 @@ The hook only fires when all of the following are true:
    consume Claude command-line-interface calls whose output has
    nowhere to go.
 2. The command is ``git rebase``.
-3. The command is not ``git rebase --abort`` (which is handled
-   separately as a state-cleanup signal, not a validation trigger).
+3. The command is neither ``git rebase --abort`` nor
+   ``git rebase --quit`` (both of which are handled separately as
+   rebase-abandonment state-cleanup signals, not validation
+   triggers).
 4. The rebase has completed (no ``rebase-merge/`` or ``rebase-apply/``
    directory exists inside the effective git directory, resolved via
    ``git rev-parse --git-path`` so that linked worktrees and bare
@@ -83,15 +85,17 @@ The hook only fires when all of the following are true:
 6. At least one of those new commits has content or a message that
    differs from its pre-rebase counterpart (matched by patch-id).
 
-Condition 3 routes ``git rebase --abort`` to a dedicated path that
-clears both the prior-attempt marker and any pending correction
-instructions in the results file, so that abandoning the current
-rebase chain also discards its associated validation state.  This
-branch is evaluated before the in-progress gate so that an abort
-whose own cleanup leaves a ``rebase-merge/`` or ``rebase-apply/``
-directory behind (for example if the abort itself encountered an
-error) still clears the session's validation state rather than
-leaving it stranded behind an in-progress early exit.  Condition 4
+Condition 3 routes ``git rebase --abort`` and ``git rebase --quit``
+to a dedicated path that clears both the prior-attempt marker and
+any pending correction instructions in the results file, so that
+abandoning the current rebase chain — whether by the HEAD-resetting
+``--abort`` or by the non-resetting ``--quit`` — also discards its
+associated validation state.  This branch is evaluated before the
+in-progress gate so that an abandonment whose own cleanup leaves a
+``rebase-merge/`` or ``rebase-apply/`` directory behind (for example
+if the abandonment itself encountered an error) still clears the
+session's validation state rather than leaving it stranded behind
+an in-progress early exit.  Condition 4
 gates every rebase invocation that is still mid-flight — including
 ``git rebase -i`` calls that stop for a conflict or an ``edit``
 marker, and ``git rebase --continue``/``--skip`` calls that advance
@@ -133,8 +137,9 @@ The prior-attempt marker records that a preceding rebase found
 validation issues whose correction has not yet been confirmed.  It is
 cleared only when a subsequent rebase completes with no issues (the
 signal that the correction has actually landed), when
-``git rebase --abort`` abandons the whole lifecycle, or when the
-age-based cleanup removes markers whose owning sessions have died.
+``git rebase --abort`` or ``git rebase --quit`` abandons the whole
+lifecycle, or when the age-based cleanup removes markers whose
+owning sessions have died.
 It is deliberately not cleared on every rebase invocation that
 merely passes the in-progress and HEAD-movement gates, because
 clearing it on entry would reset the escalation between each pair of
@@ -148,8 +153,9 @@ results file scoped to the session.  The companion PreToolUse hook
 ``relay_of_instructions_for_post_rebase_correction.py`` detects this file on
 the next Bash command and delivers the instructions by denying the
 command with the correction text as ``permissionDecisionReason``.
-That relay is configured to skip ``git rebase --abort`` so that the
-abort can proceed and trigger the cleanup path described above.
+That relay is configured to skip both ``git rebase --abort`` and
+``git rebase --quit`` so that either abandonment can proceed and
+trigger the cleanup path described above.
 
 This two-phase relay is necessary because Claude Code does not inject
 ``systemMessage`` output from PostToolUse hooks into the model's
@@ -212,11 +218,11 @@ from helpers.management_of_session_marker_files import (
     PREFIX_OF_RESULTS_FILE_FOR_INSTRUCTIONS_FOR_POST_REBASE_CORRECTION,
     clean_up_stale_marker_files,
     get_marker_file_path_for_session,
-    is_command_for_git_rebase_with_abort,
+    is_command_for_git_rebase_with_abort_or_quit,
 )
 from helpers.parsing_of_hook_input_for_bash_commands import (
     is_git_subcommand,
-    is_git_subcommand_without_flag,
+    is_git_subcommand_without_any_of_flags,
     read_hook_input_from_standard_input,
 )
 
@@ -1167,7 +1173,8 @@ def build_system_message_for_manual_resolution(
     from an earlier firing is still in place.  The escalation
     remains in effect until the issues are actually resolved (a
     subsequent rebase whose validation finds no issues) or the
-    lifecycle is abandoned via ``git rebase --abort``.
+    lifecycle is abandoned via ``git rebase --abort`` or
+    ``git rebase --quit``.
     """
     lines = [
         "POST-REBASE COMMIT MESSAGE VALIDATION — ISSUES PERSIST AFTER",
@@ -1341,33 +1348,40 @@ def main() -> int:
     if not is_git_subcommand(command, "rebase"):
         return 0
 
-    # ``git rebase --abort`` signals that the user is abandoning the
-    # current rebase chain.  Discard both the prior-attempt marker
-    # and any pending correction instructions in the results file, so
-    # that a previous validation does not surface against an unrelated
-    # later rebase.  The companion PreToolUse relay must be configured
-    # to skip ``--abort`` for this cleanup to actually run, since a
-    # relay that delivers correction instructions would deny the abort
-    # before this PostToolUse fires.  This branch is evaluated before
-    # the in-progress gate so that an abort whose own cleanup leaves
-    # a ``rebase-merge/`` or ``rebase-apply/`` directory behind — for
-    # example if the abort itself encountered an error — still clears
-    # the session's validation state rather than leaving it stranded
-    # behind an in-progress early exit that would never be reached
-    # again for this rebase.  The second check restricts the branch to
-    # commands whose only rebase invocation is the abort: a compound
-    # such as ``git rebase master && git rebase --abort``, where the
-    # first rebase may have produced commits that require validation,
-    # must fall through to the normal validation path rather than
-    # have its validation state cleared on account of the trailing
-    # abort.  In such a compound the abort is either a no-op (because
-    # the preceding rebase completed without pausing) or unreachable
-    # (because ``&&`` short-circuits on the preceding rebase's
-    # non-zero exit), so skipping the abort-specific cleanup does not
-    # leave live abort state behind.
+    # ``git rebase --abort`` and ``git rebase --quit`` both signal
+    # that the user is abandoning the current rebase chain: the former
+    # ends the rebase and resets HEAD to ORIG_HEAD, while the latter
+    # ends the rebase without resetting HEAD, but both terminate the
+    # rebase lifecycle without finalising any further commits.
+    # Discard both the prior-attempt marker and any pending correction
+    # instructions in the results file on either flag, so that a
+    # previous validation does not surface against an unrelated later
+    # rebase.  The companion PreToolUse relay must be configured to
+    # skip both flags for this cleanup to actually run, since a relay
+    # that delivers correction instructions would deny the
+    # abandonment before this PostToolUse fires.  This branch is
+    # evaluated before the in-progress gate so that an abandonment
+    # whose own cleanup leaves a ``rebase-merge/`` or ``rebase-apply/``
+    # directory behind — for example if the abandonment itself
+    # encountered an error — still clears the session's validation
+    # state rather than leaving it stranded behind an in-progress
+    # early exit that would never be reached again for this rebase.
+    # The second check restricts the branch to commands whose every
+    # rebase invocation is an abandonment: a compound such as
+    # ``git rebase master && git rebase --abort``, where the first
+    # rebase may have produced commits that require validation, must
+    # fall through to the normal validation path rather than have its
+    # validation state cleared on account of the trailing
+    # abandonment.  In such a compound the abandonment is either a
+    # no-op (because the preceding rebase completed without pausing)
+    # or unreachable (because ``&&`` short-circuits on the preceding
+    # rebase's non-zero exit), so skipping the abandonment-specific
+    # cleanup does not leave live abandonment state behind.
     if (
-        is_command_for_git_rebase_with_abort(command)
-        and not is_git_subcommand_without_flag(command, "rebase", "--abort")
+        is_command_for_git_rebase_with_abort_or_quit(command)
+        and not is_git_subcommand_without_any_of_flags(
+            command, "rebase", ("--abort", "--quit"),
+        )
     ):
         get_marker_file_path_for_session(
             PREFIX_OF_MARKER_FILE, session_id,
@@ -1415,10 +1429,11 @@ def main() -> int:
     # or the escalated manual-resolution message.  The marker is
     # cleared only in three places: on a completed rebase whose
     # validation finds no issues (a successful correction, handled
-    # below on the happy path), on ``git rebase --abort`` (handled
-    # above, signalling that the whole correction lifecycle is being
-    # abandoned), and by the age-based cleanup invoked here (removing
-    # markers whose sessions have themselves died).  Crucially, it is
+    # below on the happy path), on ``git rebase --abort`` or
+    # ``git rebase --quit`` (handled above, signalling that the whole
+    # correction lifecycle is being abandoned), and by the age-based
+    # cleanup invoked here (removing markers whose sessions have
+    # themselves died).  Crucially, it is
     # not cleared on this rebase invocation's entry; clearing on entry
     # would reset the escalation state between every pair of attempts,
     # so a third attempt on persistently unresolved commits would be
@@ -1590,7 +1605,8 @@ def main() -> int:
         # so every attempt after the first receives the manual-
         # resolution escalation.  The marker is cleared only when the
         # issues are actually resolved (the happy path above) or when
-        # the whole lifecycle is abandoned via ``git rebase --abort``.
+        # the whole lifecycle is abandoned via ``git rebase --abort``
+        # or ``git rebase --quit``.
         if is_subsequent_attempt:
             system_message = build_system_message_for_manual_resolution(
                 problematic

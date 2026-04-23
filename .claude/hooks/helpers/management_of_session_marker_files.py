@@ -19,7 +19,7 @@ session.  Three patterns use these utilities:
 All patterns share the same marker file lifecycle: session-scoped
 creation, age-based cleanup of orphaned markers left behind by
 sessions that crashed or exited without consuming their own markers,
-and cleanup on ``git rebase --abort``.
+and cleanup on ``git rebase --abort`` or ``git rebase --quit``.
 """
 
 import glob
@@ -63,13 +63,24 @@ PREFIX_OF_RESULTS_FILE_FOR_INSTRUCTIONS_FOR_POST_REBASE_CORRECTION = (
 _NUMBER_OF_SECONDS_AFTER_WHICH_A_MARKER_FILE_IS_TREATED_AS_ORPHANED = 86_400
 
 
-def is_command_for_git_rebase_with_abort(command: str) -> bool:
-    """Return True if *command* contains a ``git rebase --abort``
-    invocation — that is, ``--abort`` appears as a token of the same
-    ``git rebase`` command segment, not elsewhere in a compound command
-    line such as ``git rebase master && echo --abort``.
+def is_command_for_git_rebase_with_abort_or_quit(command: str) -> bool:
+    """Return True if *command* contains a ``git rebase --abort`` or
+    ``git rebase --quit`` invocation — that is, one of those flags
+    appears as a token of the same ``git rebase`` command segment,
+    not elsewhere in a compound command line such as
+    ``git rebase master && echo --abort``.
+
+    Both flags abandon the in-progress rebase: ``--abort`` ends the
+    rebase and resets HEAD to ORIG_HEAD, whereas ``--quit`` ends the
+    rebase without resetting HEAD.  Either way, the rebase lifecycle
+    is over and any session state accumulated during the rebase —
+    correction instructions pending delivery, prior-attempt markers,
+    read-before-commit markers — is stale and must be discarded.
     """
-    return is_git_subcommand_with_flag(command, "rebase", "--abort")
+    return (
+        is_git_subcommand_with_flag(command, "rebase", "--abort")
+        or is_git_subcommand_with_flag(command, "rebase", "--quit")
+    )
 
 
 def clean_up_all_marker_files_for_current_session(
@@ -77,8 +88,10 @@ def clean_up_all_marker_files_for_current_session(
 ) -> None:
     """Remove all deny-then-allow marker files for the current session.
 
-    This is called when a ``git rebase --abort`` is detected.  Aborting
-    a rebase discards the in-progress rebase, invalidating any marker
+    This is called when ``git rebase --abort`` or ``git rebase --quit``
+    is detected.  Both flags abandon the in-progress rebase — the
+    former by ending it and resetting HEAD to ORIG_HEAD, the latter
+    by ending it without resetting HEAD — invalidating any marker
     files that were created by denied commits during that rebase.
     Without this cleanup, those stale markers would cause the next
     commit to be allowed unconditionally without review.
