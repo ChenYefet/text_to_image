@@ -24,48 +24,21 @@ commit and logs a warning to stderr.
 Exit code 0 — always (output JSON controls blocking via permissionDecision).
 """
 
-import json
 import subprocess
 import sys
 
 from helpers.deny_then_allow import run_deny_then_allow
 from helpers.invoking_claude_cli_for_analysis import call_claude_cli_for_analysis
 from helpers.parsing_of_hook_input_for_bash_commands import read_hook_input_from_standard_input
+from helpers.retrieval_from_git_staging_area import (
+    get_paths_of_staged_files_matching_pathspec,
+    get_staged_content_of_file,
+)
 from helpers.validate_markdown_anchors import extract_anchors_from_headings
 
 PREFIX_OF_MARKER_FILE = (
     ".marker_file_for_pending_review_of_hyperlinking_of_heading_references_for_session_"
 )
-
-
-def get_staged_markdown_files() -> list[str]:
-    """Return file paths of staged ``.md`` files that were added or
-    modified.
-    """
-    result = subprocess.run(
-        [
-            "git", "diff", "--cached", "--name-only",
-            "--diff-filter=AM", "--", "*.md",
-        ],
-        capture_output=True,
-        text=True,
-    )
-    return [
-        line.strip()
-        for line in result.stdout.strip().splitlines()
-        if line.strip()
-    ]
-
-
-def get_staged_file_content(file_path: str) -> str:
-    """Return the staged content of a file via ``git show :file_path``."""
-    result = subprocess.run(
-        ["git", "show", f":{file_path}"],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-    )
-    return result.stdout
 
 
 def get_added_lines_from_staged_diff(file_path: str) -> list[str]:
@@ -208,14 +181,14 @@ def check_and_build_blocking_message() -> str | None:
     Returns a blocking message string if un-hyperlinked references are
     found, or None if no violations are detected.
     """
-    staged_markdown_files = get_staged_markdown_files()
+    staged_markdown_files = get_paths_of_staged_files_matching_pathspec("*.md")
     if not staged_markdown_files:
         return None
 
     violations_indexed_by_file_path: dict[str, list[dict]] = {}
 
     for file_path in staged_markdown_files:
-        staged_content = get_staged_file_content(file_path)
+        staged_content = get_staged_content_of_file(file_path)
         anchors_mapped_to_heading_texts = extract_anchors_from_headings(
             staged_content
         )

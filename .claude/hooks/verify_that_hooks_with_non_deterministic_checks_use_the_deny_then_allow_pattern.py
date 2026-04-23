@@ -25,51 +25,35 @@ commit and logs a warning to stderr.
 Exit code 0 — always (output JSON controls blocking via permissionDecision).
 """
 
-import subprocess
 import sys
 
 from helpers.deny_then_allow import run_deny_then_allow
 from helpers.invoking_claude_cli_for_analysis import call_claude_cli_for_analysis
 from helpers.parsing_of_hook_input_for_bash_commands import read_hook_input_from_standard_input
+from helpers.retrieval_from_git_staging_area import (
+    get_paths_of_staged_files_matching_pathspec,
+    get_staged_content_of_file,
+)
 
 PREFIX_OF_MARKER_FILE = (
     ".marker_file_for_pending_review_of_deny_then_allow_compliance_by_hooks_with_non_deterministic_checks_for_session_"
 )
 
-def get_staged_hook_files() -> list[str]:
-    """Return file paths of staged ``.claude/hooks/*.py`` files that were
-    added or modified.
+def get_staged_hook_files_at_top_level_of_hooks_directory() -> list[str]:
+    """Return paths of staged top-level ``.claude/hooks/*.py`` files.
 
-    Only top-level hook files are returned.  Helper modules in
-    ``.claude/hooks/helpers/`` are excluded by an explicit path-depth
-    filter because git's pathspec glob ``*.py`` recurses into
-    subdirectories on some platforms (observed on Windows with Git
-    for Windows).
+    Helper modules in ``.claude/hooks/helpers/`` are excluded by an
+    explicit path-depth filter because git's pathspec glob ``*.py``
+    recurses into subdirectories on some platforms (observed on Windows
+    with Git for Windows).
     """
-    result = subprocess.run(
-        [
-            "git", "diff", "--cached", "--name-only",
-            "--diff-filter=AM", "--", ".claude/hooks/*.py",
-        ],
-        capture_output=True,
-        text=True,
-    )
     return [
-        line.strip()
-        for line in result.stdout.strip().splitlines()
-        if line.strip()
-        and line.strip().count("/") == 2  # .claude/hooks/file.py
+        file_path
+        for file_path in get_paths_of_staged_files_matching_pathspec(
+            ".claude/hooks/*.py"
+        )
+        if file_path.count("/") == 2  # .claude/hooks/file.py
     ]
-
-
-def get_staged_file_content(file_path: str) -> str:
-    """Return the staged content of a file via ``git show :file_path``."""
-    result = subprocess.run(
-        ["git", "show", f":{file_path}"],
-        capture_output=True,
-        text=True,
-    )
-    return result.stdout
 
 
 def build_prompt_for_non_deterministic_check_analysis(
@@ -169,14 +153,14 @@ def check_and_build_blocking_message() -> str | None:
     Returns a blocking message string if violations are found, or None
     if no violations are detected.
     """
-    staged_hook_files = get_staged_hook_files()
+    staged_hook_files = get_staged_hook_files_at_top_level_of_hooks_directory()
     if not staged_hook_files:
         return None
 
     violations: list[tuple[str, str]] = []
 
     for file_path in staged_hook_files:
-        file_content = get_staged_file_content(file_path)
+        file_content = get_staged_content_of_file(file_path)
 
         prompt = build_prompt_for_non_deterministic_check_analysis(
             file_path, file_content

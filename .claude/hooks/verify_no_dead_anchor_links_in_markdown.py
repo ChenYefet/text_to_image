@@ -10,47 +10,20 @@ Exit code 0 — always (output JSON controls blocking via permissionDecision).
 """
 
 import json
-import subprocess
 import sys
 
 from helpers.parsing_of_hook_input_for_bash_commands import (
     is_git_subcommand,
     read_hook_input_from_standard_input,
 )
+from helpers.retrieval_from_git_staging_area import (
+    get_paths_of_staged_files_matching_pathspec,
+    get_staged_content_of_file,
+)
 from helpers.validate_markdown_anchors import (
     extract_anchors_from_headings,
     extract_same_file_anchor_references,
 )
-
-
-def get_staged_markdown_files() -> list[str]:
-    """Return file paths of staged ``.md`` files that were added or
-    modified.
-    """
-    result = subprocess.run(
-        [
-            "git", "diff", "--cached", "--name-only",
-            "--diff-filter=AM", "--", "*.md",
-        ],
-        capture_output=True,
-        text=True,
-    )
-    return [
-        line.strip()
-        for line in result.stdout.strip().splitlines()
-        if line.strip()
-    ]
-
-
-def get_staged_file_content(file_path: str) -> str:
-    """Return the staged content of a file via ``git show :file_path``."""
-    result = subprocess.run(
-        ["git", "show", f":{file_path}"],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-    )
-    return result.stdout
 
 
 def build_blocking_message(
@@ -88,7 +61,7 @@ def main() -> int:
     if not is_git_subcommand(command, "commit"):
         return 0
 
-    staged_markdown_files = get_staged_markdown_files()
+    staged_markdown_files = get_paths_of_staged_files_matching_pathspec("*.md")
     if not staged_markdown_files:
         return 0
 
@@ -97,7 +70,7 @@ def main() -> int:
     ] = {}
 
     for file_path in staged_markdown_files:
-        staged_content = get_staged_file_content(file_path)
+        staged_content = get_staged_content_of_file(file_path)
         anchors = extract_anchors_from_headings(staged_content)
         references = extract_same_file_anchor_references(staged_content)
 

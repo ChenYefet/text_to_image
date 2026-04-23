@@ -10,42 +10,16 @@ Exit code 0 -- always (output JSON controls blocking via permissionDecision).
 
 import json
 import re
-import subprocess
 import sys
 
 from helpers.parsing_of_hook_input_for_bash_commands import (
     is_git_subcommand,
     read_hook_input_from_standard_input,
 )
-
-
-def get_staged_python_files() -> list[str]:
-    """Return file paths of staged ``.py`` files that were added or
-    modified.
-    """
-    result = subprocess.run(
-        [
-            "git", "diff", "--cached", "--name-only",
-            "--diff-filter=AM", "--", "*.py",
-        ],
-        capture_output=True,
-        text=True,
-    )
-    return [
-        line.strip()
-        for line in result.stdout.strip().splitlines()
-        if line.strip()
-    ]
-
-
-def get_staged_file_content(file_path: str) -> str:
-    """Return the staged content of a file via ``git show :file_path``."""
-    result = subprocess.run(
-        ["git", "show", f":{file_path}"],
-        capture_output=True,
-        text=True,
-    )
-    return result.stdout
+from helpers.retrieval_from_git_staging_area import (
+    get_paths_of_staged_files_matching_pathspec,
+    get_staged_content_of_file,
+)
 
 
 # Matches "import X as Y" but not "from X import Y"
@@ -139,7 +113,7 @@ def main() -> int:
     if not is_git_subcommand(command, "commit"):
         return 0
 
-    staged_python_files = get_staged_python_files()
+    staged_python_files = get_paths_of_staged_files_matching_pathspec("*.py")
     if not staged_python_files:
         return 0
 
@@ -148,7 +122,7 @@ def main() -> int:
     ] = {}
 
     for file_path in staged_python_files:
-        file_content = get_staged_file_content(file_path)
+        file_content = get_staged_content_of_file(file_path)
         violations = find_import_aliases_in_file_content(file_content)
 
         if violations:

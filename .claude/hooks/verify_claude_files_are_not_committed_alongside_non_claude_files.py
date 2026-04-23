@@ -27,6 +27,9 @@ from helpers.parsing_of_hook_input_for_bash_commands import (
     is_git_subcommand,
     read_hook_input_from_standard_input,
 )
+from helpers.retrieval_from_git_staging_area import (
+    get_paths_of_staged_files_matching_pathspec,
+)
 
 
 def _is_claude_file(file_path: str) -> bool:
@@ -40,20 +43,6 @@ def _is_amend_command(command: str) -> bool:
         r"<<'EOF'\s*\n.*?\n\s*EOF", "", command, flags=re.DOTALL
     )
     return bool(re.search(r"--amend\b", command_without_heredoc_content))
-
-
-def get_staged_files() -> list[str]:
-    """Return file paths of all staged files."""
-    result = subprocess.run(
-        ["git", "diff", "--cached", "--name-only", "--diff-filter=ACMR"],
-        capture_output=True,
-        text=True,
-    )
-    return [
-        line.strip()
-        for line in result.stdout.strip().splitlines()
-        if line.strip()
-    ]
 
 
 def get_files_in_amended_commit() -> list[str]:
@@ -92,7 +81,9 @@ def main() -> int:
     if _is_amend_command(command):
         staged_files = get_files_in_amended_commit()
     else:
-        staged_files = get_staged_files()
+        staged_files = get_paths_of_staged_files_matching_pathspec(
+            diff_filter="ACMR"
+        )
     if not staged_files:
         return 0
 
