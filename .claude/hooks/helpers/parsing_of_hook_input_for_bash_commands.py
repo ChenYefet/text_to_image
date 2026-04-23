@@ -15,9 +15,12 @@ the literal ``git commit`` command — gate every authoring path rather
 than only the direct one), a function that extracts the commit message
 from a git command string, a character-by-character shell scanner that
 returns characters at the top level of the shell (outside quoted
-strings, comments, and subshells), and a function that detects shell
-operators anywhere in a command after stripping quoted strings and
-comments.
+strings, comments, and subshells), a function that replaces
+parentheses outside quoted strings and comments with spaces so that
+subshell-wrapped tokens are seen as structurally separate from their
+surrounding ``git`` and flag tokens during tokenisation, and a
+function that detects shell operators anywhere in a command after
+stripping quoted strings and comments.
 """
 
 import json
@@ -164,6 +167,87 @@ def iterate_over_top_level_characters_in_shell_command(
         index += 1
 
     return top_level_characters
+
+
+def flatten_subshell_parentheses_in_shell_command(command: str) -> str:
+    """Return a copy of *command* with every ``(`` and ``)`` character
+    that appears outside single-quoted strings, double-quoted strings,
+    and ``#``-comments replaced by a single space.
+
+    Replacing parentheses with spaces ensures that subshell-wrapped
+    tokens — for example, ``(git`` in ``(git cherry-pick --abort)`` —
+    are seen by ``shlex.split`` as structurally separate from their
+    surrounding ``git`` and flag tokens.  This allows
+    ``is_git_subcommand``, ``is_git_subcommand_with_flag``, and
+    ``is_git_subcommand_producing_a_new_commit`` to detect
+    subcommand-invocation patterns that would otherwise be fused into
+    a single unparseable token.
+
+    Parentheses inside single-quoted strings, double-quoted strings
+    (with backslash-escape processing), and ``#``-comments are
+    preserved verbatim, because they are not structural shell grouping
+    characters in those contexts.
+
+    This function does not attempt to parse command substitutions
+    (``$(...)``), arithmetic expansions (``$((...))``) , or process
+    substitutions (``<(...)``, ``>(...)``); those forms are
+    pre-existing blind spots of this module and are out of scope.
+    """
+    result = []
+    inside_single_quote = False
+    inside_double_quote = False
+    index = 0
+    length = len(command)
+
+    while index < length:
+        character = command[index]
+
+        if inside_single_quote:
+            if character == "'":
+                inside_single_quote = False
+            result.append(character)
+            index += 1
+            continue
+
+        if inside_double_quote:
+            if character == "\\" and index + 1 < length:
+                result.append(character)
+                result.append(command[index + 1])
+                index += 2
+                continue
+            if character == '"':
+                inside_double_quote = False
+            result.append(character)
+            index += 1
+            continue
+
+        if character == "#":
+            while index < length and command[index] != "\n":
+                result.append(command[index])
+                index += 1
+            continue
+
+        if character == "'":
+            inside_single_quote = True
+            result.append(character)
+            index += 1
+            continue
+
+        if character == '"':
+            inside_double_quote = True
+            result.append(character)
+            index += 1
+            continue
+
+        if character in ("(", ")"):
+            result.append(" ")
+            index += 1
+            continue
+
+        result.append(character)
+        index += 1
+
+    return "".join(result)
 
 
 def command_contains_shell_operator_at_any_depth(command: str) -> bool:
@@ -313,6 +397,7 @@ def is_git_subcommand_with_flag(
     attributed to the ``git rebase`` invocation when it was actually
     passed to ``echo``.
     """
+    command = flatten_subshell_parentheses_in_shell_command(command)
     for segment in split_command_into_segments_at_top_level_shell_operators(
         command,
     ):
@@ -349,6 +434,7 @@ def is_git_subcommand(command: str, subcommand: str) -> bool:
     within the same command segment (no intervening pipe, semicolon,
     or ampersand).
     """
+    command = flatten_subshell_parentheses_in_shell_command(command)
     try:
         tokens = shlex.split(command)
     except ValueError:
@@ -402,6 +488,7 @@ def is_git_subcommand_producing_a_new_commit(command: str) -> bool:
     invariant is about new commits entering the repository's history
     rather than about the literal ``git commit`` command.
     """
+    command = flatten_subshell_parentheses_in_shell_command(command)
     for segment in split_command_into_segments_at_top_level_shell_operators(
         command,
     ):

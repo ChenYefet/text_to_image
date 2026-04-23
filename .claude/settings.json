@@ -58,7 +58,7 @@
           },
           {
             "type": "command",
-            "command": "python3 .claude/hooks/deny_git_commit_in_compound_bash_commands.py"
+            "command": "python3 .claude/hooks/deny_compound_bash_commands_with_commit_authoring_git_invocations.py"
           },
           {
             "type": "command",
