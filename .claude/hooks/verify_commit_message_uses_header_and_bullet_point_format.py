@@ -21,7 +21,6 @@ Exit code 0 — always (output JSON controls blocking via permissionDecision).
 """
 
 import json
-import pathlib
 import sys
 
 from helpers.deny_then_allow import run_deny_then_allow
@@ -30,6 +29,9 @@ from helpers.description_of_rules_for_validation_of_commit_messages import (
 )
 from helpers import invoking_claude_cli_for_analysis
 from helpers.invoking_claude_cli_for_analysis import call_claude_cli_for_analysis
+from helpers.management_of_session_marker_files import (
+    get_marker_file_path_for_session,
+)
 from helpers.parsing_of_hook_input_for_bash_commands import (
     extract_commit_message_from_command,
     is_git_subcommand,
@@ -203,11 +205,9 @@ def main() -> int:
     # (a format violation was blocked on the first attempt).  Delegate
     # directly to run_deny_then_allow without calling the Claude command-line interface —
     # it will clean up the marker file and allow the commit through.
-    # Note: the marker file path formula must stay in sync with the
-    # formula in helpers/deny_then_allow.py.
     session_id = hook_input.get("session_id", "")
-    if session_id and pathlib.Path(
-        f"{PREFIX_OF_MARKER_FILE}{session_id}"
+    if session_id and get_marker_file_path_for_session(
+        PREFIX_OF_MARKER_FILE, session_id
     ).exists():
         return run_deny_then_allow(
             hook_input,
