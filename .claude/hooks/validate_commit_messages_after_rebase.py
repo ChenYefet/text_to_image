@@ -197,19 +197,46 @@ prior-attempt marker is left exactly as it was so that the next
 rebase's escalation level reflects the prior issue state rather
 than being forced to either side by this infrastructure failure.
 
+Structural decomposition: the supporting primitives live in three
+dedicated helper modules — rebase-completion detection and changed-
+commit enumeration in
+``helpers/detection_of_rebase_completion_and_enumeration_of_changed_commits.py``,
+per-commit diff truncation and batch packing in
+``helpers/sizing_of_commit_data_for_validation_prompt.py``, and
+outcome-message construction in
+``helpers/construction_of_system_messages_for_outcomes_of_validation_of_commit_messages.py``.
+This module retains the validation orchestration that the hook is
+named after: prompt construction, the call to the Claude command-line
+interface, concurrent batch fan-out, and the lifecycle glue in
+``main``.
+
 Exit code 0 — always.
 """
 
 import concurrent.futures
-import pathlib
 import secrets
-import subprocess
 import sys
-import time
 
+from helpers.construction_of_system_messages_for_outcomes_of_validation_of_commit_messages import (
+    NUMBER_OF_CHARACTERS_IN_ABBREVIATED_COMMIT_HASH,
+    build_system_message_for_automatic_correction,
+    build_system_message_for_manual_resolution,
+    build_system_message_for_validation_infrastructure_failure,
+    build_text_describing_commits_that_could_not_be_validated,
+)
 from helpers.description_of_rules_for_validation_of_commit_messages import (
     build_text_describing_categories_of_accuracy_checks,
     build_text_describing_format_rules,
+)
+from helpers.detection_of_rebase_completion_and_enumeration_of_changed_commits import (
+    get_commit_message,
+    get_diff_between_parent_and_commit,
+    get_first_parent_hash,
+    get_new_commits_after_rebase,
+    get_number_of_parents,
+    is_rebase_still_in_progress,
+    select_commits_changed_by_rebase,
+    was_head_last_modified_by_a_recent_rebase_completion,
 )
 from helpers.invoking_claude_cli_for_analysis import (
     call_claude_cli_for_analysis_and_return_result_with_failure_description,
@@ -225,89 +252,18 @@ from helpers.parsing_of_hook_input_for_bash_commands import (
     is_git_subcommand_without_any_of_flags,
     read_hook_input_from_standard_input,
 )
+from helpers.sizing_of_commit_data_for_validation_prompt import (
+    MAXIMUM_NUMBER_OF_CHARACTERS_OF_DIFF_PER_COMMIT,
+    MAXIMUM_NUMBER_OF_CHARACTERS_PER_VALIDATION_BATCH,
+    split_commits_into_batches_under_character_budget,
+    truncate_diff_to_maximum_size_with_explicit_marker,
+)
 
 
 PREFIX_OF_MARKER_FILE = (
     ".marker_file_for_pending_post_rebase_validation_for_session_"
 )
 
-# Maximum aggregated number of characters of commit message and diff
-# content per call to the validation model.  The prompt concatenates
-# each commit's message and diff; when this total would exceed the
-# budget, the commits are split into multiple batches so that no
-# single call to the validation model overflows the context window or
-# runs out of time.  1 000 000 characters is roughly 250 000 tokens,
-# which is approximately 25% of the 1 000 000-token context window
-# available to Claude Sonnet and Opus on this account, leaving ample
-# room for prompt scaffolding, the model's response, and safety
-# margin against long tail-end reasoning.  A budget this large means
-# most real rebases collapse into a single batch, amortising the
-# prompt scaffolding across every commit in the rebase rather than
-# repeating it per batch.  Why not 500 000 (half): Would split many
-# routine multi-commit rebases into two batches for no accuracy
-# benefit, doubling calls to the validation model without reducing
-# per-call latency below what the model is already handling.  Why
-# not 2 000 000 (double): Would require the model to process
-# approximately 500 000 tokens per call, approaching half of the
-# context window for input alone and leaving too little headroom for
-# the 350 000-character per-commit diff cap to coexist with prompt
-# scaffolding under worst-case rebases (several very large commits
-# in the same batch).
-_MAXIMUM_NUMBER_OF_CHARACTERS_PER_VALIDATION_BATCH = 1_000_000
-
-# Maximum number of characters of diff content kept per commit before
-# truncation.  A diff longer than this is replaced with its prefix and
-# an explicit truncation marker, so that no single commit can dominate
-# the model's attention regardless of its actual size.  350 000
-# characters is roughly 87 500 tokens, which is approximately 9% of
-# the 1 000 000-token context window available to Claude Sonnet and
-# Opus on this account, and covers diffs of roughly 7 000 to 11 000
-# lines — large enough for substantial refactoring commits while
-# bounding pathological inputs (vendored dependencies, generated
-# files, large binary patches presented as text) to a single-digit
-# fraction of the context.  Why not 175 000 (half): Would truncate
-# legitimate large-refactor commits that the 1 000 000-token context
-# window can easily accommodate, discarding accuracy signal that
-# there is room to keep.  Why not 700 000 (double): Would allow a
-# single commit to occupy close to 20% of the context window,
-# crowding out prompt scaffolding and other commits sharing the same
-# batch, and investing context in the unlikely tail of a commit
-# whose message almost certainly does not depend on content beyond
-# the first 350 000 characters of its diff.
-_MAXIMUM_NUMBER_OF_CHARACTERS_OF_DIFF_PER_COMMIT = 350_000
-
-# Length of the abbreviated commit hash used in user-facing output.
-# Twelve characters provide ample collision resistance even in large
-# repositories, while remaining compact enough to fit inline in
-# instructions and terminal output.  The full hash is retained as the
-# internal identifier when correlating the validation model's
-# per-commit responses with the commits they describe.
-_NUMBER_OF_CHARACTERS_IN_ABBREVIATED_COMMIT_HASH = 12
-
-# Maximum age, in seconds, of the most recent HEAD reflog entry for
-# it to be attributed to the Bash invocation that just returned.  The
-# post-rebase hook fires immediately after ``git rebase`` returns, so
-# a successful rebase completion produces a HEAD reflog entry whose
-# timestamp is effectively ``now``.  Anything older than this
-# threshold indicates that HEAD was last modified by a prior operation
-# — most commonly a rebase completed several commands ago whose
-# ORIG_HEAD has not been overwritten since — and the current
-# invocation therefore did not produce a new HEAD movement to
-# validate.  Why not 60 seconds (roughly the per-batch validation
-# timeout): A single rebase that applies many commits, each of which
-# involves content-aware merging, can legitimately take longer than a
-# minute on slower machines, and the reflog timestamp records the
-# final HEAD movement (at the end of the rebase), not the command's
-# start.  A 60-second ceiling would reject legitimate slow rebases as
-# stale.  Why not 3 600 seconds (one hour): Would allow an hour-old
-# HEAD movement to be treated as current, defeating the purpose of
-# the freshness check entirely.  300 seconds (five minutes) is long
-# enough to cover the tail of realistic rebases plus a generous
-# allowance for machine clock skew, and short enough that no unrelated
-# operation from a prior command can be mistaken for the current one.
-_MAXIMUM_AGE_IN_SECONDS_OF_HEAD_REFLOG_ENTRY_FOR_ATTRIBUTION_TO_CURRENT_INVOCATION = (
-    300
-)
 
 # Maximum number of concurrent calls to the validation model when
 # multiple batches must be validated.  Batches are independent Sonnet
@@ -319,502 +275,6 @@ _MAXIMUM_AGE_IN_SECONDS_OF_HEAD_REFLOG_ENTRY_FOR_ATTRIBUTION_TO_CURRENT_INVOCATI
 # typical per-account concurrency limits even when several rebases
 # happen close together.
 _MAXIMUM_NUMBER_OF_CONCURRENT_BATCHES = 5
-
-
-def resolve_path_inside_git_directory(
-    name_inside_git_directory: str,
-) -> pathlib.Path | None:
-    """Return the filesystem path that git uses for a given name inside
-    its effective git directory.
-
-    Delegates to ``git rev-parse --git-path`` so that the correct path
-    is produced regardless of the repository layout: in a linked
-    worktree the rebase state lives under
-    ``.git/worktrees/<name>/rebase-merge`` rather than under
-    ``.git/rebase-merge``, and in a bare repository there is no
-    ``.git/`` directory at all.  The returned path is emitted by git
-    relative to the current working directory and may be used directly
-    with ``pathlib.Path`` operations.
-
-    Returns None if git is unavailable or returns an error.
-    """
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--git-path", name_inside_git_directory],
-            capture_output=True,
-            encoding="utf-8",
-            timeout=10,
-        )
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        return None
-
-    if result.returncode != 0:
-        return None
-
-    resolved_path_text = result.stdout.strip()
-    if not resolved_path_text:
-        return None
-
-    return pathlib.Path(resolved_path_text)
-
-
-def is_rebase_still_in_progress() -> bool:
-    """Return True if a rebase is currently in progress (not yet completed).
-
-    Git stores rebase state under ``rebase-merge/`` during
-    ``git rebase -i`` and ``git rebase``, and under ``rebase-apply/``
-    during ``git am`` and older-style rebases.  The presence of either
-    directory inside the effective git directory indicates that the
-    rebase stopped (for conflicts or editing) and has not yet
-    completed.
-
-    Paths are resolved via ``git rev-parse --git-path`` so that the
-    check remains correct in linked worktrees (where the rebase state
-    lives under ``.git/worktrees/<name>/``) and in bare repositories
-    (where the git directory is not named ``.git``).
-    """
-    for name_inside_git_directory in ("rebase-merge", "rebase-apply"):
-        resolved_path = resolve_path_inside_git_directory(
-            name_inside_git_directory
-        )
-        if resolved_path is not None and resolved_path.is_dir():
-            return True
-    return False
-
-
-def was_head_last_modified_by_a_recent_rebase_completion() -> bool:
-    """Return True if the most recent reflog entry on HEAD was produced
-    by a rebase and is recent enough to be attributed to the Bash
-    invocation that just returned.
-
-    Uses ``git reflog HEAD -1 --format=%ct %gs`` to retrieve both the
-    timestamp (``%ct``, committer date as Unix seconds) and the subject
-    (``%gs``, the reflog message) of the most recent HEAD reflog entry.
-    The entry is attributed to the current invocation when both of the
-    following hold:
-
-    - Its subject begins with ``rebase`` — the reflog subjects that git
-      emits for rebase-produced HEAD movements include
-      ``rebase (start)``, ``rebase (pick)``, ``rebase (reword)``,
-      ``rebase (continue)``, and ``rebase (finish)``, and all of them
-      share the ``rebase`` prefix.  Any other prefix indicates that
-      HEAD was last moved by a non-rebase operation (commit, merge,
-      reset, checkout), which means ``ORIG_HEAD..HEAD`` cannot be
-      interpreted as the output of a just-completed rebase.
-    - Its timestamp is within the attribution window defined by
-      ``_MAXIMUM_AGE_IN_SECONDS_OF_HEAD_REFLOG_ENTRY_FOR_ATTRIBUTION_TO_CURRENT_INVOCATION``.
-      A rebase reflog entry from a command several interactions ago
-      would still match the subject check, but its ORIG_HEAD and HEAD
-      pointers have long been validated; re-running the model against
-      them is wasted cost.
-
-    Returns False — the safe default — whenever the reflog cannot be
-    read, is empty, or fails either check.  A False return skips the
-    current invocation's validation, which is preferable to
-    revalidating commits whose state does not belong to this
-    invocation.
-    """
-    try:
-        result = subprocess.run(
-            ["git", "reflog", "HEAD", "-1", "--format=%ct %gs"],
-            capture_output=True,
-            encoding="utf-8",
-            timeout=10,
-        )
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        return False
-
-    if result.returncode != 0:
-        return False
-
-    output = result.stdout.strip()
-    if not output:
-        return False
-
-    timestamp_and_subject = output.split(" ", 1)
-    if len(timestamp_and_subject) != 2:
-        return False
-
-    timestamp_text, subject = timestamp_and_subject
-    try:
-        timestamp_of_entry_in_seconds = int(timestamp_text)
-    except ValueError:
-        return False
-
-    if not subject.startswith("rebase"):
-        return False
-
-    current_time_in_seconds = int(time.time())
-    age_of_entry_in_seconds = (
-        current_time_in_seconds - timestamp_of_entry_in_seconds
-    )
-    return (
-        0
-        <= age_of_entry_in_seconds
-        <= _MAXIMUM_AGE_IN_SECONDS_OF_HEAD_REFLOG_ENTRY_FOR_ATTRIBUTION_TO_CURRENT_INVOCATION
-    )
-
-
-def get_new_commits_after_rebase() -> list[str]:
-    """Return the commit hashes created by the most recent rebase.
-
-    Uses ``ORIG_HEAD..HEAD`` to identify commits that are reachable
-    from HEAD but were not reachable from the pre-rebase HEAD.
-    Returns commits in chronological order (oldest first) as full
-    40-character SHA-1 hashes.  Returns an empty list if ORIG_HEAD is
-    not set or no new commits exist.
-    """
-    try:
-        result = subprocess.run(
-            ["git", "log", "--format=%H", "--reverse", "ORIG_HEAD..HEAD"],
-            capture_output=True,
-            encoding="utf-8",
-            timeout=10,
-        )
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        return []
-
-    if result.returncode != 0:
-        return []
-
-    return [h.strip() for h in result.stdout.strip().split("\n") if h.strip()]
-
-
-def get_commit_message(commit_hash: str) -> str | None:
-    """Return the commit message of the given commit."""
-    try:
-        result = subprocess.run(
-            ["git", "log", "-1", "--format=%B", commit_hash],
-            capture_output=True,
-            encoding="utf-8",
-            timeout=10,
-        )
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        return None
-
-    if result.returncode != 0:
-        return None
-
-    output = result.stdout.strip()
-    return output if output else None
-
-
-def get_first_parent_hash(commit_hash: str) -> str | None:
-    """Return the hash of the first parent of *commit_hash*.
-
-    Uses ``git rev-parse --verify <commit>^1`` to resolve the parent.
-    Returns None for root commits (no first parent) and on any
-    subprocess failure.  The two cases share a return value because
-    they cannot be distinguished from the exit code of
-    ``git rev-parse --verify`` alone; in the post-rebase context the
-    overwhelmingly common cause is a root commit produced by
-    ``git rebase --root``.
-    """
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--verify", f"{commit_hash}^1"],
-            capture_output=True,
-            encoding="utf-8",
-            timeout=10,
-        )
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        return None
-
-    if result.returncode != 0:
-        return None
-
-    first_parent_hash = result.stdout.strip()
-    return first_parent_hash if first_parent_hash else None
-
-
-def get_number_of_parents(commit_hash: str) -> int | None:
-    """Return the number of parents of *commit_hash*.
-
-    Uses ``git show --no-patch --format=%P`` so that every parent is
-    listed in a single line of output regardless of how many parents
-    the commit has.  The returned integer has the following meaning:
-
-    - ``0``: a root commit, typically produced by
-      ``git rebase --root``.
-    - ``1``: a standard commit whose history is linear at this point.
-    - ``2`` or more: a merge commit, typically preserved by
-      ``git rebase --rebase-merges``.
-
-    Returns ``None`` on any subprocess failure so that callers can
-    fall back to a safe default — treating the commit as non-merge —
-    rather than assume a false exemption when the parent count cannot
-    be determined.
-    """
-    try:
-        result = subprocess.run(
-            ["git", "show", "--no-patch", "--format=%P", commit_hash],
-            capture_output=True,
-            encoding="utf-8",
-            timeout=10,
-        )
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        return None
-
-    if result.returncode != 0:
-        return None
-
-    parent_hashes_field = result.stdout.strip()
-    if not parent_hashes_field:
-        return 0
-    return len(parent_hashes_field.split())
-
-
-def get_diff_between_parent_and_commit(
-    parent_hash: str, commit_hash: str,
-) -> str | None:
-    """Return the diff between *parent_hash* and *commit_hash*.
-
-    Uses ``git diff-tree -p <parent_hash> <commit_hash>`` to produce a
-    normal (non-combined) diff.  For merge commits, the default
-    ``git diff-tree -p <commit>`` form produces a combined diff that
-    is empty for clean merges; with explicit two-tree arguments the
-    first-parent diff is emitted regardless of whether the commit is
-    a merge, so merge commits produced by ``git rebase --rebase-merges``
-    are included in validation rather than silently dropped.
-
-    Returns None for empty diffs (e.g. an empty commit created with
-    ``git commit --allow-empty``) and on any subprocess failure.
-    """
-    try:
-        result = subprocess.run(
-            ["git", "diff-tree", "-p", parent_hash, commit_hash],
-            capture_output=True,
-            encoding="utf-8",
-            timeout=30,
-        )
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        return None
-
-    if result.returncode != 0:
-        return None
-
-    diff_output = result.stdout.strip()
-    return diff_output if diff_output else None
-
-
-def truncate_diff_to_maximum_size_with_explicit_marker(
-    diff: str, maximum_number_of_characters: int,
-) -> str:
-    """Return *diff* unchanged if it is at most
-    *maximum_number_of_characters* long, otherwise return its prefix
-    of *maximum_number_of_characters* followed by an explicit
-    truncation marker that names the original size and the visible
-    portion.
-
-    The marker is written so that the validation model is aware that
-    the diff has been truncated and can caveat its accuracy assessment
-    accordingly, rather than silently treating the truncated content
-    as the entire change.
-    """
-    if len(diff) <= maximum_number_of_characters:
-        return diff
-
-    truncated_prefix = diff[:maximum_number_of_characters]
-    marker = (
-        f"\n\n[DIFF TRUNCATED — ORIGINAL SIZE WAS {len(diff)} "
-        f"CHARACTERS, FIRST {maximum_number_of_characters} CHARACTERS "
-        "SHOWN; REMAINING CONTENT IS NOT VISIBLE TO THE VALIDATION "
-        "MODEL]\n"
-    )
-    return truncated_prefix + marker
-
-
-def get_merge_base(revision_1: str, revision_2: str) -> str | None:
-    """Return the merge base of two revisions, or None if none exists
-    or the command fails."""
-    try:
-        result = subprocess.run(
-            ["git", "merge-base", revision_1, revision_2],
-            capture_output=True,
-            encoding="utf-8",
-            timeout=10,
-        )
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        return None
-
-    if result.returncode != 0:
-        return None
-
-    merge_base_text = result.stdout.strip()
-    return merge_base_text if merge_base_text else None
-
-
-def get_mapping_from_patch_id_to_commit_hash_for_revision_range(
-    revision_range: str,
-) -> dict[str, str]:
-    """Return a mapping from patch-id to commit hash for every commit
-    in the given revision range.
-
-    Pipes the output of ``git log -p <revision_range>`` into
-    ``git patch-id --stable``.  Patch-ids are computed to be invariant
-    to whitespace changes, line-number shifts, and context differences
-    introduced by rebasing onto a new parent, so two commits with the
-    same patch-id record the same conceptual change even if their
-    diffs against their respective parents differ textually.
-
-    Returns an empty dict if either subprocess fails, so that callers
-    fall back to full validation rather than silently skipping commits
-    on a transient failure.
-    """
-    try:
-        log_process = subprocess.run(
-            ["git", "log", "-p", "--reverse", revision_range],
-            capture_output=True,
-            encoding="utf-8",
-            timeout=30,
-        )
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        return {}
-
-    if log_process.returncode != 0 or not log_process.stdout:
-        return {}
-
-    try:
-        patch_id_process = subprocess.run(
-            ["git", "patch-id", "--stable"],
-            input=log_process.stdout,
-            capture_output=True,
-            encoding="utf-8",
-            timeout=30,
-        )
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        return {}
-
-    if patch_id_process.returncode != 0:
-        return {}
-
-    patch_id_to_commit_hash: dict[str, str] = {}
-    for line in patch_id_process.stdout.splitlines():
-        fields = line.split()
-        if len(fields) >= 2:
-            patch_id_value, commit_hash_value = fields[0], fields[1]
-            patch_id_to_commit_hash[patch_id_value] = commit_hash_value
-
-    return patch_id_to_commit_hash
-
-
-def select_commits_changed_by_rebase(
-    commit_hashes_in_new_range: list[str],
-) -> list[str]:
-    """Return the subset of post-rebase commits that actually require
-    revalidation.
-
-    Matches each commit in ``ORIG_HEAD..HEAD`` to a pre-rebase commit
-    in ``merge-base(ORIG_HEAD, HEAD)..ORIG_HEAD`` by patch-id.  A
-    commit is retained for validation if any of the following holds:
-
-    - Its patch-id has no match in the pre-rebase range (the commit
-      introduces genuinely new content).
-    - Its patch-id matches a pre-rebase commit whose message differs
-      (the rebase reworded the commit).
-    - Patch-id matching cannot be performed for any reason (the
-      function falls back to returning the full input list so that
-      validation proceeds over every commit rather than silently
-      skipping any).
-
-    A commit is dropped from validation only when its patch-id matches
-    a pre-rebase commit whose message is byte-identical.  In that case
-    the rebase has produced an exact content-and-message replica, so
-    there is nothing new for the validation model to assess, and
-    issuing a call would risk flagging the message as inaccurate
-    merely because the diff against the new parent differs in context
-    or conflict resolution.
-    """
-    merge_base_commit = get_merge_base("ORIG_HEAD", "HEAD")
-    if merge_base_commit is None:
-        return commit_hashes_in_new_range
-
-    patch_id_to_pre_rebase_hash = (
-        get_mapping_from_patch_id_to_commit_hash_for_revision_range(
-            f"{merge_base_commit}..ORIG_HEAD"
-        )
-    )
-    if not patch_id_to_pre_rebase_hash:
-        return commit_hashes_in_new_range
-
-    patch_id_to_post_rebase_hash = (
-        get_mapping_from_patch_id_to_commit_hash_for_revision_range(
-            "ORIG_HEAD..HEAD"
-        )
-    )
-    if not patch_id_to_post_rebase_hash:
-        return commit_hashes_in_new_range
-
-    post_rebase_hash_to_patch_id = {
-        commit_hash_value: patch_id_value
-        for patch_id_value, commit_hash_value
-        in patch_id_to_post_rebase_hash.items()
-    }
-
-    commit_hashes_to_validate: list[str] = []
-    for commit_hash in commit_hashes_in_new_range:
-        patch_id_of_this_commit = post_rebase_hash_to_patch_id.get(commit_hash)
-        if patch_id_of_this_commit is None:
-            commit_hashes_to_validate.append(commit_hash)
-            continue
-        pre_rebase_counterpart = patch_id_to_pre_rebase_hash.get(
-            patch_id_of_this_commit
-        )
-        if pre_rebase_counterpart is None:
-            commit_hashes_to_validate.append(commit_hash)
-            continue
-        message_of_pre_rebase_counterpart = get_commit_message(
-            pre_rebase_counterpart
-        )
-        message_of_post_rebase_commit = get_commit_message(commit_hash)
-        if (
-            message_of_pre_rebase_counterpart is None
-            or message_of_post_rebase_commit is None
-        ):
-            commit_hashes_to_validate.append(commit_hash)
-            continue
-        if message_of_pre_rebase_counterpart != message_of_post_rebase_commit:
-            commit_hashes_to_validate.append(commit_hash)
-
-    return commit_hashes_to_validate
-
-
-def split_commits_into_batches_under_character_budget(
-    commits_data: list[dict],
-    maximum_number_of_characters_per_batch: int,
-) -> list[list[dict]]:
-    """Split *commits_data* into batches whose aggregated message and
-    diff size stays under the character budget.
-
-    Batches are filled greedily in input order so that chronological
-    order is preserved across batches.  A single commit whose own size
-    exceeds the budget is emitted as a batch of one — the budget is
-    an approximate target for normal batches, not a hard ceiling, and
-    downstream handling may truncate or reject such an outsized commit.
-    """
-    batches: list[list[dict]] = []
-    current_batch: list[dict] = []
-    current_batch_size_in_characters = 0
-
-    for commit_data in commits_data:
-        size_of_this_commit = len(commit_data["message"]) + len(
-            commit_data["diff"]
-        )
-        if (
-            current_batch
-            and current_batch_size_in_characters + size_of_this_commit
-            > maximum_number_of_characters_per_batch
-        ):
-            batches.append(current_batch)
-            current_batch = []
-            current_batch_size_in_characters = 0
-        current_batch.append(commit_data)
-        current_batch_size_in_characters += size_of_this_commit
-
-    if current_batch:
-        batches.append(current_batch)
-
-    return batches
 
 
 def build_validation_prompt(commits_data: list[dict]) -> str:
@@ -1049,7 +509,7 @@ def validate_commits_across_batches(
     failed_batches: list[dict] = []
     batches = split_commits_into_batches_under_character_budget(
         commits_data,
-        _MAXIMUM_NUMBER_OF_CHARACTERS_PER_VALIDATION_BATCH,
+        MAXIMUM_NUMBER_OF_CHARACTERS_PER_VALIDATION_BATCH,
     )
     if not batches:
         return successful_results, failed_batches
@@ -1091,241 +551,6 @@ def validate_commits_across_batches(
                 continue
             successful_results.extend(analysis.get("commits", []))
     return successful_results, failed_batches
-
-
-def build_system_message_for_automatic_correction(
-    problematic_commits: list[dict],
-) -> str:
-    """Build the systemMessage that instructs Claude to correct commit
-    messages automatically via a non-interactive rebase.
-
-    When corrected messages are available (provided by the validation
-    model), the instruction includes the exact replacement text so that
-    Claude's task is purely mechanical.  When a corrected message is
-    not available for a commit, Claude is asked to compose one.
-
-    This is used on the first firing of a correction lifecycle —
-    that is, the first rebase completion whose validation finds
-    issues while no prior-attempt marker is in place.  The firing
-    creates the prior-attempt marker, so any subsequent firing whose
-    validation still finds issues will instead produce the manual-
-    resolution escalation.
-    """
-    all_have_corrections = all(
-        "corrected_message" in commit for commit in problematic_commits
-    )
-
-    lines = [
-        "POST-REBASE COMMIT MESSAGE VALIDATION — ISSUES FOUND.",
-        "",
-        "The following commits created by the rebase have commit message",
-        "issues that must be corrected:",
-        "",
-    ]
-
-    for commit in problematic_commits:
-        lines.append(f"  {commit['abbreviated_hash']}:")
-        lines.append("    Current message:")
-        for message_line in commit["message"].splitlines():
-            lines.append(f"      {message_line}")
-        lines.append("    Issues:")
-        for issue in commit["issues"]:
-            lines.append(f"    - {issue}")
-        if "corrected_message" in commit:
-            lines.append("    Corrected message (apply exactly as shown):")
-            for message_line in commit["corrected_message"].splitlines():
-                lines.append(f"      {message_line}")
-        lines.append("")
-
-    if all_have_corrections:
-        lines.extend([
-            "Apply the corrected messages above exactly as shown using a",
-            "non-interactive ``git rebase -i`` by setting",
-            "``GIT_SEQUENCE_EDITOR`` to a ``sed`` command that marks the",
-            "affected commits as ``reword``, and ``GIT_EDITOR`` to a",
-            "script that writes the corrected message.  Do not modify",
-            "the corrected messages — apply them verbatim.",
-        ])
-    else:
-        lines.extend([
-            "Correct the commit messages using a non-interactive",
-            "``git rebase -i`` by setting ``GIT_SEQUENCE_EDITOR`` to a",
-            "``sed`` command that marks the affected commits as ``reword``,",
-            "and ``GIT_EDITOR`` to a script that writes the corrected",
-            "message.  Where a corrected message is provided above, apply",
-            "it exactly as shown.  Where no corrected message is provided,",
-            "compose one that follows the header + bullet-point format and",
-            "accurately describes the diff from the parent commit.",
-        ])
-
-    return "\n".join(lines)
-
-
-def build_system_message_for_manual_resolution(
-    problematic_commits: list[dict],
-) -> str:
-    """Build the systemMessage that asks Claude to present remaining
-    issues to the user for manual resolution.
-
-    This is used on every firing after the first within the same
-    correction lifecycle — that is, any rebase completion whose
-    validation still finds issues while the prior-attempt marker
-    from an earlier firing is still in place.  The escalation
-    remains in effect until the issues are actually resolved (a
-    subsequent rebase whose validation finds no issues) or the
-    lifecycle is abandoned via ``git rebase --abort`` or
-    ``git rebase --quit``.
-    """
-    lines = [
-        "POST-REBASE COMMIT MESSAGE VALIDATION — ISSUES PERSIST AFTER",
-        "AUTOMATIC CORRECTION.",
-        "",
-        "The following commits still have commit message issues after a",
-        "previous correction attempt:",
-        "",
-    ]
-
-    for commit in problematic_commits:
-        lines.append(f"  {commit['abbreviated_hash']}:")
-        lines.append("    Message:")
-        for message_line in commit["message"].splitlines():
-            lines.append(f"      {message_line}")
-        lines.append("    Issues:")
-        for issue in commit["issues"]:
-            lines.append(f"    - {issue}")
-        lines.append("")
-
-    lines.extend([
-        "Do not attempt another automated correction.  Present the",
-        "issues above to the user and ask how they would like to",
-        "proceed.",
-    ])
-
-    return "\n".join(lines)
-
-
-def _build_text_listing_failed_batches(
-    failed_batches: list[dict],
-) -> list[str]:
-    """Return the lines that enumerate why each failed batch failed.
-
-    Separated from the message-builder functions so that both the
-    standalone infrastructure-failure message and the appended section
-    that accompanies real issues share the same formatting for the
-    per-batch failure reasons.
-    """
-    if not failed_batches:
-        return []
-    lines = ["Failure reasons by batch:"]
-    for batch in failed_batches:
-        number_of_commits_in_batch = len(batch["commits_in_batch"])
-        commit_or_commits = (
-            "commit"
-            if number_of_commits_in_batch == 1
-            else "commits"
-        )
-        lines.append(
-            f"  Batch {batch['batch_index']} of"
-            f" {batch['number_of_batches']}"
-            f" ({number_of_commits_in_batch} {commit_or_commits}):"
-            f" {batch['failure_description'] or 'unknown'}"
-        )
-    lines.append("")
-    return lines
-
-
-def _build_text_listing_unvalidated_commits(
-    unvalidated_commits: list[dict],
-) -> list[str]:
-    """Return the lines that enumerate each commit whose validation did
-    not complete, showing the commit's abbreviated hash and message.
-    """
-    lines: list[str] = []
-    for commit_data in unvalidated_commits:
-        abbreviated_hash = commit_data["hash"][
-            :_NUMBER_OF_CHARACTERS_IN_ABBREVIATED_COMMIT_HASH
-        ]
-        lines.append(f"  {abbreviated_hash}:")
-        lines.append("    Message:")
-        for message_line in commit_data["message"].splitlines():
-            lines.append(f"      {message_line}")
-        lines.append("")
-    return lines
-
-
-def build_system_message_for_validation_infrastructure_failure(
-    unvalidated_commits: list[dict],
-    failed_batches: list[dict],
-) -> str:
-    """Build the systemMessage that reports an infrastructure failure
-    blocking post-rebase commit message validation.
-
-    Used when validation did not complete for any commit because every
-    batch failed, or when the only remaining concern after successful
-    batches is the set of commits whose batches did not complete.  The
-    message does not instruct Claude to perform an automatic
-    correction — the failure is not with the commit messages
-    themselves but with the validation infrastructure, so the correct
-    next action is manual inspection of each listed commit against
-    its diff from the parent.
-    """
-    lines = [
-        "POST-REBASE COMMIT MESSAGE VALIDATION — COULD NOT COMPLETE.",
-        "",
-        "The following commits produced by the rebase could not be",
-        "validated because the Claude command-line interface failed",
-        "for their batch:",
-        "",
-    ]
-    lines.extend(_build_text_listing_unvalidated_commits(unvalidated_commits))
-    lines.extend(_build_text_listing_failed_batches(failed_batches))
-    lines.extend([
-        "Inspect each listed commit message manually against its diff",
-        "from the parent commit (``git show <hash>``).  If any need",
-        "correction, apply the corrected messages using a",
-        "non-interactive ``git rebase -i`` by setting",
-        "``GIT_SEQUENCE_EDITOR`` to a ``sed`` command that marks the",
-        "affected commits as ``reword``, and ``GIT_EDITOR`` to a",
-        "script that writes the corrected message.",
-        "",
-        "If the command-line-interface failure was transient (for",
-        "example, a timeout), a subsequent rebase that changes any of",
-        "these commits will trigger validation again.",
-    ])
-    return "\n".join(lines)
-
-
-def build_text_describing_commits_that_could_not_be_validated(
-    unvalidated_commits: list[dict],
-    failed_batches: list[dict],
-) -> str:
-    """Build the trailing section that reports commits whose
-    validation did not complete, intended to be appended to one of
-    the existing correction messages when real issues and
-    infrastructure failures coexist.
-
-    The section is clearly separated from the primary correction
-    instructions so that Claude applies the corrected messages for
-    the commits with real issues and treats the unvalidated commits
-    as a distinct manual-inspection task.
-    """
-    lines = [
-        "ADDITIONAL COMMITS COULD NOT BE VALIDATED — MANUAL INSPECTION",
-        "REQUIRED.",
-        "",
-        "Validation did not complete for the following commits because",
-        "the Claude command-line interface failed for their batch:",
-        "",
-    ]
-    lines.extend(_build_text_listing_unvalidated_commits(unvalidated_commits))
-    lines.extend(_build_text_listing_failed_batches(failed_batches))
-    lines.extend([
-        "Inspect each listed commit message manually against its diff",
-        "from the parent commit.  If any need correction, include them",
-        "in the same non-interactive ``git rebase -i`` used to apply",
-        "the corrections above.",
-    ])
-    return "\n".join(lines)
 
 
 def main() -> int:
@@ -1477,7 +702,7 @@ def main() -> int:
     commits_data: list[dict] = []
     for commit_hash in commits:
         abbreviated_hash = commit_hash[
-            :_NUMBER_OF_CHARACTERS_IN_ABBREVIATED_COMMIT_HASH
+            :NUMBER_OF_CHARACTERS_IN_ABBREVIATED_COMMIT_HASH
         ]
         message = get_commit_message(commit_hash)
         if message is None:
@@ -1512,7 +737,7 @@ def main() -> int:
             )
             continue
         diff = truncate_diff_to_maximum_size_with_explicit_marker(
-            diff, _MAXIMUM_NUMBER_OF_CHARACTERS_OF_DIFF_PER_COMMIT,
+            diff, MAXIMUM_NUMBER_OF_CHARACTERS_OF_DIFF_PER_COMMIT,
         )
         # When the parent count cannot be determined, default to 1 so
         # that the validation model applies the standard accuracy
@@ -1572,7 +797,7 @@ def main() -> int:
         entry = {
             "hash": full_hash_returned_by_model,
             "abbreviated_hash": full_hash_returned_by_model[
-                :_NUMBER_OF_CHARACTERS_IN_ABBREVIATED_COMMIT_HASH
+                :NUMBER_OF_CHARACTERS_IN_ABBREVIATED_COMMIT_HASH
             ],
             "message": commit_message_indexed_by_full_hash.get(
                 full_hash_returned_by_model, "(unknown)"
