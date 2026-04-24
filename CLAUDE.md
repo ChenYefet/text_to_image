@@ -382,6 +382,7 @@ When the same abbreviation appears in multiple rows — because it is used to sh
 | JPEG | Joint Photographic Experts Group | abbreviated | abbreviated |
 | JPG | Joint Photographic Experts Group (variant) | abbreviated | abbreviated |
 | JSON | JavaScript Object Notation | abbreviated | abbreviated |
+| JSONB | JSON Binary | abbreviated | abbreviated |
 | JTI | JSON Token Identifier | abbreviated | abbreviated |
 | JWT | JSON Web Token | abbreviated | abbreviated |
 | KB | kilobyte | abbreviated | abbreviated |
