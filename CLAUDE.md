@@ -376,16 +376,19 @@ When the same abbreviation appears in multiple rows — because it is used to sh
 | CRUD | create, read, update, delete | abbreviated | abbreviated |
 | CLIP | Contrastive Language-Image Pre-training | abbreviated | abbreviated |
 | cmd | command | expanded | expanded |
+| config | configuration | expanded | expanded |
 | CORS | Cross-Origin Resource Sharing | abbreviated | abbreviated |
 | CPU | central processing unit | abbreviated | abbreviated |
 | CUDA | Compute Unified Device Architecture | abbreviated | abbreviated |
 | cwd | current working directory | expanded | expanded |
+| DB | database | expanded | expanded |
 | DDL | data definition language | abbreviated | expanded |
 | dep | dependency | expanded | expanded |
 | desc | description | expanded | expanded |
 | DevOps | development operations | abbreviated | abbreviated |
 | diff | difference | abbreviated | abbreviated |
 | docs | documentation | expanded | expanded |
+| DST | Daylight Saving Time | abbreviated | expanded |
 | DTO | data transfer object | abbreviated | expanded |
 | e.g. | for example | expanded | abbreviated |
 | etc. | et cetera | abbreviated | abbreviated |
@@ -407,7 +410,9 @@ When the same abbreviation appears in multiple rows — because it is used to sh
 | idx | index | expanded | expanded |
 | info | information | expanded | expanded |
 | I/O | input/output | abbreviated | abbreviated |
+| IANA | Internet Assigned Numbers Authority | abbreviated | expanded |
 | IP | Internet Protocol | abbreviated | abbreviated |
+| IV | initialisation vector | expanded | expanded |
 | JDBC | Java Database Connectivity | abbreviated | expanded |
 | JIT | just-in-time | abbreviated | abbreviated |
 | JPEG | Joint Photographic Experts Group | abbreviated | abbreviated |
@@ -424,7 +429,9 @@ When the same abbreviation appears in multiple rows — because it is used to sh
 | MB | megabyte | abbreviated | abbreviated |
 | min | minimum | expanded | expanded |
 | msg | message | expanded | expanded |
+| MSS | Maximum Segment Size | expanded | expanded |
 | MTBF | mean time between failures | expanded | expanded |
+| MTU | Maximum Transmission Unit | expanded | expanded |
 | NFR | non-functional requirement | abbreviated | abbreviated |
 | NSFW | not safe for work | abbreviated | abbreviated |
 | num | number | expanded | expanded |
@@ -437,13 +444,18 @@ When the same abbreviation appears in multiple rows — because it is used to sh
 | QPS | queries per second | expanded | expanded |
 | RAM | random-access memory | abbreviated | abbreviated |
 | README | read me | abbreviated | abbreviated |
+| regex | regular expression | expanded | expanded |
 | rel | relative | expanded | expanded |
 | repo | repository | expanded | expanded |
 | req | requirement | expanded | expanded |
 | REST | Representational State Transfer | abbreviated | abbreviated |
+| RFC | Request for Comments | expanded | expanded |
 | rid | requirement identifier | expanded | expanded |
+| RNG | random number generator | expanded | expanded |
 | RO | Reference Operation | abbreviated | abbreviated |
 | sev | severity | expanded | expanded |
+| SHA | Secure Hash Algorithm | abbreviated | abbreviated |
+| SLA | Service Level Agreement | abbreviated | expanded |
 | spec | specification | expanded | expanded |
 | SQL | Structured Query Language | abbreviated | abbreviated |
 | SSB | Star Schema Benchmark | abbreviated | expanded |
@@ -452,7 +464,9 @@ When the same abbreviation appears in multiple rows — because it is used to sh
 | TCP | Transmission Control Protocol | abbreviated | abbreviated |
 | temp | temporary | expanded | expanded |
 | temp | temperature | expanded | expanded |
+| TLS | Transport Layer Security | abbreviated | expanded |
 | TPC-H | Transaction Processing Performance Council Benchmark H | abbreviated | expanded |
+| TTL | time-to-live | abbreviated | expanded |
 | URL | Uniform Resource Locator | abbreviated | abbreviated |
 | UUID | Universally Unique Identifier | abbreviated | abbreviated |
 | v | version | expanded | expanded |
