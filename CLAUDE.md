@@ -403,6 +403,7 @@ When the same abbreviation appears in multiple rows — because it is used to sh
 | GNU | GNU's Not Unix | abbreviated | abbreviated |
 | gomod | Go module | expanded | expanded |
 | GPU | graphics processing unit | abbreviated | abbreviated |
+| HIPAA | Health Insurance Portability and Accountability Act | abbreviated | abbreviated |
 | HPA | Horizontal Pod Autoscaler | abbreviated | abbreviated |
 | HTTP | Hypertext Transfer Protocol | abbreviated | abbreviated |
 | i.e. | that is to say | expanded | abbreviated |
@@ -438,6 +439,7 @@ When the same abbreviation appears in multiple rows — because it is used to sh
 | obs | observation | expanded | expanded |
 | OLAP | online analytical processing | expanded | expanded |
 | op | operation | expanded | expanded |
+| PCI | Payment Card Industry | abbreviated | abbreviated |
 | pkg | package | expanded | expanded |
 | PNG | Portable Network Graphics | abbreviated | abbreviated |
 | pyproj | pyproject | expanded | expanded |
@@ -456,6 +458,7 @@ When the same abbreviation appears in multiple rows — because it is used to sh
 | sev | severity | expanded | expanded |
 | SHA | Secure Hash Algorithm | abbreviated | abbreviated |
 | SLA | Service Level Agreement | abbreviated | expanded |
+| SOC2 | System and Organization Controls 2 | abbreviated | abbreviated |
 | spec | specification | expanded | expanded |
 | SQL | Structured Query Language | abbreviated | abbreviated |
 | SSB | Star Schema Benchmark | abbreviated | expanded |
@@ -471,6 +474,8 @@ When the same abbreviation appears in multiple rows — because it is used to sh
 | UUID | Universally Unique Identifier | abbreviated | abbreviated |
 | v | version | expanded | expanded |
 | VRAM | video random-access memory | abbreviated | abbreviated |
+| vs. | versus | abbreviated | abbreviated |
 | WSGI | Web Server Gateway Interface | abbreviated | abbreviated |
 | WSL | Windows Subsystem for Linux | abbreviated | abbreviated |
 | WSL2 | Windows Subsystem for Linux 2 | abbreviated | abbreviated |
+| x | times | abbreviated | abbreviated |
