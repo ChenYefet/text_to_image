@@ -456,6 +456,7 @@ When the same abbreviation appears in multiple rows — because it is used to sh
 | req | requirement | expanded | expanded |
 | REST | Representational State Transfer | abbreviated | abbreviated |
 | RFC | Request for Comments | expanded | expanded |
+| RGB | red, green, blue | abbreviated | abbreviated |
 | rid | requirement identifier | expanded | expanded |
 | RNG | random number generator | expanded | expanded |
 | RO | Reference Operation | abbreviated | abbreviated |
@@ -478,6 +479,7 @@ When the same abbreviation appears in multiple rows — because it is used to sh
 | TPC-H | Transaction Processing Performance Council Benchmark H | abbreviated | expanded |
 | TTL | time-to-live | abbreviated | expanded |
 | URL | Uniform Resource Locator | abbreviated | abbreviated |
+| UTF-8 | Unicode Transformation Format 8-bit | abbreviated | abbreviated |
 | UUID | Universally Unique Identifier | abbreviated | abbreviated |
 | v | version | expanded | expanded |
 | VRAM | video random-access memory | abbreviated | abbreviated |
