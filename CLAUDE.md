@@ -426,6 +426,7 @@ When the same abbreviation appears in multiple rows — because it is used to sh
 | JTI | JSON Token Identifier | abbreviated | abbreviated |
 | JWT | JSON Web Token | abbreviated | abbreviated |
 | KB | kilobyte | abbreviated | abbreviated |
+| KiB | kibibyte | abbreviated | abbreviated |
 | kw | keyword | expanded | expanded |
 | lf | lock file | expanded | expanded |
 | LLM | large language model | abbreviated | expanded |
@@ -480,9 +481,11 @@ When the same abbreviation appears in multiple rows — because it is used to sh
 | TLS | Transport Layer Security | abbreviated | expanded |
 | TPC-H | Transaction Processing Performance Council Benchmark H | abbreviated | expanded |
 | TTL | time-to-live | abbreviated | expanded |
+| UI | user interface | abbreviated | abbreviated |
 | URL | Uniform Resource Locator | abbreviated | abbreviated |
 | UTF-8 | Unicode Transformation Format 8-bit | abbreviated | abbreviated |
 | UUID | Universally Unique Identifier | abbreviated | abbreviated |
+| UX | user experience | abbreviated | abbreviated |
 | v | version | expanded | expanded |
 | VRAM | video random-access memory | abbreviated | abbreviated |
 | vs. | versus | abbreviated | abbreviated |
