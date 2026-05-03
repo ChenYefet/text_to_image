@@ -449,6 +449,7 @@ When the same abbreviation appears in multiple rows — because it is used to sh
 | PCI | Payment Card Industry | abbreviated | abbreviated |
 | pkg | package | expanded | expanded |
 | PNG | Portable Network Graphics | abbreviated | abbreviated |
+| POSIX | Portable Operating System Interface | abbreviated | abbreviated |
 | pyproj | pyproject | expanded | expanded |
 | QPS | queries per second | expanded | expanded |
 | RAM | random-access memory | abbreviated | abbreviated |
