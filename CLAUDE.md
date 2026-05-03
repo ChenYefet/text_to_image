@@ -359,6 +359,7 @@ ESTABLISHED TECHNICAL COMPOUND TERMS
 - cloud provider
 - file path
 - response body
+- web crawl
 
 In addition to the terms explicitly enumerated above, every multi-word expansion of an abbreviation listed in the abbreviation registry below is automatically treated as an established technical compound term, because the existence of a stable abbreviation evidences fixed lexical status in the abbreviation's domain. The connector exemption for internal structure, the boundary rule for use as a leading modifier, and the prohibition on decomposition during restructuring all apply to such automatically promoted expansions exactly as they do to the explicitly listed entries. A "multi-word expansion" for these purposes includes hyphenated compounds (e.g. "time-to-live", "random-access memory") and comma-separated enumerations (e.g. "create, read, update, delete"); it does not include single-word expansions (e.g. "configuration" for "config"). This automatic promotion eliminates the duplicated maintenance burden that would arise from listing each fixed lexical unit in two places, and ensures that any future addition to the abbreviation registry is recognised as an established compound without a second edit.
 
