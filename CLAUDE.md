@@ -366,7 +366,7 @@ When the same abbreviation appears in multiple rows — because it is used to sh
 | All file extensions | (varies by extension) | abbreviated | abbreviated |
 | All ISO 4217 currency codes | (varies by currency) | abbreviated | abbreviated |
 | adv | adversarial | expanded | expanded |
-| AI | artificial intelligence | abbreviated | abbreviated |
+| AI | artificial intelligence | abbreviated | expanded |
 | API | Application Programming Interface | abbreviated | abbreviated |
 | arch | architecture | expanded | expanded |
 | ASGI | Asynchronous Server Gateway Interface | abbreviated | abbreviated |
