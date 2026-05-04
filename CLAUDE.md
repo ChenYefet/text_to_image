@@ -373,13 +373,16 @@ When the same abbreviation appears in multiple rows — because it is used to sh
 | All ISO 4217 currency codes | (varies by currency) | abbreviated | abbreviated |
 | adv | adversarial | expanded | expanded |
 | AI | artificial intelligence | abbreviated | expanded |
+| APFS | Apple File System | abbreviated | abbreviated |
 | API | Application Programming Interface | abbreviated | abbreviated |
 | arch | architecture | expanded | expanded |
 | ASGI | Asynchronous Server Gateway Interface | abbreviated | abbreviated |
 | BE | backend | expanded | expanded |
 | bid | batch identifier | expanded | expanded |
+| Btrfs | B-tree filesystem | abbreviated | abbreviated |
 | cat | category | expanded | expanded |
 | CI | continuous integration | expanded | expanded |
+| CIFS | Common Internet File System | abbreviated | abbreviated |
 | CLI | command-line interface | abbreviated | expanded |
 | CRUD | create, read, update, delete | abbreviated | abbreviated |
 | CLIP | Contrastive Language-Image Pre-training | abbreviated | abbreviated |
@@ -402,8 +405,10 @@ When the same abbreviation appears in multiple rows — because it is used to sh
 | e.g. | for example | expanded | abbreviated |
 | etc. | et cetera | abbreviated | abbreviated |
 | ext | extension | expanded | expanded |
+| ext4 | fourth extended filesystem | abbreviated | abbreviated |
 | FE | frontend | expanded | expanded |
 | FR | functional requirement | abbreviated | abbreviated |
+| FUSE | Filesystem in Userspace | abbreviated | abbreviated |
 | GB | gigabyte | abbreviated | abbreviated |
 | GiB | gibibyte | abbreviated | abbreviated |
 | GCC | GNU Compiler Collection | abbreviated | abbreviated |
@@ -414,6 +419,7 @@ When the same abbreviation appears in multiple rows — because it is used to sh
 | GPU | graphics processing unit | abbreviated | abbreviated |
 | HIPAA | Health Insurance Portability and Accountability Act | abbreviated | abbreviated |
 | HPA | Horizontal Pod Autoscaler | abbreviated | abbreviated |
+| HSM | hardware security module | abbreviated | abbreviated |
 | HTTP | Hypertext Transfer Protocol | abbreviated | abbreviated |
 | i.e. | that is to say | expanded | abbreviated |
 | ID | identifier | abbreviated | abbreviated |
@@ -438,6 +444,7 @@ When the same abbreviation appears in multiple rows — because it is used to sh
 | LLM | large language model | abbreviated | expanded |
 | max | maximum | expanded | expanded |
 | MB | megabyte | abbreviated | abbreviated |
+| MiFID | Markets in Financial Instruments Directive | abbreviated | abbreviated |
 | min | minimum | expanded | expanded |
 | ML | machine learning | expanded | expanded |
 | msg | message | expanded | expanded |
@@ -448,10 +455,12 @@ When the same abbreviation appears in multiple rows — because it is used to sh
 | NLP | natural language processing | expanded | expanded |
 | NN | neural network | expanded | expanded |
 | NSFW | not safe for work | abbreviated | abbreviated |
+| NTFS | New Technology File System | abbreviated | abbreviated |
 | num | number | expanded | expanded |
 | obs | observation | expanded | expanded |
 | OLAP | online analytical processing | expanded | expanded |
 | op | operation | expanded | expanded |
+| OS | operating system | expanded | expanded |
 | PCI | Payment Card Industry | abbreviated | abbreviated |
 | pkg | package | expanded | expanded |
 | PNG | Portable Network Graphics | abbreviated | abbreviated |
@@ -475,7 +484,9 @@ When the same abbreviation appears in multiple rows — because it is used to sh
 | SLA | Service Level Agreement | abbreviated | expanded |
 | SLI | Service Level Indicator | abbreviated | expanded |
 | SLO | Service Level Objective | abbreviated | expanded |
+| SMB | Server Message Block | abbreviated | abbreviated |
 | SOC2 | System and Organization Controls 2 | abbreviated | abbreviated |
+| SOX | Sarbanes-Oxley Act | abbreviated | abbreviated |
 | spec | specification | expanded | expanded |
 | SQL | Structured Query Language | abbreviated | abbreviated |
 | SRE | Site Reliability Engineering | abbreviated | expanded |
@@ -489,6 +500,7 @@ When the same abbreviation appears in multiple rows — because it is used to sh
 | TPC-H | Transaction Processing Performance Council Benchmark H | abbreviated | expanded |
 | TTL | time-to-live | abbreviated | expanded |
 | UI | user interface | abbreviated | abbreviated |
+| UNC | Universal Naming Convention | abbreviated | expanded |
 | URL | Uniform Resource Locator | abbreviated | abbreviated |
 | UTF-8 | Unicode Transformation Format 8-bit | abbreviated | abbreviated |
 | UUID | Universally Unique Identifier | abbreviated | abbreviated |
@@ -500,3 +512,5 @@ When the same abbreviation appears in multiple rows — because it is used to sh
 | WSL | Windows Subsystem for Linux | abbreviated | abbreviated |
 | WSL2 | Windows Subsystem for Linux 2 | abbreviated | abbreviated |
 | x | times | abbreviated | abbreviated |
+| XFS | extents filesystem | abbreviated | abbreviated |
+| ZFS | Z filesystem | abbreviated | abbreviated |
