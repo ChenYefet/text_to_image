@@ -499,12 +499,13 @@ When the same abbreviation appears in multiple rows — because it is used to sh
 | TLS | Transport Layer Security | abbreviated | expanded |
 | TPC-H | Transaction Processing Performance Council Benchmark H | abbreviated | expanded |
 | TTL | time-to-live | abbreviated | expanded |
-| UI | user interface | abbreviated | abbreviated |
+| UI | user interface | expanded | expanded |
+| UI/UX | user interface and user experience | abbreviated | abbreviated |
 | UNC | Universal Naming Convention | abbreviated | expanded |
 | URL | Uniform Resource Locator | abbreviated | abbreviated |
 | UTF-8 | Unicode Transformation Format 8-bit | abbreviated | abbreviated |
 | UUID | Universally Unique Identifier | abbreviated | abbreviated |
-| UX | user experience | abbreviated | abbreviated |
+| UX | user experience | expanded | expanded |
 | v | version | expanded | expanded |
 | VRAM | video random-access memory | abbreviated | abbreviated |
 | vs. | versus | abbreviated | abbreviated |
