@@ -399,6 +399,7 @@ When the same abbreviation appears in multiple rows — because it is used to sh
 | DevOps | development operations | abbreviated | abbreviated |
 | diff | difference | abbreviated | abbreviated |
 | DL | deep learning | expanded | expanded |
+| doc | document | expanded | expanded |
 | docs | documentation | expanded | expanded |
 | DST | Daylight Saving Time | abbreviated | expanded |
 | DTO | data transfer object | abbreviated | expanded |
