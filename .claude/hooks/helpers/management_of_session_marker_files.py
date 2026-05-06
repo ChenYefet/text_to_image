@@ -52,11 +52,11 @@ PREFIX_OF_RESULTS_FILE_FOR_INSTRUCTIONS_FOR_POST_REBASE_CORRECTION = (
 # pause in an active correction workflow (including an overnight break
 # between recognising an issue and returning to correct it) and short
 # enough that orphaned markers do not accumulate across days of usage.
-# Why not 43 200 seconds (12 hours, half): Would risk deleting markers
+# Why not 43 200 seconds (12 hours, half): would risk deleting markers
 # from an ongoing multi-stage correction that the user returned to
 # after a longer pause (for example, after a full working day spent
 # on unrelated work).  Why not 172 800 seconds (48 hours, double):
-# Would allow markers from crashed sessions to survive two days before
+# would allow markers from crashed sessions to survive two days before
 # cleanup, widening the window during which they could be mistaken for
 # live state by another concurrent session operating under the same
 # working directory.

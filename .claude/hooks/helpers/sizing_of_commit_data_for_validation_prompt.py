@@ -35,11 +35,11 @@ half, why not double" analysis — are recorded beside each constant.
 # margin against long tail-end reasoning.  A budget this large means
 # most real rebases collapse into a single batch, amortising the
 # prompt scaffolding across every commit in the rebase rather than
-# repeating it per batch.  Why not 500 000 (half): Would split many
+# repeating it per batch.  Why not 500 000 (half): would split many
 # routine multi-commit rebases into two batches for no accuracy
 # benefit, doubling calls to the validation model without reducing
 # per-call latency below what the model is already handling.  Why
-# not 2 000 000 (double): Would require the model to process
+# not 2 000 000 (double): would require the model to process
 # approximately 500 000 tokens per call, approaching half of the
 # context window for input alone and leaving too little headroom for
 # the 350 000-character per-commit diff cap to coexist with prompt
@@ -58,10 +58,10 @@ MAXIMUM_NUMBER_OF_CHARACTERS_PER_VALIDATION_BATCH = 1_000_000
 # lines — large enough for substantial refactoring commits while
 # bounding pathological inputs (vendored dependencies, generated
 # files, large binary patches presented as text) to a single-digit
-# fraction of the context.  Why not 175 000 (half): Would truncate
+# fraction of the context.  Why not 175 000 (half): would truncate
 # legitimate large-refactor commits that the 1 000 000-token context
 # window can easily accommodate, discarding accuracy signal that
-# there is room to keep.  Why not 700 000 (double): Would allow a
+# there is room to keep.  Why not 700 000 (double): would allow a
 # single commit to occupy close to 20% of the context window,
 # crowding out prompt scaffolding and other commits sharing the same
 # batch, and investing context in the unlikely tail of a commit

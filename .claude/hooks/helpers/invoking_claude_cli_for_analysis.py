@@ -52,9 +52,9 @@ def parse_json_from_claude_cli_output(
     is the model's final answer.
 
     Parameters:
-        standard_output: The raw stdout from the Claude command-line
+        standard_output: the raw stdout from the Claude command-line
             interface subprocess.
-        expected_type: The expected Python type of the parsed result
+        expected_type: the expected Python type of the parsed result
             (``dict`` or ``list``).  Defaults to ``dict``.
 
     Returns the parsed result if it matches ``expected_type``, or None
@@ -175,7 +175,7 @@ def _run_claude_cli_with_retries_and_return_result_and_failure_description(
     for attempt_index in range(maximum_number_of_attempts):
         if attempt_index > 0:
             print(
-                f"{severity}: Attempt {attempt_index} of"
+                f"{severity}: attempt {attempt_index} of"
                 f" {maximum_number_of_attempts} for"
                 f" {description_of_analysis} failed ({last_failure});"
                 f" retrying in {number_of_seconds_between_attempts}"
@@ -241,7 +241,7 @@ def _run_claude_cli_with_retries_and_return_result_and_failure_description(
         return analysis, None
 
     print(
-        f"{severity}: All {maximum_number_of_attempts} attempt(s) failed"
+        f"{severity}: all {maximum_number_of_attempts} attempt(s) failed"
         f" for {description_of_analysis}"
         + (f" — last failure: {last_failure}" if last_failure else "")
         + ".",
@@ -280,21 +280,21 @@ def call_claude_cli_for_analysis(
     instead, because the module-level variable is shared across threads.
 
     Parameters:
-        prompt: The prompt text to send to the Claude command-line
+        prompt: the prompt text to send to the Claude command-line
             interface via stdin.
-        expected_type: The expected Python type of the parsed result
+        expected_type: the expected Python type of the parsed result
             (``dict`` or ``list``).  Defaults to ``dict``.
-        timeout_in_seconds: Subprocess timeout in seconds.  Defaults
+        timeout_in_seconds: subprocess timeout in seconds.  Defaults
             to 60.
-        maximum_number_of_attempts: The maximum number of attempts
+        maximum_number_of_attempts: the maximum number of attempts
             before giving up.  Defaults to 2 (one original attempt
             plus one retry).
-        number_of_seconds_between_attempts: The number of seconds to
+        number_of_seconds_between_attempts: the number of seconds to
             wait between retry attempts.  Defaults to 3.
-        description_of_analysis: A short description of the analysis
+        description_of_analysis: a short description of the analysis
             being performed, used in error/warning messages (e.g.
             ``"commit message format analysis"``).
-        severity: The prefix for log messages — ``"ERROR"`` or
+        severity: the prefix for log messages — ``"ERROR"`` or
             ``"WARNING"``.  Use ``"ERROR"`` when the hook hard-blocks
             on failure; use ``"WARNING"`` when the hook degrades
             gracefully.  Defaults to ``"WARNING"``.

@@ -128,14 +128,14 @@ def run_deny_then_allow(
     mechanism cannot guarantee the second attempt will be allowed.
 
     Parameters:
-        hook_input: The JSON hook input from Claude Code stdin.
-        prefix_of_marker_file: A unique prefix for this hook's marker
+        hook_input: the JSON hook input from Claude Code stdin.
+        prefix_of_marker_file: a unique prefix for this hook's marker
             files.  Must be different for each hook to avoid collisions.
-        check_and_build_blocking_message: A callable that performs the
+        check_and_build_blocking_message: a callable that performs the
             hook-specific check and returns a blocking message string
             if the commit should be blocked, or None if it should be
             allowed.
-        predicate_for_other_git_commands_that_affect_commits: An
+        predicate_for_other_git_commands_that_affect_commits: an
             optional callable that returns True for git commands — other
             than ``git commit`` — that also produce or modify commits
             and should therefore trigger the deny-then-allow check.
@@ -196,10 +196,10 @@ def run_deny_then_allow_on_bash_command(
     positives never permanently block a command.
 
     Parameters:
-        hook_input: The JSON hook input from Claude Code stdin.
-        prefix_of_marker_file: A unique prefix for this hook's marker
+        hook_input: the JSON hook input from Claude Code stdin.
+        prefix_of_marker_file: a unique prefix for this hook's marker
             files.  Must be different for each hook to avoid collisions.
-        check_and_build_blocking_message: A callable that performs the
+        check_and_build_blocking_message: a callable that performs the
             hook-specific check and returns a blocking message string
             if the command should be blocked, or None if it should be
             allowed.

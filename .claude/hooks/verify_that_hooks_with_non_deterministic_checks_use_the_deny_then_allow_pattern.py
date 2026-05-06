@@ -13,12 +13,12 @@ and cannot deny or block tool calls.  On the second attempt within the
 same session, the hook allows the commit to proceed regardless — because
 the analysis is itself non-deterministic.
 
-This hook is self-referentially consistent: It enforces the rule that
+This hook is self-referentially consistent: it enforces the rule that
 hooks based on large language models must use the deny-then-allow
 pattern, and it is itself a hook based on a large language model that
 uses the deny-then-allow pattern.
 
-Graceful degradation: If the ``claude`` command-line interface is not found, times out,
+Graceful degradation: if the ``claude`` command-line interface is not found, times out,
 returns an error, or produces unparseable output, the hook allows the
 commit and logs a warning to stderr.
 

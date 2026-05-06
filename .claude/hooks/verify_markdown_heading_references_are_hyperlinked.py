@@ -17,7 +17,7 @@ Session isolation is achieved via a marker file whose name includes the
 session is ignored and cleaned up, preventing stale markers from
 allowing commits without review.
 
-Graceful degradation: If the ``claude`` command-line interface is not found, times out,
+Graceful degradation: if the ``claude`` command-line interface is not found, times out,
 returns an error, or produces unparseable output, the hook allows the
 commit and logs a warning to stderr.
 
@@ -104,18 +104,18 @@ def build_prompt_for_heading_reference_analysis(
         "\"configuration\" appearing in a sentence about configuring "
         "something, when there happens to be a heading with "
         "\"Configuration\" in the name.\n"
-        "5. Be conservative: Only flag text where the author clearly "
+        "5. Be conservative: only flag text where the author clearly "
         "intended to refer the reader to a specific heading. When in "
         "doubt, do not flag it.\n"
         "\n"
         "Return ONLY a JSON array. Each element must be an object with "
         "these fields:\n"
-        '- "reference_text": The exact prose text that references the '
+        '- "reference_text": the exact prose text that references the '
         "heading.\n"
-        '- "referenced_heading": The heading being referenced.\n'
-        '- "anchor_id": The anchor identifier for that heading (from the '
+        '- "referenced_heading": the heading being referenced.\n'
+        '- "anchor_id": the anchor identifier for that heading (from the '
         "list above).\n"
-        '- "explanation": A brief explanation of why this is a heading '
+        '- "explanation": a brief explanation of why this is a heading '
         "reference.\n"
         "\n"
         "If there are no violations, return an empty array: []\n"

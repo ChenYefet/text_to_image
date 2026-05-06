@@ -6,10 +6,10 @@ tool and the Bash tool.  It performs two lifecycle operations on the
 marker file used by ``inject_claude_md_before_commit.py`` to gate
 commits on a fresh read of CLAUDE.md:
 
-1. **Creation** (PostToolUse on Read): When the Read tool is used on a
+1. **Creation** (PostToolUse on Read): when the Read tool is used on a
    file named ``CLAUDE.md``, this hook creates the marker file.
 
-2. **Consumption** (PostToolUse on Bash): When the Bash tool executes
+2. **Consumption** (PostToolUse on Bash): when the Bash tool executes
    a command that invokes a ``git`` subcommand authoring at least one
    commit on successful execution — ``git commit``, ``git commit-tree``,
    ``git cherry-pick`` (initial invocation and its ``--continue`` /

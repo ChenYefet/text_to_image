@@ -42,12 +42,12 @@ import time
 # ORIG_HEAD has not been overwritten since — and the current
 # invocation therefore did not produce a new HEAD movement to
 # validate.  Why not 60 seconds (roughly the per-batch validation
-# timeout): A single rebase that applies many commits, each of which
+# timeout): a single rebase that applies many commits, each of which
 # involves content-aware merging, can legitimately take longer than a
 # minute on slower machines, and the reflog timestamp records the
 # final HEAD movement (at the end of the rebase), not the command's
 # start.  A 60-second ceiling would reject legitimate slow rebases as
-# stale.  Why not 3 600 seconds (one hour): Would allow an hour-old
+# stale.  Why not 3 600 seconds (one hour): would allow an hour-old
 # HEAD movement to be treated as current, defeating the purpose of
 # the freshness check entirely.  300 seconds (five minutes) is long
 # enough to cover the tail of realistic rebases plus a generous
@@ -130,7 +130,7 @@ def was_head_last_modified_by_a_recent_rebase_completion() -> bool:
     The entry is attributed to the current invocation when both of the
     following hold:
 
-    - Its subject begins with ``rebase`` — the reflog subjects that git
+    - its subject begins with ``rebase`` — the reflog subjects that git
       emits for rebase-produced HEAD movements include
       ``rebase (start)``, ``rebase (pick)``, ``rebase (reword)``,
       ``rebase (continue)``, and ``rebase (finish)``, and all of them
@@ -138,7 +138,7 @@ def was_head_last_modified_by_a_recent_rebase_completion() -> bool:
       HEAD was last moved by a non-rebase operation (commit, merge,
       reset, checkout), which means ``ORIG_HEAD..HEAD`` cannot be
       interpreted as the output of a just-completed rebase.
-    - Its timestamp is within the attribution window defined by
+    - its timestamp is within the attribution window defined by
       ``_MAXIMUM_AGE_IN_SECONDS_OF_HEAD_REFLOG_ENTRY_FOR_ATTRIBUTION_TO_CURRENT_INVOCATION``.
       A rebase reflog entry from a command several interactions ago
       would still match the subject check, but its ORIG_HEAD and HEAD
@@ -418,11 +418,11 @@ def select_commits_changed_by_rebase(
     in ``merge-base(ORIG_HEAD, HEAD)..ORIG_HEAD`` by patch-id.  A
     commit is retained for validation if any of the following holds:
 
-    - Its patch-id has no match in the pre-rebase range (the commit
+    - its patch-id has no match in the pre-rebase range (the commit
       introduces genuinely new content).
-    - Its patch-id matches a pre-rebase commit whose message differs
+    - its patch-id matches a pre-rebase commit whose message differs
       (the rebase reworded the commit).
-    - Patch-id matching cannot be performed for any reason (the
+    - patch-id matching cannot be performed for any reason (the
       function falls back to returning the full input list so that
       validation proceeds over every commit rather than silently
       skipping any).

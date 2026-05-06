@@ -9,27 +9,27 @@ simply inaccurate when the commit was first created.
 
 Covered scenarios:
 
-- ``git commit`` (without ``--amend``): Covers new commits.  The diff is
+- ``git commit`` (without ``--amend``): covers new commits.  The diff is
   computed between the staging area and HEAD (the parent of the new commit).
-- ``git commit --amend``: Covers direct amends and ``edit`` stops during
+- ``git commit --amend``: covers direct amends and ``edit`` stops during
   interactive rebase (which use ``git commit --amend`` under the hood).
   The diff is computed between the staging area and HEAD~1 (the parent of
   the commit being amended).
-- ``git rebase --continue``: Covers conflict resolution and rebase steps
+- ``git rebase --continue``: covers conflict resolution and rebase steps
   where ``--continue`` creates or finalises a commit.  The diff is computed
   between the staging area and HEAD (the parent of the commit about to be
   created).
-- ``git merge -m``: Covers merge commits with a custom message.  The diff
+- ``git merge -m``: covers merge commits with a custom message.  The diff
   is computed using the three-dot diff (``HEAD...target``) which shows
   changes on the merge target since the merge base.  Only merges with an
   explicit ``-m`` flag are validated; merges that use the auto-generated
   message are skipped.
-- ``git commit-tree``: Covers low-level commit creation (plumbing command).
+- ``git commit-tree``: covers low-level commit creation (plumbing command).
   The diff is computed between the parent commit (``-p``) and the tree
   object using ``git diff-tree``.  Only single-parent commits are
   supported; merge commits with multiple ``-p`` flags are not validated.
 
-Known limitation — ``reword`` during interactive rebase: When
+Known limitation — ``reword`` during interactive rebase: when
 ``git rebase -i`` includes ``reword`` actions, git handles the message
 change internally within the single ``git rebase -i`` invocation.  No
 separate ``git commit --amend`` or ``git rebase --continue`` command is
@@ -51,7 +51,7 @@ mischaracterisations — the commit is denied.  On the second attempt
 within the same session, the hook allows the commit to proceed
 regardless, because the analysis is itself non-deterministic.
 
-Graceful degradation: If the ``claude`` command-line interface is not found, times out,
+Graceful degradation: if the ``claude`` command-line interface is not found, times out,
 returns an error, or produces unparseable output, the hook allows the
 commit and logs a warning to stderr.
 
@@ -445,15 +445,15 @@ def resolve_commit_message_and_diff_from_parent() -> tuple[str, str] | None:
     """Determine the commit message and diff from parent for the current
     command.
 
-    For ``git commit`` (without ``--amend``): The message comes from the
+    For ``git commit`` (without ``--amend``): the message comes from the
     -m flag.  The diff is computed between the staging area and HEAD (the
     parent of the new commit).
 
-    For ``git commit --amend``: The message comes from the -m flag (or
+    For ``git commit --amend``: the message comes from the -m flag (or
     from HEAD if no -m flag is present).  The diff is computed between
     the staging area and HEAD~1 (the parent of the commit being amended).
 
-    For ``git rebase --continue``: The message comes from the rebase
+    For ``git rebase --continue``: the message comes from the rebase
     message file (``.git/rebase-merge/message``).  The diff is computed
     between the staging area and HEAD (the parent of the commit about to
     be created).
