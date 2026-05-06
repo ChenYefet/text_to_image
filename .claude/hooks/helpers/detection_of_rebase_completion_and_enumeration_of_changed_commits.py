@@ -361,11 +361,12 @@ def get_mapping_from_patch_id_to_commit_hash_for_revision_range(
     in the given revision range.
 
     Pipes the output of ``git log -p <revision_range>`` into
-    ``git patch-id --stable``.  Patch-ids are computed to be invariant
-    to whitespace changes, line-number shifts, and context differences
-    introduced by rebasing onto a new parent, so two commits with the
-    same patch-id record the same conceptual change even if their
-    diffs against their respective parents differ textually.
+    ``git patch-id --stable``.  The resulting patch-ids are computed
+    to be invariant to whitespace changes, line-number shifts, and
+    context differences introduced by rebasing onto a new parent, so
+    two commits with the same patch-id record the same conceptual
+    change even if their diffs against their respective parents
+    differ textually.
 
     Returns an empty dict if either subprocess fails, so that callers
     fall back to full validation rather than silently skipping commits
