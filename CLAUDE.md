@@ -393,6 +393,7 @@ When the same abbreviation appears in multiple rows — because it is used to sh
 | cmd | command | expanded | expanded |
 | config | configuration | expanded | expanded |
 | CORS | Cross-Origin Resource Sharing | abbreviated | abbreviated |
+| CoT | chain of thought | expanded | expanded |
 | CPU | central processing unit | abbreviated | abbreviated |
 | CUDA | Compute Unified Device Architecture | abbreviated | abbreviated |
 | cwd | current working directory | expanded | expanded |
@@ -425,6 +426,7 @@ When the same abbreviation appears in multiple rows — because it is used to sh
 | HIPAA | Health Insurance Portability and Accountability Act | abbreviated | abbreviated |
 | HPA | Horizontal Pod Autoscaler | abbreviated | abbreviated |
 | HSM | hardware security module | abbreviated | abbreviated |
+| HTML | Hypertext Markup Language | abbreviated | abbreviated |
 | HTTP | Hypertext Transfer Protocol | abbreviated | abbreviated |
 | i.e. | that is to say | expanded | abbreviated |
 | ID | identifier | abbreviated | abbreviated |
@@ -450,6 +452,7 @@ When the same abbreviation appears in multiple rows — because it is used to sh
 | LLM | large language model | abbreviated | expanded |
 | max | maximum | expanded | expanded |
 | MB | megabyte | abbreviated | abbreviated |
+| MCP | Model Context Protocol | abbreviated | abbreviated |
 | MiFID | Markets in Financial Instruments Directive | abbreviated | abbreviated |
 | min | minimum | expanded | expanded |
 | ML | machine learning | expanded | expanded |
@@ -473,6 +476,7 @@ When the same abbreviation appears in multiple rows — because it is used to sh
 | POSIX | Portable Operating System Interface | abbreviated | abbreviated |
 | pyproj | pyproject | expanded | expanded |
 | QPS | queries per second | expanded | expanded |
+| RAG | retrieval-augmented generation | expanded | expanded |
 | RAM | random-access memory | abbreviated | abbreviated |
 | README | read me | abbreviated | abbreviated |
 | regex | regular expression | expanded | expanded |
@@ -520,4 +524,6 @@ When the same abbreviation appears in multiple rows — because it is used to sh
 | WSL2 | Windows Subsystem for Linux 2 | abbreviated | abbreviated |
 | x | times | abbreviated | abbreviated |
 | XFS | extents filesystem | abbreviated | abbreviated |
+| XML | Extensible Markup Language | abbreviated | abbreviated |
+| YAML | YAML Ain't Markup Language | abbreviated | abbreviated |
 | ZFS | Z filesystem | abbreviated | abbreviated |
