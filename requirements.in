@@ -25,3 +25,8 @@ psutil>=7.2.2
 Pillow>=12.1.1
 prometheus_client>=0.22.1
 PyYAML>=6.0.2
+# urllib3 is floor-constrained because versions prior to 2.7.0 carry two known
+# security vulnerabilities (GHSA-qccp-gfcp-xxvc and GHSA-mf9v-mfxr-j63j); the
+# exact compatible version is resolved by pip against the constraints of the
+# packages that depend on it.
+urllib3>=2.7.0

@@ -175,8 +175,10 @@ typing-extensions==4.15.0
     #   typing-inspection
 typing-inspection==0.4.2
     # via fastapi
-urllib3==2.6.3
-    # via requests
+urllib3==2.7.0
+    # via
+    #   -r requirements.in
+    #   requests
 uvicorn==0.34.0
     # via -r requirements.in
 zipp==3.23.0
