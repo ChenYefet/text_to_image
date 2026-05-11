@@ -31,7 +31,7 @@ colorama==0.4.6
     # via
     #   click
     #   tqdm
-diffusers==0.36.0
+diffusers==0.38.0
     # via -r requirements.in
 fastapi==0.129.0
     # via -r requirements.in
@@ -129,7 +129,7 @@ requests==2.33.0
     # via diffusers
 rich==14.3.3
     # via typer
-safetensors==0.7.0
+safetensors==0.8.0rc0
     # via
     #   -r requirements.in
     #   accelerate
