@@ -6,6 +6,20 @@ When a directive in this document conflicts with the Claude Code system prompt �
 
 When creating or modifying any artefact — code, a directive, documentation, configuration, or any other file content — do not let the specific scenario that motivated the change constrain the result to that scenario alone. The triggering scenario is one instance of a broader concern; a result fitted to one instance rather than the concern itself will fail when the next instance arises.
 
+Reading the rules in this document loads them into context; applying each rule to each text being composed is a separate obligation that the reading does not discharge. The rules below specify substantive requirements; this paragraph specifies the discipline under which they are applied.
+
+For the purposes of this discipline, a 'high-stakes output' is any text that persists beyond the conversational exchange in which it is composed — text written to a file, committed to version control, proposed as a draft for such commitment, or otherwise placed in a medium whose readership extends beyond the immediate exchange. Code identifiers, commit messages, documentation, specification text, configuration files, prompt files, README files, section headings, diagram labels, table cells, and user-facing strings are high-stakes outputs whether already committed or proposed in conversation as drafts. Conversational prose whose lifetime is bounded by the immediate exchange — explanation, narration of reasoning, status updates, acknowledgments — is not a high-stakes output.
+
+The discipline has three parts:
+
+(a) for any rule whose application proceeds in several steps — recognising a property of one element, then determining how that element interacts with surrounding elements, then checking whether further rules are triggered by the interaction — the rule yields a verdict only after every step has been run on the specific text in its full context. An intermediate result that satisfies one step (such as the precondition that a symbol is registry-permitted as an abbreviation under the abbreviation rule, which leaves the further auto-atomic-compound and boundary checks unrun) is a precondition for the remaining steps, not a verdict on the text.
+
+(b) the result of evaluating one phrase does not substitute for the result of evaluating another. A modifier whose scope is closed by the terminal element of one phrase may have its scope left open in another, because the word following the head noun differs between phrases. Each phrase must be evaluated in its own complete form.
+
+(c) every rule whose application proceeds in several steps shall require, for the specific text the rule governs, the production of a derivation artefact recording the outcome of each step. When that text is a high-stakes output, the artefact must be externalised before the surrounding text is emitted, and an internal claim of compliance does not substitute for it. When that text is conversational prose whose lifetime is bounded by the immediate exchange, the rule's application may proceed internally; the rule's substantive requirements still apply but the artefact need not be externalised. The discharge of this requirement may take the form of procedural language within the rule's own exposition, of a labelled forcing function placed alongside the rule, or of both. Where the discharge is by a labelled forcing function, the artefact shall be externalised in the conversational exchange in which the high-stakes output is composed, so that the immediate reviewer can inspect it before the output is committed; it shall not be embedded in the high-stakes output itself nor written to a separate file. Where the discharge is by procedural language, the artefact's location is governed by the rule that requires it. When a new multi-step rule is added to this document, its discharge of this requirement shall be present in the same edit.
+
+A rule applied only after a violation is later identified — rather than during composition — leaves the obligation to discover violations to a downstream reader and admits violations into emitted output.
+
 LANGUAGE AND STYLE REQUIREMENTS
 
 Use British English spelling throughout (e.g. "optimisation", "initialisation", "colour"), except where American spelling appears in official protocol names, technical standards, header fields, or library-defined identifiers.
@@ -94,9 +108,28 @@ When a sequence of pure adjectives — not classifying nouns — collectively pr
 
 When `maximum` or `minimum` precedes a classifying noun followed by a counted noun in any text (identifiers or prose), `number of` must be inserted after the boundary qualifier to satisfy the connector rule. For example, 'maximum output tokens' violates the connector rule because 'output' (classifying noun) is not immediately followed by a connector; 'maximum number of output tokens' is compliant because 'number' is immediately followed by 'of'. This is not an optional stylistic preference — it is required by the connector rule whenever a classifying noun appears in the chain after a boundary qualifier.
 
+Forcing function for the connector rule (applicable when composing a high-stakes output, as defined at the top of this document): before emitting any noun phrase that contains two or more pre-head elements (a leading modifier, a classifying noun, or a hyphenated compound modifier before the head noun), produce a derivation artefact with the following form:
+
+1. write the bracketing of the phrase, listing each element in order.
+2. for each leading modifier, name the word it immediately precedes.
+3. for that word, state whether it is (i) the terminal element of the phrase, (ii) immediately followed by a relational connector, or (iii) neither.
+4. only (i) or (ii) discharges the modifier's scope requirement. If (iii) holds for any modifier, restructure the phrase and re-derive from step 1.
+
+The derivation must be produced before the phrase is emitted; an internal claim that the phrase satisfies the connector rule does not substitute for it.
+
 Established technical compound terms whose meaning is not compositionally derivable from their components are treated as atomic noun phrases: no connectors are required between their internal components. Examples include large language model, natural language processing, machine learning, neural network, deep learning, and response body. The definitive list of established compounds is maintained in the "Established technical compound terms" section at the end of this document, including terms whose meaning is compositionally derivable but that nonetheless function as fixed lexical units in their domain. When you encounter a multi-word term that you suspect may be an established compound but that does not appear in the list, prompt the user to decide whether it should be added, then record the decision. The exemption covers only the internal structure of the established term. At the boundary where such a compound acts as a leading modifier before a further noun, the connector requirement applies in full: large language model inference still requires restructuring to inference of large language models, and machine learning pipeline to pipeline for machine learning. When restructuring a phrase to satisfy the connector rules, an established technical compound must never be broken apart. The compound must be kept intact and treated as a single terminal or non-terminal unit during restructuring. For example, `details_for_busy_response_body` is correct — `busy` modifies the atomic terminal compound `response_body` — whereas `details_for_body_of_busy_response` is a violation because it decomposes the established compound `response body` into separate elements.
 
 When a symbol that is exempt from modification, or that is marked as "abbreviated" in the abbreviation registry, directly precedes a noun (singular or plural) — or a term from the list of established technical compound terms — that names a domain-specific category, and the symbol specifies the noun — narrowing it to a particular type, format, protocol, channel, platform, or variant within that category — the combination is automatically treated as an atomic compound. Examples: "PreToolUse hook" (PreToolUse specifies a type of hook), "HTTP request" (HTTP specifies a protocol of request), "JSON body" (JSON specifies a format of body), "systemMessage output" (systemMessage specifies a channel of output), "Docker container" (Docker specifies a platform of container). The symbol must be functioning as a technical identifier, not as a common English word that happens to coincide with a symbol name. These automatically recognised atomic compounds do not require individual entries in the list because the set of such pairings is open-ended. They inherit all obligations of listed atomic compounds: the boundary rule applies in full when such a compound precedes a further noun, and the compound must never be broken apart during restructuring.
+
+Forcing function for the abbreviation rule and the auto-atomic-compound recognition (applicable when composing a high-stakes output, as defined at the top of this document): when a symbol that is registry-marked 'abbreviated' or exempt from modification appears in your text, run the following checks before emitting the surrounding phrase, regardless of whether the registry's permission for the symbol has been established:
+
+1. does the symbol immediately precede a noun (or an established technical compound term)?
+2. does the symbol specify that noun — narrowing it to a particular type, format, protocol, channel, platform, or variant?
+3. if both (1) and (2) hold, the symbol and the noun form an automatically recognised atomic compound. Treat the resulting compound as a unit.
+4. does the resulting atomic compound precede a further noun?
+5. if (4) holds, the boundary rule applies in full: a relational connector is required between the atomic compound and the further noun, and restructuring is mandatory.
+
+A positive answer at (1) and (2) is not a verdict on the surrounding phrase; it is a precondition for (4)–(5). Stopping after 'the symbol is permitted by the registry' without running (1)–(5) is a violation regardless of whether the resulting text happens to be compliant.
 
 When a possessive element must also be expressed — identifying the possessor — a leading noun prefix is not sufficient: process_number_of_bytes_of_resident_set_size is ambiguous because 'process' as a leading noun does not make its relationship to the rest of the name explicit. The correct form is number_of_bytes_of_resident_set_size_of_process, where three instances of 'of' each bind one element unambiguously to the next — 'the number of bytes of the resident set size of the process' — and not one connector can be removed without reintroducing ambiguity.
 
@@ -134,6 +167,25 @@ Worked example — correcting the prose phrase 'bare ``cd`` invocations' in a do
 - iteration 3 (fully descriptive naming requirement): 'bare' is jargon whose meaning depends on context. It must be replaced with an explicit description: 'not wrapped in a subshell'.
 - iteration 4 (fully descriptive naming requirement): 'invocations' may not accurately describe what is being detected — 'commands' is more precise for a string scanner.
 - final result: '``cd`` (change-to-directory) commands not wrapped in a subshell'.
+
+Worked example — composing 'intent ascent for commit messages' from the candidate 'commit-message intent ascent':
+
+- iteration 1 (connector rule, bracketing): [commit-message] [intent] [ascent].
+- iteration 2 (connector rule, leading modifiers): 'commit-message' (hyphenated compound, treated as adjective) on 'intent'; 'intent' (classifying noun) on 'ascent'.
+- iteration 3 (terminal-element check for 'intent'): 'intent' immediately precedes 'ascent'; 'ascent' is the terminal element of the phrase. Outcome (i): terminal-element exception applies; 'intent' is discharged.
+- iteration 4 (terminal-element check for 'commit-message'): 'commit-message' immediately precedes 'intent'; 'intent' is not terminal ('ascent' follows); 'intent' is not followed by a relational connector. Outcome (iii): restructuring required.
+- iteration 5 (selection of a relational connector): the relationship between 'commit-message' and 'intent ascent' is purpose. 'for' denotes purpose. Insert 'for' after the head noun: 'intent ascent for commit messages'.
+- iteration 6 (re-derivation): bracket as [intent] [ascent] [for] [commit messages]. 'intent' precedes 'ascent'; 'ascent' is followed by 'for' (relational connector); connector-follows exception applies for 'intent'. 'commit' precedes 'messages'; 'messages' is terminal in the prepositional phrase; terminal-element exception applies for 'commit'.
+- final result: 'intent ascent for commit messages'.
+
+Worked example — composing 'titles inside diff viewers' from the candidate 'diff viewer titles':
+
+- iteration 1 (abbreviation rule): 'diff' is registry-marked 'abbreviated' for prose. This is a precondition — do not stop here.
+- iteration 2 (auto-atomic-compound recognition): 'diff' immediately precedes 'viewer' and specifies a variant of 'viewer' (a viewer of diffs). 'diff viewer' is therefore an automatically recognised atomic compound.
+- iteration 3 (boundary rule): the atomic compound 'diff viewer' precedes a further noun, 'titles'. The boundary rule requires a relational connector between them. The candidate violates the boundary rule.
+- iteration 4 (selection of a relational connector): evaluate candidates. 'inside' denotes interior spatial containment; 'in' denotes general containment without the spatial-interior emphasis; 'inside' is more precise for the relationship between titles and the viewer's display area. Insert 'inside': 'titles inside diff viewers'.
+- iteration 5 (re-derivation): bracket as [titles] [inside] [diff viewers]. 'titles' is the head; 'inside' is the relational connector at the boundary; 'diff viewers' is the atomic compound. The boundary rule is satisfied.
+- final result: 'titles inside diff viewers'.
 
 REQUIREMENTS FOR MODULE NAMING
 
